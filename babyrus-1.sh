@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Database files
-EBOOKS_DB="ebooks.db"  # Format: "path\x1Etag1,tag2,..."
+EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
 TAGS_DB="tags.db"      # Format: "tag"
 
 # Ensure databases exist
