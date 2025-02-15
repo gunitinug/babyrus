@@ -410,12 +410,13 @@ search_tags() {
 
 #########################################################################################
 # TODO:
-# - testing of new code not done.
-# - fix whip menu items not in pairs.
+# - testing of new code not done. [fixed]
+# - fix whip menu items not in pairs. [fixed]
 # - view all registered tags.
 # - delete tag from global list.
 # - deassociate tag from a registered ebook.
 # - list registered ebooks and when chosen open the file with external application.
+# - aesthetics.
 # - construct main menu. [fixed]
 #########################################################################################
 
