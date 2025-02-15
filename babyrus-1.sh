@@ -273,6 +273,7 @@ register_ebook() {
 
 # debug
 #register_ebook
+#exit
 
 # Need to register a tag in order to associate to ebook.
 register_tag() {
@@ -296,6 +297,21 @@ register_tag() {
     done
 }
 
+# pairs for whiptail's menu items.
+make_into_pairs() {
+    local arg
+    local pairs=()
+    # Build pairs like "arg\x1Eitem"
+    for arg in "$@"; do
+        pairs+=("${arg}"$'\x1E'"[item]")
+    done
+    # Join all pairs with \x1E between them
+    (IFS=$'\x1E'; echo "${pairs[*]}")
+}
+
+# debug
+#exit
+
 associate_tag() {
     # Get list of ebooks
     mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
@@ -303,14 +319,17 @@ associate_tag() {
         whiptail --msgbox "No ebooks registered!" 8 40
         return
     fi
-    
+
+    # convert ebooks array into whiptail friendly format.
+    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${ebooks[@]}")
+
     # Select ebook
-    ebook=$(whiptail --menu "Choose an ebook:" 20 60 10 \
-        "${ebooks[@]}" 3>&1 1>&2 2>&3)
+    ebook=$(whiptail --menu "Choose an ebook:" 20 170 10 \
+        "${ebooks_whip[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
     if [[ $? -ne 0 ]]; then return; fi
     
     # Get existing tags for the ebook
-    existing_tags=$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")
+    existing_tags="$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")"
     
     # Get list of all tags
     mapfile -t tags < <(cat "$TAGS_DB")
@@ -319,9 +338,12 @@ associate_tag() {
         return
     fi
     
+    # convert tags array into whiptail friendly format.
+    mapfile -d $'\x1e' -t tags_whip < <(make_into_pairs "${tags[@]}")
+
     # Select tag
-    tag=$(whiptail --menu "Choose a tag:" 20 60 10 \
-        "${tags[@]}" 3>&1 1>&2 2>&3)
+    tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
+        "${tags_whip[@]}" 3>&1 1>&2 2>&3)					# again here menu items must come in pairs!
     if [[ $? -ne 0 ]]; then return; fi
 
     # Escape special regex characters in $tag
@@ -363,16 +385,19 @@ search_tags() {
         return
     fi
     
+    # convert matching_tags array into whiptail friendly format.
+    mapfile -d $'\x1e' -t matching_tags_whip < <(make_into_pairs "${matching_tags[@]}")
+
     # Select tag
-    tag=$(whiptail --menu "Choose a tag:" 20 60 10 \
-        "${matching_tags[@]}" 3>&1 1>&2 2>&3)
+    tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
+        "${matching_tags_whip[@]}" 3>&1 1>&2 2>&3)		# menu items must come in pairs!!!!
     if [[ $? -ne 0 ]]; then return; fi
     
     # Find ebooks with this tag
     # First, escape regex metacharacters in $tag
     escaped_tag=$(sed 's/[.[\*^$(){}+?|]/\\&/g' <<< "$tag")
     # Use the escaped version in grep
-    result="$(grep "|.*${escaped_tag}(,|$)" "$EBOOKS_DB")"
+    result="$(grep -E "\|.*${escaped_tag}(,|$)" "$EBOOKS_DB")"
 
     if [[ -z "$result" ]]; then
         whiptail --msgbox "No ebooks found with this tag!" 8 40
@@ -386,6 +411,30 @@ search_tags() {
 #########################################################################################
 # TODO:
 # - testing of new code not done.
+# - fix whip menu items not in pairs.
+# - view all registered tags.
+# - delete tag from global list.
+# - deassociate tag from a registered ebook.
 # - list registered ebooks and when chosen open the file with external application.
-# - construct main menu.
+# - construct main menu. [fixed]
 #########################################################################################
+
+while true; do
+    choice=$(whiptail --title "BABYRUS v.1" --menu "Main Menu" 25 50 10 \
+	"1" "Register eBook" \
+        "2" "Register Tag" \
+        "3" "Associate Tag with eBook" \
+        "4" "View All eBooks" \
+        "5" "Search by eBook by Tag" \
+        "6" "Exit" 3>&1 1>&2 2>&3)
+    
+    case $choice in
+	1) register_ebook ;;
+        2) register_tag ;;
+        3) associate_tag ;;
+        4) view_ebooks ;;
+        5) search_tags ;;
+        6) exit 0 ;;
+        *) exit 1 ;;
+    esac
+done
