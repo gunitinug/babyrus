@@ -191,7 +191,7 @@ generate_trunc() {
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
 # - WHAT IF file name contains | character?
-# - paginate if file list too long.
+# - paginate if file list too long. [fixed]
 #############################################################################
 
 paginate() {
@@ -684,8 +684,8 @@ remove_registered_ebook() {
 #	- i think if there is a registered book already associated with that tag we should prevent deletion
 #	of that tag from global list until that book is deassociated.
 # - deassociate tag from a registered ebook. [fixed]
-# - list registered ebooks and when chosen open the file with external application.
-# - delete registered ebook (ie. remove from $EBOOKS_DB).
+# - list registered ebooks and when chosen open the file with external application. show ebooks' tags too.
+# - delete registered ebook (ie. remove from $EBOOKS_DB). [fixed]
 # - aesthetics.
 # - construct main menu. [fixed]
 #############################################################################################################################
