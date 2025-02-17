@@ -190,6 +190,7 @@ generate_trunc() {
 # - modify truncation logic for dirname and basename. [fixed]
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
+# - WHAT IF file name contains | character?
 #############################################################################
 
 register_ebook() {
@@ -373,6 +374,10 @@ view_ebooks() {
     whiptail --textbox "$EBOOKS_DB" 20 60
 }
 
+view_tags() {
+    whiptail --textbox "$TAGS_DB" 20 60
+}
+
 search_tags() {
     # Get search term
     search=$(whiptail --inputbox "Enter tag search string:" 8 40 3>&1 1>&2 2>&3)
@@ -408,17 +413,152 @@ search_tags() {
     fi
 }
 
-#########################################################################################
+dissociate_tag_from_registered_ebook() {
+    # Check if ebooks database exists
+    [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found!" 8 40 && return 1
+
+    # Read ebooks database into array
+    local ebooks_list=()
+    mapfile -t ebooks_list < "$EBOOKS_DB"
+
+    # Check for empty database
+    [[ ${#ebooks_list[@]} -eq 0 ]] && whiptail --msgbox "No registered ebooks!" 8 40 && return 0
+
+    # Create menu items array
+    local menu_items=()
+    for entry in "${ebooks_list[@]}"; do
+        IFS='|' read -r path tags <<< "$entry"
+        menu_items+=("$path" "[$tags]")
+    done
+
+    # First selection: Choose ebook
+    local selected_ebook
+    selected_ebook=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
+        20 80 0 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 0  # User canceled
+
+    # Find the selected entry
+    local original_entry tags_array
+    for entry in "${ebooks_list[@]}"; do
+        if [[ "$entry" == "${selected_ebook}|"* ]]; then
+            IFS='|' read -r original_path original_tags <<< "$entry"
+            break
+        fi
+    done
+
+    # Split tags into array
+    IFS=',' read -ra tags_array <<< "$original_tags"
+
+    # Check if there are tags to remove
+    [[ ${#tags_array[@]} -eq 0 ]] && whiptail --msgbox "No tags associated with this eBook!" 8 40 && return 0
+
+    # Create tag selection menu
+    local tag_menu_items=()
+    for tag in "${tags_array[@]}"; do
+        tag_menu_items+=("$tag" " ")
+    done
+
+    # Second selection: Choose tag to remove
+    local selected_tag
+    selected_tag=$(whiptail --title "Remove Tag from eBook" --menu "Choose tag to remove:" \
+        15 60 0 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 0  # User canceled
+
+    # Confirm removal
+    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 10 60 || return 0
+
+    # Process tag removal
+    local new_tags=()
+    for tag in "${tags_array[@]}"; do
+        [[ "$tag" != "$selected_tag" ]] && new_tags+=("$tag")
+    done
+
+    # Update the entry
+    local updated_entry="${original_path}|"
+    if [[ ${#new_tags[@]} -gt 0 ]]; then
+        updated_entry+="$(IFS=','; echo "${new_tags[*]}")"
+    fi
+
+    # Create temporary file
+    local temp_file
+    temp_file=$(mktemp)
+    
+    # Update the database
+    for entry in "${ebooks_list[@]}"; do
+        if [[ "$entry" == "${selected_ebook}|"* ]]; then
+            echo "$updated_entry" >> "$temp_file"
+        else
+            echo "$entry" >> "$temp_file"
+        fi
+    done
+
+    mv -f "$temp_file" "$EBOOKS_DB"
+    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 8 40
+}
+
+delete_tag_from_global_list() {
+    # Check dependencies
+    [[ ! -f "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found!" 8 40 && return 1
+    [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found!" 8 40 && return 1
+
+    # Read tags database
+    local tags_list=()
+    mapfile -t tags_list < "$TAGS_DB"
+    [[ ${#tags_list[@]} -eq 0 ]] && whiptail --msgbox "No tags available!" 8 40 && return 0
+
+    # Create menu items
+    local menu_items=()
+    for tag in "${tags_list[@]}"; do
+        menu_items+=("$tag" " ")
+    done
+
+    # Tag selection
+    local selected_tag
+    selected_tag=$(whiptail --title "Delete Global Tag" --menu "Choose tag to delete:" \
+        15 60 0 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 0  # User canceled
+
+    # Check for tag usage in ebooks
+    local used_in=()
+    while IFS='|' read -r path tags; do
+        IFS=',' read -ra etags <<< "$tags"
+        for tag in "${etags[@]}"; do
+            [[ "$tag" == "$selected_tag" ]] && used_in+=("$path") && break
+        done
+    done < "$EBOOKS_DB"
+
+    # If tag is still in use
+    if [[ ${#used_in[@]} -gt 0 ]]; then
+        local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
+        message+=$(printf '%s\n' "${used_in[@]}")
+        message+="\n\nDissociate tag first!"
+        whiptail --msgbox "$message" 20 60
+        return 1
+    fi
+
+    # Final confirmation
+    whiptail --yesno "Permanently delete tag:\n'$selected_tag'?" 10 40 || return 0
+
+    # Delete from tags database
+    grep -Fx -v -- "$selected_tag" "$TAGS_DB" > "$TAGS_DB.tmp" && mv -f "$TAGS_DB.tmp" "$TAGS_DB"
+    whiptail --msgbox "Tag '$selected_tag' deleted successfully!" 8 40
+}
+
+#############################################################################################################################
 # TODO:
 # - testing of new code not done. [fixed]
 # - fix whip menu items not in pairs. [fixed]
-# - view all registered tags.
+# - view all registered tags. [fixed]
 # - delete tag from global list.
+# - if a tag is deleted from global list what to do with ebook entry that has that tag?
+#	- i think if there is a registered book already associated with that tag we should prevent deletion
+#	of that tag from global list until that book is deassociated.
 # - deassociate tag from a registered ebook.
 # - list registered ebooks and when chosen open the file with external application.
+# - delete registered ebook (ie. remove from $EBOOKS_DB).
 # - aesthetics.
 # - construct main menu. [fixed]
-#########################################################################################
+#############################################################################################################################
 
 while true; do
     choice=$(whiptail --title "BABYRUS v.1" --menu "Main Menu" 25 50 10 \
@@ -426,16 +566,22 @@ while true; do
         "2" "Register Tag" \
         "3" "Associate Tag with eBook" \
         "4" "View All eBooks" \
-        "5" "Search by eBook by Tag" \
-        "6" "Exit" 3>&1 1>&2 2>&3)
+	"5" "View All Tags" \
+        "6" "Search by eBook by Tag" \
+	"7" "Dissociate Tag from Registered eBook" \
+	"8" "Delete Tag From Global List" \
+        "9" "Exit" 3>&1 1>&2 2>&3)
     
     case $choice in
 	1) register_ebook ;;
         2) register_tag ;;
         3) associate_tag ;;
         4) view_ebooks ;;
-        5) search_tags ;;
-        6) exit 0 ;;
+	5) view_tags ;;
+        6) search_tags ;;
+	7) dissociate_tag_from_registered_ebook ;;
+	8) delete_tag_from_global_list ;;
+        9) exit 0 ;;
         *) exit 1 ;;
     esac
 done
