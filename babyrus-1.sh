@@ -191,7 +191,76 @@ generate_trunc() {
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
 # - WHAT IF file name contains | character?
+# - paginate if file list too long.
 #############################################################################
+
+paginate() {
+    local chunk_size=200
+    # Populate array 'trunc' with all the passed arguments
+    local trunc=("$@")
+    
+    # Calculate total pages (rounding up for any remainder)
+    local total_pages=$(( (${#trunc[@]} + chunk_size - 1) / chunk_size ))
+    local current_page=0
+    local choice=""
+    
+    while true; do
+        # Determine start index for current page
+        local start=$(( current_page * chunk_size ))
+        
+        # Extract current chunk of items
+        local current_chunk=("${trunc[@]:$start:$chunk_size}")
+        
+        # Build navigation options
+        local menu_options=()
+        
+        # Add "previous page" if not on the first page
+        if (( current_page > 0 )); then
+            menu_options+=("previous page" " ")
+        fi
+        
+        # Add "next page" if not on the last page
+        if (( current_page < total_pages - 1 )); then
+            menu_options+=("next page" " ")
+        fi
+        
+        # Append the items for the current page
+        menu_options+=("${current_chunk[@]}")
+        
+        # Display the whiptail menu
+        choice=$(whiptail --title "Paged Menu" \
+            --menu "Choose an item (Page $((current_page + 1))/$total_pages)" \
+            20 170 10 \
+            "${menu_options[@]}" \
+            3>&1 1>&2 2>&3)
+        
+        # If the user cancels or presses Esc, exit the loop
+        if [ $? -ne 0 ]; then
+            break
+        fi
+        
+        # Process the user's selection
+        case "$choice" in
+            "previous page")
+                (( current_page-- ))
+                ;;
+            "next page")
+                (( current_page++ ))
+                ;;
+            *)
+                # If an actual item was selected, exit the loop
+                break
+                ;;
+        esac
+    done
+    
+    # Output the final choice
+    echo "$choice"
+}
+
+# Example usage:
+# result=$(paginate "Item 1" "Item 2" "Item 3" "Item 4" "Item 5")
+# echo "Selected: $result"
 
 register_ebook() {
     # Get search string for files
@@ -241,11 +310,23 @@ register_ebook() {
     echo "trunc: " "${trunc[@]}" >&2
     echo "trunc length: " "${#trunc[*]}" >&2
 
-    # Select file
-    selected_trunc=$(whiptail --title "Select Ebook" --menu "Choose file:" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    selected_trunc="$(paginate "${trunc[@]}")"
+    # debug
+    echo selected_trunc:
+    echo "$selected_trunc"
+    #exit
 
-    # If selecting ebook is cancelled
-    [ $? -ne 0 ] && return
+    # If cancelled by user
+    if [ -z "$selected_trunc" ]; then
+        whiptail --title "Register ebook canceled" --msgbox "Canceled by user." 8 45
+        return 1  # Exit the function.
+    fi
+
+    # Select file (OLD just for ref)
+    #selected_trunc=$(whiptail --title "Select Ebook" --menu "Choose file:" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+
+    # If selecting ebook is cancelled (OLD just for ref)
+    #[ $? -ne 0 ] && return
 
     local n="$(echo "$selected_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -304,7 +385,7 @@ make_into_pairs() {
     local pairs=()
     # Build pairs like "arg\x1Eitem"
     for arg in "$@"; do
-        pairs+=("${arg}"$'\x1E'"[item]")
+        pairs+=("${arg}"$'\x1E'" ")
     done
     # Join all pairs with \x1E between them
     (IFS=$'\x1E'; echo "${pairs[*]}")
@@ -544,16 +625,65 @@ delete_tag_from_global_list() {
     whiptail --msgbox "Tag '$selected_tag' deleted successfully!" 8 40
 }
 
+remove_registered_ebook() {
+    # Check if database file exists
+    if [[ ! -f "$EBOOKS_DB" ]]; then
+        whiptail --title "Error" --msgbox "Ebooks database not found!" 10 60
+        return 1
+    fi
+
+    # Read database entries into array
+    mapfile -t entries < "$EBOOKS_DB"
+
+    # Check for empty database
+    if [[ ${#entries[@]} -eq 0 ]]; then
+        whiptail --title "Error" --msgbox "The ebooks database is empty!" 10 60
+        return 1
+    fi
+
+    # Prepare menu items array for whiptail
+    local menu_items=()
+    for entry in "${entries[@]}"; do
+        IFS='|' read -r path tags <<< "$entry"
+        menu_items+=("$path" "T:${tags}")
+    done
+
+    # Show selection dialog
+    local selected_path
+    selected_path=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
+        "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
+
+    # Show confirmation dialog
+    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 10 60 \
+        --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
+
+    # Proceed with removal if confirmed
+    if [ $? -eq 0 ]; then
+        # Create temporary file
+        local temp_file
+        temp_file=$(mktemp)
+
+        # Remove entry and preserve other entries
+        awk -v path="$selected_path" -F'|' '$1 != path' "$EBOOKS_DB" > "$temp_file"
+        mv "$temp_file" "$EBOOKS_DB"
+
+        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 10 60
+    fi
+}
+
 #############################################################################################################################
 # TODO:
 # - testing of new code not done. [fixed]
 # - fix whip menu items not in pairs. [fixed]
 # - view all registered tags. [fixed]
-# - delete tag from global list.
-# - if a tag is deleted from global list what to do with ebook entry that has that tag?
+# - delete tag from global list. [fixed]
+# - if a tag is deleted from global list what to do with ebook entry that has that tag? [fixed]
 #	- i think if there is a registered book already associated with that tag we should prevent deletion
 #	of that tag from global list until that book is deassociated.
-# - deassociate tag from a registered ebook.
+# - deassociate tag from a registered ebook. [fixed]
 # - list registered ebooks and when chosen open the file with external application.
 # - delete registered ebook (ie. remove from $EBOOKS_DB).
 # - aesthetics.
@@ -570,7 +700,8 @@ while true; do
         "6" "Search by eBook by Tag" \
 	"7" "Dissociate Tag from Registered eBook" \
 	"8" "Delete Tag From Global List" \
-        "9" "Exit" 3>&1 1>&2 2>&3)
+	"9" "Remove Registered eBook" \
+        "10" "Exit" 3>&1 1>&2 2>&3)
     
     case $choice in
 	1) register_ebook ;;
@@ -581,7 +712,8 @@ while true; do
         6) search_tags ;;
 	7) dissociate_tag_from_registered_ebook ;;
 	8) delete_tag_from_global_list ;;
-        9) exit 0 ;;
+	9) remove_registered_ebook ;;
+        10) exit 0 ;;
         *) exit 1 ;;
     esac
 done
