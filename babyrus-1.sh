@@ -312,8 +312,8 @@ register_ebook() {
 
     selected_trunc="$(paginate "${trunc[@]}")"
     # debug
-    echo selected_trunc:
-    echo "$selected_trunc"
+    echo selected_trunc: >&2
+    echo "$selected_trunc" >&2
     #exit
 
     # If cancelled by user
