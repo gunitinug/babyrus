@@ -273,18 +273,20 @@ check_illegal_filenames() {
     # Iterate over basenames (every second element starting from index 1)
     for ((i=1; i < ${#parts[@]}; i += 2)); do
         local basename="${parts[i]}"
-        # Check if the basename starts with '-'
-        if [[ "$basename" == -* ]]; then
+
+        # Illegal file name logic here.
+        if [[ "$basename" == -* || "$basename" == *"|"* ]]; then
             illegal_files+=("$basename")
         fi
     done
     # Output results and return appropriate exit code
     if [[ ${#illegal_files[@]} -gt 0 ]]; then
         # Build the message
-        msg="Error: Illegal filenames starting with '-' found:\n"
+        msg="Error: Illegal filenames found:\n"
         for file in "${illegal_files[@]}"; do
             msg+="  ${file}\n"
         done
+        msg+="\nConsider renaming the files and retry.\n"
         
         # Display the message using whiptail
         whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 60
@@ -319,7 +321,7 @@ register_ebook() {
     run_find="$(find "$search_path" -type f -iname "*$search*" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)"
     run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter.
 
-    # Detect illegal file names starting with '-' character. 
+    # Detect illegal file names.
     # If detected, return from this function.
     check_illegal_filenames "$run_find" || return
 
