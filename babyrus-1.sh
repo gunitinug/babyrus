@@ -199,6 +199,30 @@ generate_trunc_delete_ebook() {
         done < <(split_second_print "$@")
 }
 
+generate_trunc_assoc_tag() {
+        local counter=1
+        local path space dir file
+        local truncated_dir truncated_file
+
+        while IFS= read -r -d $'\x1f' group; do
+            # Skip empty groups (e.g., from trailing separator)
+            [[ -z "$group" ]] && continue
+
+            # Split group into fields using \x1E as delimiter
+            IFS=$'\x1e' read -r path space _ <<< "$group"
+
+            dir="$(dirname "$path")"
+            file="$(basename "$path")"
+
+            # Truncate
+            truncated_dir="$(truncate_dirname "$dir" 35)"
+            truncated_file="$(truncate_filename "$file" 65)"
+
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" " "
+            ((counter++))
+        done < <(split_second_print "$@")
+}
+
 # debug
 #a="$(printf 'a%.0s' {1..55})"
 #b="$(printf 'b%.0s' {1..55})"
@@ -465,11 +489,26 @@ associate_tag() {
     # convert ebooks array into whiptail friendly format.
     mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${ebooks[@]}")
 
+    # Truncate ebooks_whip because of possible long file names.
+    local trunc
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
+
     # Select ebook
-    ebook=$(whiptail --menu "Choose an ebook:" 20 170 10 \
-        "${ebooks_whip[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
+    ebook_trunc=$(whiptail --menu "Choose an ebook:" 20 170 10 \
+        "${trunc[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
     if [[ $? -ne 0 ]]; then return; fi
-    
+
+    local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
+    local m=$((2 * n - 1))
+
+    # debug
+    echo "selected_trunc: " "$selected_trunc" >&2
+    echo "n: " "$n" >&2
+    echo "m: " "$m" >&2
+
+    # Remember we want ebooks_whip[m-1].
+    ebook="${ebooks_whip[$((m - 1))]}"
+
     # Get existing tags for the ebook
     existing_tags="$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")"
     
