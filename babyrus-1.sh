@@ -87,10 +87,10 @@ split_second_print() {
 	    # Increment the counter
 	    ((counter++))
 	    
-	    # Print the element followed by null character (without a newline)
+	    # Print the element followed by \x1e character
 	    printf "%s\x1E" "$element"
 	    
-	    # After every second element, print a newline
+	    # After every second element, print \x1f character
 	    if (( counter % 2 == 0 )); then
 	        printf "\x1F"
 	    fi
@@ -107,7 +107,7 @@ split_second_print() {
 # preserves the file extension.
 truncate_filename() {
     local filename="$1"
-    local max_length=85
+    local max_length="${2:-85}" # defaults to 85
 
     # Extract filename and extension
     local name="${filename%.*}"
@@ -135,7 +135,7 @@ truncate_filename() {
 # "/this/is/a/very/long/path" to "/this/is/a/.../long/path"
 truncate_dirname() {
     local dir="$1"
-    local max_length=50  # Ensures final string is ≤ 50 chars
+    local max_length="${2:-50}" # defaults to 50
 
     if [[ ${#dir} -le $max_length ]]; then
         echo "$dir"
@@ -173,6 +173,30 @@ generate_trunc() {
             printf "%s:%s\x1E%s\x1E" "$counter" "$truncated_path" "$truncated_filename"
             ((counter++))
 	done < <(split_second_print "$@")
+}
+
+generate_trunc_delete_ebook() {
+	local counter=1
+	local path tags dir file
+	local truncated_dir truncated_file
+
+        while IFS= read -r -d $'\x1f' group; do
+            # Skip empty groups (e.g., from trailing separator)
+            [[ -z "$group" ]] && continue
+
+            # Split group into fields using \x1E as delimiter
+            IFS=$'\x1e' read -r path tags _ <<< "$group"
+
+	    dir="$(dirname "$path")"
+	    file="$(basename "$path")"
+
+	    # Truncate
+	    truncated_dir="$(truncate_dirname "$dir" 35)"
+	    truncated_file="$(truncate_filename "$file" 65)"
+
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "${tags}"
+            ((counter++))
+        done < <(split_second_print "$@")
 }
 
 # debug
@@ -486,8 +510,22 @@ associate_tag() {
     whiptail --msgbox "Tag '$tag' added to '$ebook!'" 8 40
 }
 
+generate_ebooks_list() {
+    local counter=1
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines if desired
+        [[ -z "$line" ]] && continue
+        echo "${counter}:${line}"
+        ((counter++))
+    done < "$EBOOKS_DB"
+}
+
 view_ebooks() {
-    whiptail --textbox "$EBOOKS_DB" 20 60
+    local tmpfile
+    tmpfile=$(mktemp)
+    generate_ebooks_list > "$tmpfile"
+    whiptail --textbox "$tmpfile" 20 60
+    rm -f "$tmpfile"
 }
 
 view_tags() {
@@ -683,16 +721,31 @@ remove_registered_ebook() {
         menu_items+=("$path" "T:${tags}")
     done
 
+    # Truncate menu_items because of possible long file names.
+    local trunc
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_delete_ebook "${menu_items[@]}" | sed 's/\x1E$//')
+
     # Show selection dialog
-    local selected_path
-    selected_path=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
-        "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    local selected_path selected_trunc
+    selected_trunc=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
+        "${trunc[@]}" 3>&1 1>&2 2>&3)
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
 
+    local n="$(echo "$selected_trunc" | cut -d':' -f1)"
+    local m=$((2 * n - 1))
+
+    # debug
+    echo "selected_trunc: " "$selected_trunc" >&2
+    echo "n: " "$n" >&2
+    echo "m: " "$m" >&2
+
+    # Remember we want menu_items[m-1].
+    selected_path="${menu_items[$((m - 1))]}"
+
     # Show confirmation dialog
-    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 10 60 \
+    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 80 \
         --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
 
     # Proceed with removal if confirmed
@@ -705,7 +758,7 @@ remove_registered_ebook() {
         awk -v path="$selected_path" -F'|' '$1 != path' "$EBOOKS_DB" > "$temp_file"
         mv "$temp_file" "$EBOOKS_DB"
 
-        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 10 60
+        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 20 80
     fi
 }
 
@@ -730,8 +783,8 @@ while true; do
 	"1" "Register eBook" \
         "2" "Register Tag" \
         "3" "Associate Tag with eBook" \
-        "4" "View All eBooks" \
-	"5" "View All Tags" \
+        "4" "View All Registered eBooks" \
+	"5" "View All Registered Tags" \
         "6" "Search by eBook by Tag" \
 	"7" "Dissociate Tag from Registered eBook" \
 	"8" "Delete Tag From Global List" \
