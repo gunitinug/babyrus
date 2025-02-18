@@ -190,7 +190,7 @@ generate_trunc() {
 # - modify truncation logic for dirname and basename. [fixed]
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
-# - WHAT IF file name contains | character?
+# - WHAT IF file name contains | character? [fixed]
 # - if file starts with - eg. '- test file -.txt' then program breaks. [fixed]
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
