@@ -183,7 +183,7 @@ generate_trunc() {
 #echo generate_trunc: >&2
 #generate_trunc "${test_arr[@]}" | cat -v >&2
 
-#############################################################################
+################################################################################
 # NEED FIX!!!
 # - the code breaks if there is no match in find [fixed]
 # - handle cases where cancel is selected from whiptail menu [fixed]
@@ -191,10 +191,10 @@ generate_trunc() {
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
 # - WHAT IF file name contains | character?
-# - if file starts with - eg. '- test file -.txt' then program breaks.
+# - if file starts with - eg. '- test file -.txt' then program breaks. [fixed]
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
-#############################################################################
+################################################################################
 
 paginate() {
     local chunk_size=200
