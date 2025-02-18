@@ -218,6 +218,7 @@ generate_trunc_delete_ebook() {
 # - if file starts with - eg. '- test file -.txt' then program breaks. [fixed]
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
+# - remove verbose.
 ################################################################################
 
 paginate() {
@@ -776,6 +777,7 @@ remove_registered_ebook() {
 # - delete registered ebook (ie. remove from $EBOOKS_DB). [fixed]
 # - aesthetics.
 # - construct main menu. [fixed]
+# - when associate tag truncate output to fit in screen.
 #############################################################################################################################
 
 while true; do
