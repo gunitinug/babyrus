@@ -245,6 +245,7 @@ generate_trunc_assoc_tag() {
 # - remove verbose.
 # - assoc tag: added msg box too small
 # - dissoc tag: trunc needed here too! confirm msg box too small.
+# - URGENT: it allows adding empty tag. fix urgent!
 ################################################################################
 
 paginate() {
