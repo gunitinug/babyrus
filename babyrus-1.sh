@@ -245,7 +245,7 @@ generate_trunc_assoc_tag() {
 # - remove verbose.
 # - assoc tag: added msg box too small
 # - dissoc tag: trunc needed here too! confirm msg box too small.
-# - URGENT: it allows adding empty tag. fix urgent!
+# - URGENT: it allows adding empty tag. fix urgent! [fixed]
 ################################################################################
 
 paginate() {
@@ -449,6 +449,11 @@ register_tag() {
     while true; do
         tag=$(whiptail --inputbox "Enter new tag name (no commas):" 8 40 3>&1 1>&2 2>&3)
         if [[ $? -ne 0 ]]; then return; fi
+
+        if [[ -z "$tag" ]]; then
+            whiptail --msgbox "Tag name cannot be empty!" 8 40
+            continue
+        fi
         
         if [[ "$tag" == *","* ]]; then
             whiptail --msgbox "Tag name cannot contain commas!" 8 40
