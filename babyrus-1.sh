@@ -191,6 +191,8 @@ generate_trunc() {
 # - list hidden directories as well when navigating. [fixed]
 # - display waiting infobox when operation takes time (such as find) [fixed]
 # - WHAT IF file name contains | character?
+# - if file starts with - eg. '- test file -.txt' then program breaks.
+#	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
 #############################################################################
 
@@ -262,6 +264,36 @@ paginate() {
 # result=$(paginate "Item 1" "Item 2" "Item 3" "Item 4" "Item 5")
 # echo "Selected: $result"
 
+# Store every logic for detecting illegal file names here.
+check_illegal_filenames() {
+    local input="$1"
+    local illegal_files=()
+    # Split the input into an array using the ASCII record separator (0x1E)
+    IFS=$'\x1e' read -ra parts <<< "$input"
+    # Iterate over basenames (every second element starting from index 1)
+    for ((i=1; i < ${#parts[@]}; i += 2)); do
+        local basename="${parts[i]}"
+        # Check if the basename starts with '-'
+        if [[ "$basename" == -* ]]; then
+            illegal_files+=("$basename")
+        fi
+    done
+    # Output results and return appropriate exit code
+    if [[ ${#illegal_files[@]} -gt 0 ]]; then
+        # Build the message
+        msg="Error: Illegal filenames starting with '-' found:\n"
+        for file in "${illegal_files[@]}"; do
+            msg+="  ${file}\n"
+        done
+        
+        # Display the message using whiptail
+        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 60
+        return 1
+    else
+        return 0
+    fi
+}
+
 register_ebook() {
     # Get search string for files
     search=$(whiptail --inputbox "Enter search string to look for ebook files:" 8 40 3>&1 1>&2 2>&3)
@@ -287,8 +319,9 @@ register_ebook() {
     run_find="$(find "$search_path" -type f -iname "*$search*" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)"
     run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter.
 
-    # clear screen, maybe?
-    #clear
+    # Detect illegal file names starting with '-' character. 
+    # If detected, return from this function.
+    check_illegal_filenames "$run_find" || return
 
     # Check if run_find is empty so we can cancel.
     if [ -z "$run_find" ]; then
