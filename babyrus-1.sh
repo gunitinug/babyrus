@@ -824,7 +824,8 @@ remove_registered_ebook() {
 # - delete registered ebook (ie. remove from $EBOOKS_DB). [fixed]
 # - aesthetics.
 # - construct main menu. [fixed]
-# - when associate tag truncate output to fit in screen.
+# - construct sub main menu.
+# - when associate tag truncate output to fit in screen. [fixed]
 #############################################################################################################################
 
 while true; do
