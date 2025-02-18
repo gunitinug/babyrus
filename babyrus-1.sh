@@ -243,6 +243,8 @@ generate_trunc_assoc_tag() {
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
 # - remove verbose.
+# - assoc tag: added msg box too small
+# - dissoc tag: trunc needed here too! confirm msg box too small.
 ################################################################################
 
 paginate() {
