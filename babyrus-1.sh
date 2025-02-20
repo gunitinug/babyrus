@@ -63,7 +63,7 @@ navigate() {
 	[[ "$selected" == ".." ]] && selected_path="$(dirname "$current_path")" || selected_path="$selected"
 
 	# debug
-	echo selected_path: "$selected_path" >&2
+	#echo selected_path: "$selected_path" >&2
 
 	# Choose this item and quit
 	[[ "$selected"  == ":::SELECT:::" ]] && echo "$current_path" && break 
@@ -320,7 +320,8 @@ generate_trunc_dissoc_tag() {
 # - if file starts with - eg. '- test file -.txt' then program breaks. [fixed]
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
-# - remove verbose.
+# - remove verbose. [testing]
+# - truncated tags too! [fixed]
 # - assoc tag: added msg box too small [fixed
 # - dissoc tag: trunc needed here too! confirm msg box too small. [fixed]
 # - URGENT: it allows adding empty tag. fix urgent! [fixed]
@@ -442,8 +443,8 @@ register_ebook() {
     search_path=${search_path:-"$(pwd)"}
     search=${search:-"*"}
     # debug
-    echo "search: " "$search" >&2
-    echo "search_path: " "$search_path" >&2
+    #echo "search: " "$search" >&2
+    #echo "search_path: " "$search_path" >&2
 
     # in operation... message
     in_operation_msg
@@ -464,21 +465,21 @@ register_ebook() {
     IFS=$'\x1E' read -r -a filtered <<< "$run_find"
 
     # debug
-    echo "filtered: " "${filtered[*]}" >&2
-    echo "filtered length: " "${#filtered[*]}" >&2
+    #echo "filtered: " "${filtered[*]}" >&2
+    #echo "filtered length: " "${#filtered[*]}" >&2
 
     # shortened filtered output with line numbers:
     # shorten the dirname if its length is greater than 50.
     mapfile -d $'\x1e' -t trunc < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//')
 
     # debug
-    echo "trunc: " "${trunc[@]}" >&2
-    echo "trunc length: " "${#trunc[*]}" >&2
+    #echo "trunc: " "${trunc[@]}" >&2
+    #echo "trunc length: " "${#trunc[*]}" >&2
 
     selected_trunc="$(paginate "${trunc[@]}")"
     # debug
-    echo selected_trunc: >&2
-    echo "$selected_trunc" >&2
+    #echo selected_trunc: >&2
+    #echo "$selected_trunc" >&2
     #exit
 
     # If cancelled by user
@@ -497,15 +498,15 @@ register_ebook() {
     local m=$((2 * n - 1))
 
     # debug
-    echo "selected_trunc: " "$selected_trunc" >&2
-    echo "n: " "$n" >&2
-    echo "m: " "$m" >&2
+    #echo "selected_trunc: " "$selected_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
 
     # Remember we want filtered[m-1].
     selected="${filtered[$((m - 1))]}"
 
     #debug
-    echo "selected: " "$selected" >&2
+    #echo "selected: " "$selected" >&2
 
     # Check if ebook already exists
     if grep -q "^${selected}|" "$EBOOKS_DB"; then
@@ -588,9 +589,9 @@ associate_tag() {
     local m=$((2 * n - 1))
 
     # debug
-    echo "ebook_trunc: " "$ebook_trunc" >&2
-    echo "n: " "$n" >&2
-    echo "m: " "$m" >&2
+    #echo "ebook_trunc: " "$ebook_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
 
     # Remember we want ebooks_whip[m-1].
     ebook="${ebooks_whip[$((m - 1))]}"
@@ -725,9 +726,9 @@ dissociate_tag_from_registered_ebook() {
     local m=$((2 * n - 1))
 
     # debug
-    echo "selected_ebook_trunc: " "$selected_ebook_trunc" >&2
-    echo "n: " "$n" >&2
-    echo "m: " "$m" >&2
+    #echo "selected_ebook_trunc: " "$selected_ebook_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
 
     # Remember we want menu_items[m-1].
     selected_ebook="${menu_items[$((m - 1))]}"
@@ -878,9 +879,9 @@ remove_registered_ebook() {
     local m=$((2 * n - 1))
 
     # debug
-    echo "selected_trunc: " "$selected_trunc" >&2
-    echo "n: " "$n" >&2
-    echo "m: " "$m" >&2
+    #echo "selected_trunc: " "$selected_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
 
     # Remember we want menu_items[m-1].
     selected_path="${menu_items[$((m - 1))]}"
