@@ -151,6 +151,54 @@ truncate_dirname() {
     fi
 }
 
+truncate_tags() {
+    local input="$1"
+    # Split input into tags, trimming whitespace for each tag
+    local tags=()
+    IFS=',' read -ra parts <<< "$input"
+    for part in "${parts[@]}"; do
+        part=$(echo "$part" | xargs)  # Trim whitespace
+        [[ -n "$part" ]] && tags+=("$part")
+    done
+
+    # Handle empty input
+    (( ${#tags[@]} == 0 )) && { echo ""; return; }
+
+    # Check if already within limit
+    local joined=$(IFS=','; echo "${tags[*]}")
+    if (( ${#joined} <= 65 )); then
+        echo "$joined"
+        return
+    fi
+
+    local last_tag="${tags[-1]}"
+    local n=${#tags[@]}
+    local max_k=-1
+
+    # Find maximum number of leading tags we can keep
+    for ((k=0; k <= n-2; k++)); do
+        local sum=0
+        for ((i=0; i<k; i++)); do
+            ((sum += ${#tags[i]}))
+        done
+        # Calculate total length: sum + 3 (...) + last_tag + commas (k+1)
+        local total=$(( sum + ${#last_tag} + k + 1 + 3 ))
+        (( total <= 65 )) && max_k=$k || break
+    done
+
+    # Build truncated result if possible
+    if (( max_k >= 0 )); then
+        local truncated=("${tags[@]:0:max_k}" "..." "$last_tag")
+        local result=$(IFS=','; echo "${truncated[*]}")
+        echo "$result"
+        return
+    fi
+
+    # Fallback: truncate last tag if needed
+    local max_last_len=$(( 65 - 4 ))  # Reserve space for "...","
+    echo "...,${last_tag:0:$max_last_len}"
+}
+
 generate_trunc() {
 	counter=1
 
@@ -178,7 +226,7 @@ generate_trunc() {
 generate_trunc_delete_ebook() {
 	local counter=1
 	local path tags dir file
-	local truncated_dir truncated_file
+	local truncated_dir truncated_file truncated_tags
 
         while IFS= read -r -d $'\x1f' group; do
             # Skip empty groups (e.g., from trailing separator)
@@ -194,7 +242,10 @@ generate_trunc_delete_ebook() {
 	    truncated_dir="$(truncate_dirname "$dir" 35)"
 	    truncated_file="$(truncate_filename "$file" 65)"
 
-            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "${tags}"
+	    # Truncate tags too!
+	    truncated_tags="$(truncate_tags "$tags")"
+
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "${truncated_tags}"
             ((counter++))
         done < <(split_second_print "$@")
 }
@@ -226,7 +277,7 @@ generate_trunc_assoc_tag() {
 generate_trunc_dissoc_tag() {
         local counter=1
         local path tags dir file
-        local truncated_dir truncated_file
+        local truncated_dir truncated_file truncated_tags
 
         while IFS= read -r -d $'\x1f' group; do
             # Skip empty groups (e.g., from trailing separator)
@@ -242,7 +293,10 @@ generate_trunc_dissoc_tag() {
             truncated_dir="$(truncate_dirname "$dir" 35)"
             truncated_file="$(truncate_filename "$file" 65)"
 
-            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "$tags"
+	    # Truncate tags too!
+	    truncated_tags="$(truncate_tags "$tags")"
+
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "$truncated_tags"
             ((counter++))
         done < <(split_second_print "$@")
 }
