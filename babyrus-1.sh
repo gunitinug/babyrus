@@ -223,6 +223,30 @@ generate_trunc_assoc_tag() {
         done < <(split_second_print "$@")
 }
 
+generate_trunc_dissoc_tag() {
+        local counter=1
+        local path tags dir file
+        local truncated_dir truncated_file
+
+        while IFS= read -r -d $'\x1f' group; do
+            # Skip empty groups (e.g., from trailing separator)
+            [[ -z "$group" ]] && continue
+
+            # Split group into fields using \x1E as delimiter
+            IFS=$'\x1e' read -r path tags _ <<< "$group"
+
+            dir="$(dirname "$path")"
+            file="$(basename "$path")"
+
+            # Truncate
+            truncated_dir="$(truncate_dirname "$dir" 35)"
+            truncated_file="$(truncate_filename "$file" 65)"
+
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "$tags"
+            ((counter++))
+        done < <(split_second_print "$@")
+}
+
 # debug
 #a="$(printf 'a%.0s' {1..55})"
 #b="$(printf 'b%.0s' {1..55})"
@@ -243,8 +267,8 @@ generate_trunc_assoc_tag() {
 #	- maybe ban the name starting with -?
 # - paginate if file list too long. [fixed]
 # - remove verbose.
-# - assoc tag: added msg box too small
-# - dissoc tag: trunc needed here too! confirm msg box too small.
+# - assoc tag: added msg box too small [fixed
+# - dissoc tag: trunc needed here too! confirm msg box too small. [fixed]
 # - URGENT: it allows adding empty tag. fix urgent! [fixed]
 ################################################################################
 
@@ -510,7 +534,7 @@ associate_tag() {
     local m=$((2 * n - 1))
 
     # debug
-    echo "selected_trunc: " "$selected_trunc" >&2
+    echo "ebook_trunc: " "$ebook_trunc" >&2
     echo "n: " "$n" >&2
     echo "m: " "$m" >&2
 
@@ -555,7 +579,7 @@ associate_tag() {
         {print}
     ' "$EBOOKS_DB" > "$tmpfile" && mv "$tmpfile" "$EBOOKS_DB"
     
-    whiptail --msgbox "Tag '$tag' added to '$ebook!'" 8 40
+    whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 80
 }
 
 generate_ebooks_list() {
@@ -572,12 +596,12 @@ view_ebooks() {
     local tmpfile
     tmpfile=$(mktemp)
     generate_ebooks_list > "$tmpfile"
-    whiptail --textbox "$tmpfile" 20 60
+    whiptail --scrolltext --textbox "$tmpfile" 20 60
     rm -f "$tmpfile"
 }
 
 view_tags() {
-    whiptail --textbox "$TAGS_DB" 20 60
+    whiptail --scrolltext --textbox "$TAGS_DB" 20 60
 }
 
 search_tags() {
@@ -630,14 +654,29 @@ dissociate_tag_from_registered_ebook() {
     local menu_items=()
     for entry in "${ebooks_list[@]}"; do
         IFS='|' read -r path tags <<< "$entry"
-        menu_items+=("$path" "[$tags]")
+        menu_items+=("$path" "T:${tags}")
     done
 
+    # Truncate menu_items because of possible long file names.
+    local trunc
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_dissoc_tag "${menu_items[@]}" | sed 's/\x1E$//')
+
     # First selection: Choose ebook
-    local selected_ebook
-    selected_ebook=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
-        20 80 0 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    local selected_ebook_trunc selected_ebook
+    selected_ebook_trunc=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
+        20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && return 0  # User canceled
+
+    local n="$(echo "$selected_ebook_trunc" | cut -d':' -f1)"
+    local m=$((2 * n - 1))
+
+    # debug
+    echo "selected_ebook_trunc: " "$selected_ebook_trunc" >&2
+    echo "n: " "$n" >&2
+    echo "m: " "$m" >&2
+
+    # Remember we want menu_items[m-1].
+    selected_ebook="${menu_items[$((m - 1))]}"
 
     # Find the selected entry
     local original_entry tags_array
@@ -667,7 +706,7 @@ dissociate_tag_from_registered_ebook() {
     [[ $? -ne 0 ]] && return 0  # User canceled
 
     # Confirm removal
-    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 10 60 || return 0
+    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 80 || return 0
 
     # Process tag removal
     local new_tags=()
@@ -695,7 +734,7 @@ dissociate_tag_from_registered_ebook() {
     done
 
     mv -f "$temp_file" "$EBOOKS_DB"
-    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 8 40
+    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 80
 }
 
 delete_tag_from_global_list() {
@@ -734,7 +773,7 @@ delete_tag_from_global_list() {
         local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
         message+=$(printf '%s\n' "${used_in[@]}")
         message+="\n\nDissociate tag first!"
-        whiptail --msgbox "$message" 20 60
+        whiptail --msgbox "$message" 20 80
         return 1
     fi
 
