@@ -7,6 +7,14 @@ TAGS_DB="tags.db"      # Format: "tag"
 # Ensure databases exist
 touch "$EBOOKS_DB" "$TAGS_DB"
 
+declare -A EXTENSION_COMMANDS=(
+    ["txt"]="nano"
+    ["pdf"]="evince"
+    ["epub"]="okular"
+    ["mobi"]="xdg-open"
+    ["azw3"]="xdg-open"
+)
+
 # Function to display the "In operation..." infobox
 in_operation_msg() {
     TERM=ansi whiptail --infobox "In operation..." 8 40 >/dev/tty
@@ -904,6 +912,127 @@ remove_registered_ebook() {
     fi
 }
 
+# Open eBook codes start here:
+
+# Get appropriate open command for file type
+get_open_command() {
+    local file="$1"
+    local extension="${file##*.}"
+    local cmd="${EXTENSION_COMMANDS[$extension]}"
+    
+    [ -z "$cmd" ] && cmd="xdg-open"
+    
+    command -v "$cmd" >/dev/null 2>&1 || {
+        whiptail --msgbox "ERROR: Command '$cmd' not found for $extension files" 10 60
+        return 1
+    }
+    echo "$cmd"
+}
+
+# File opening handler with existence check
+open_file() {
+    local file="$1"
+    
+    if [ ! -f "$file" ]; then
+        whiptail --msgbox "ERROR: File does not exist:\n$file" 20 80
+        return 1
+    fi
+    
+    local open_cmd
+    if ! open_cmd=$(get_open_command "$file"); then
+        return 1
+    fi
+
+    # maybe a good idea to show 'Opening file for you...' for a few seconds
+    TERM=ansi whiptail --infobox "Opening file for you..." 8 40
+    sleep 2
+    
+    $open_cmd "$file" & disown
+}
+
+# Open file by search by filename workflow
+open_file_search_by_filename() {
+    local search_term
+    search_term=$(whiptail --inputbox "Enter filename search term (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
+
+    # defaults to wildcard if empty
+    search_term="${search_term:-*}"
+    
+    local matches=()
+    while IFS= read -r line; do
+        if [[ "$line" == *"|"* ]]; then
+            IFS='|' read -r path tags <<< "$line"
+            filename=$(basename "$path")
+            if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
+                matches+=("$path" " ")
+            fi
+        fi
+    done < "$EBOOKS_DB"
+    
+    [ ${#matches[@]} -eq 0 ] && {
+        whiptail --msgbox "No matches found for: $search_term" 10 60
+        return
+    }
+    
+    local selected=$(whiptail --menu "Select file to open" 20 170 10 "${matches[@]}" 3>&1 1>&2 2>&3)
+
+    [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
+    open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 80
+}
+
+# Open file by search by tag workflow
+open_file_search_by_tag() {
+    local tag_search
+    tag_search=$(whiptail --inputbox "Enter tag search term (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
+
+    tag_search="${tag_search:-*}"
+    
+    # Get matching tags from TAGS_DB
+    local tags=()
+    while IFS= read -r tag; do
+        [[ "$tag_search" == "*" || "${tag,,}" == *"${tag_search,,}"* ]] && tags+=("$tag" " ")
+    done < "$TAGS_DB"
+    
+    [ ${#tags[@]} -eq 0 ] && {
+        whiptail --msgbox "No tags found matching: $tag_search" 10 60
+        return
+    }
+    
+    local selected_tag=$(whiptail --menu "Select tag" 20 170 10 "${tags[@]}" 3>&1 1>&2 2>&3)  # tweak dimensions
+    [ -z "$selected_tag" ] && return
+    
+    # Find files with selected tag
+    local files=()
+    while IFS= read -r line; do
+        if [[ "$line" == *"|"* ]]; then
+            IFS='|' read -r path tags <<< "$line"
+            IFS=',' read -ra tag_array <<< "$tags"
+            for t in "${tag_array[@]}"; do
+                if [ "$t" = "$selected_tag" ]; then
+                    files+=("$path" " ")
+                    break
+                fi
+            done
+        fi
+    done < "$EBOOKS_DB"
+    
+    [ ${#files[@]} -eq 0 ] && {
+        whiptail --msgbox "No files found for tag: $selected_tag" 10 60
+        return
+    }
+    
+    local selected_file=$(whiptail --menu "Select file to open" 20 170 10 "${files[@]}" 3>&1 1>&2 2>&3)
+
+    [ -z "$selected_file" ] && whiptail --msgbox "No file selected." 10 60 && return 1
+    open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
+}
+
 #############################################################################################################################
 # TODO:
 # - testing of new code not done. [fixed]
@@ -923,29 +1052,33 @@ remove_registered_ebook() {
 #############################################################################################################################
 
 while true; do
-    choice=$(whiptail --title "BABYRUS v.1" --menu "Main Menu" 25 50 10 \
+    choice=$(whiptail --title "BABYRUS v.1" --menu "Main Menu" 25 50 12 \
 	"1" "Register eBook" \
         "2" "Register Tag" \
-        "3" "Associate Tag with eBook" \
-        "4" "View All Registered eBooks" \
-	"5" "View All Registered Tags" \
-        "6" "Search by eBook by Tag" \
-	"7" "Dissociate Tag from Registered eBook" \
-	"8" "Delete Tag From Global List" \
-	"9" "Remove Registered eBook" \
-        "10" "Exit" 3>&1 1>&2 2>&3)
+	"3" "Open eBook Search by Filename" \
+	"4" "Open eBook Search by Tag" \
+        "5" "Associate Tag with eBook" \
+        "6" "View All Registered eBooks" \
+	"7" "View All Registered Tags" \
+        "8" "Search by eBook by Tag" \
+	"9" "Dissociate Tag from Registered eBook" \
+	"10" "Delete Tag From Global List" \
+	"11" "Remove Registered eBook" \
+        "12" "Exit" 3>&1 1>&2 2>&3)
     
     case $choice in
 	1) register_ebook ;;
         2) register_tag ;;
-        3) associate_tag ;;
-        4) view_ebooks ;;
-	5) view_tags ;;
-        6) search_tags ;;
-	7) dissociate_tag_from_registered_ebook ;;
-	8) delete_tag_from_global_list ;;
-	9) remove_registered_ebook ;;
-        10) exit 0 ;;
+	3) open_file_search_by_filename ;;
+	4) open_file_search_by_tag ;;
+        5) associate_tag ;;
+        6) view_ebooks ;;
+	7) view_tags ;;
+        8) search_tags ;;
+	9) dissociate_tag_from_registered_ebook ;;
+	10) delete_tag_from_global_list ;;
+	11) remove_registered_ebook ;;
+        12) exit 0 ;;
         *) exit 1 ;;
     esac
 done
