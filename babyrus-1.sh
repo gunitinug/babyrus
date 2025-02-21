@@ -981,7 +981,11 @@ open_file_search_by_filename() {
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
 
-    local selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    local selected_trunc
+    selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
 
     local n="$(echo "$selected_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -1019,9 +1023,14 @@ open_file_search_by_tag() {
         return
     }
     
-    local selected_tag=$(whiptail --menu "Select tag" 20 170 10 "${tags[@]}" 3>&1 1>&2 2>&3)  # tweak dimensions
+    local selected_tag
+    selected_tag=$(whiptail --menu "Select tag" 20 170 10 "${tags[@]}" 3>&1 1>&2 2>&3)  # tweak dimensions
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
+
     [ -z "$selected_tag" ] && return
-    
+
     # Find files with selected tag
     local files=()
     while IFS= read -r line; do
@@ -1041,8 +1050,27 @@ open_file_search_by_tag() {
         whiptail --msgbox "No files found for tag: $selected_tag" 10 60
         return
     }
-    
-    local selected_file=$(whiptail --menu "Select file to open" 20 170 10 "${files[@]}" 3>&1 1>&2 2>&3)
+
+    # Truncate ebooks_whip because of possible long file names.
+    local trunc
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${files[@]}" | sed 's/\x1E$//')
+
+    local selected_file_trunc
+    selected_file_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+
+    # Exit if user canceled
+    [ $? -ne 0 ] && return 1
+
+    local n="$(echo "$selected_file_trunc" | cut -d':' -f1)"
+    local m=$((2 * n - 1))
+
+    # debug
+    #echo "selected_file_trunc: " "$selected_file_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
+
+    # Remember we want files[m-1].
+    selected_file="${files[$((m - 1))]}"
 
     [ -z "$selected_file" ] && whiptail --msgbox "No file selected." 10 60 && return 1
     open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
