@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Check dependencies
-if ! command -v whiptail &> /dev/null; then
-    echo "Error: whiptail is required but not installed" >&2
+if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
+    echo "Error: Both whiptail and wmctrl are required, but at least one is not installed." >&2
     exit 1
 fi
 
