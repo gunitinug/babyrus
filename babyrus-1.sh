@@ -1121,7 +1121,8 @@ while true; do
 	9) dissociate_tag_from_registered_ebook ;;
 	10) delete_tag_from_global_list ;;
 	11) remove_registered_ebook ;;
-        12) exit 0 ;;
-        *) exit 1 ;;
+        12) clear; exit 0 ;;
+        *) clear; exit 1 ;;
     esac
 done
+
