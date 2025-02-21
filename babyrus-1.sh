@@ -2,9 +2,15 @@
 
 # Check dependencies
 if ! command -v whiptail &> /dev/null; then
-    echo "Error: whiptail is required but not installed"
+    echo "Error: whiptail is required but not installed" >&2
     exit 1
 fi
+
+# Maximize the current terminal window
+wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+
+# Allow a brief pause for the window manager to update the window size
+sleep 0.5
 
 # Database files
 EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
