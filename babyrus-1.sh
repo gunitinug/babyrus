@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Check dependencies
+if ! command -v whiptail &> /dev/null; then
+    echo "Error: whiptail is required but not installed"
+    exit 1
+fi
+
 # Database files
 EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
 TAGS_DB="tags.db"      # Format: "tag"
