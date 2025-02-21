@@ -976,8 +976,23 @@ open_file_search_by_filename() {
         whiptail --msgbox "No matches found for: $search_term" 10 60
         return
     }
-    
-    local selected=$(whiptail --menu "Select file to open" 20 170 10 "${matches[@]}" 3>&1 1>&2 2>&3)
+
+    # Truncate ebooks_whip because of possible long file names.
+    local trunc
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
+
+    local selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+
+    local n="$(echo "$selected_trunc" | cut -d':' -f1)"
+    local m=$((2 * n - 1))
+
+    # debug
+    #echo "selected_trunc: " "$selected_trunc" >&2
+    #echo "n: " "$n" >&2
+    #echo "m: " "$m" >&2
+
+    # Remember we want matches[m-1].
+    selected="${matches[$((m - 1))]}"
 
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
     open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 80
@@ -1043,7 +1058,7 @@ open_file_search_by_tag() {
 #	- i think if there is a registered book already associated with that tag we should prevent deletion
 #	of that tag from global list until that book is deassociated.
 # - deassociate tag from a registered ebook. [fixed]
-# - list registered ebooks and when chosen open the file with external application. show ebooks' tags too.
+# - list registered ebooks and when chosen open the file with external application. show ebooks' tags too. [testing]
 # - delete registered ebook (ie. remove from $EBOOKS_DB). [fixed]
 # - aesthetics.
 # - construct main menu. [fixed]
