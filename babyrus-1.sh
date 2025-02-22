@@ -8,7 +8,7 @@ fi
 
 # Try to maximize the current terminal window
 if ! wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz &> /dev/null; then
-    echo "Please manually maximise terminal window before running this program." >&2
+    echo "If menu is broken please manually maximise terminal window before running this program." >&2
 fi
 
 # Allow a brief pause for the window manager to update the window size
