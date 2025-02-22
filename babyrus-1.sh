@@ -24,8 +24,9 @@ TAGS_DB="tags.db"      # Format: "tag"
 # Ensure databases exist
 touch "$EBOOKS_DB" "$TAGS_DB"
 
+# Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
-    ["txt"]="nano"
+    ["txt"]="gnome-text-editor"
     ["pdf"]="evince"
     ["epub"]="okular"
     ["mobi"]="xdg-open"
