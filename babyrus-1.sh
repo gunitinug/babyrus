@@ -1076,36 +1076,140 @@ open_file_search_by_tag() {
     open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
 }
 
+add_files_in_bulk() {
+    # Show initial information
+    whiptail --title "Bulk Add eBooks" --msgbox \
+    "The following steps will allow you to add multiple eBook files to the database.\n\n\
+1. Select a root directory to search\n\
+2. Enter file patterns to match (case insensitive)\n\
+3. Files will be added if not already registered" 12 70
+
+    # Directory selection
+    local selected_dir
+    selected_dir=$(navigate "$(pwd)")
+    if [[ -z "$selected_dir" ]]; then
+        whiptail --msgbox "Directory selection canceled." 8 40
+        return 1
+    fi
+
+    # Pattern input
+    local pattern_input
+    pattern_input=$(whiptail --inputbox "Enter glob file patterns (use || to separate multiple):\n\n\
+Example: *.pdf||*.epub\n\
+Matches any PDF or EPUB files" \
+    --title "Search Patterns" 12 70 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 1  # User canceled
+
+    # Split patterns and validate
+    local patterns=()
+    IFS='||' read -ra temp_patterns <<< "$pattern_input"
+    for p in "${temp_patterns[@]}"; do
+        p="${p#"${p%%[![:space:]]*}"}"  # Trim leading whitespace
+        p="${p%"${p##*[![:space:]]}"}"  # Trim trailing whitespace
+        [[ -n "$p" ]] && patterns+=("$p")
+    done
+
+    if [[ ${#patterns[@]} -eq 0 ]]; then
+        whiptail --msgbox "No valid patterns entered." 8 40
+        return 1
+    fi
+
+    # Build find command
+    local find_cmd=(-type f)
+    if [[ ${#patterns[@]} -gt 0 ]]; then
+        find_cmd+=(\()
+        for ((i=0; i<${#patterns[@]}; i++)); do
+            ((i > 0)) && find_cmd+=(-o)
+            find_cmd+=(-iname "${patterns[i]}")
+        done
+        find_cmd+=(\))
+    fi
+
+    # Perform search
+    TERM=ansi whiptail --infobox "Performing search..." 8 40 >/dev/tty
+    local found_files=()
+    while IFS= read -r -d $'\0'; do
+        found_files+=("$REPLY")
+    done < <(find "$selected_dir" "${find_cmd[@]}" -print0 2>/dev/null)
+
+    if [[ ${#found_files[@]} -eq 0 ]]; then
+        whiptail --msgbox "No files found matching patterns." 8 40
+        return 1
+    fi
+
+    # Load existing entries
+    local -A existing_map
+    if [[ -f "$EBOOKS_DB" ]]; then
+        while IFS='|' read -r path _; do
+            existing_map["$path"]=1
+        done < "$EBOOKS_DB"
+    fi
+
+    # Filter new files
+    local new_entries=()
+    for file in "${found_files[@]}"; do
+        file="${file//\/\///}"  # Normalize path
+        [[ ! -v existing_map["$file"] ]] && new_entries+=("$file")
+    done
+
+    # Handle no new entries
+    if [[ ${#new_entries[@]} -eq 0 ]]; then
+        whiptail --msgbox "All matching files already exist in database." 8 50
+        return 0
+    fi
+
+    # Confirm yes/no to proceed.
+    whiptail --title "Confirm" --yesno "Do you want to proceed and update database?" 8 78 || return 1
+
+    # Add to database
+    {
+        for file in "${new_entries[@]}"; do
+            echo "${file}|"
+        done
+    } >> "$EBOOKS_DB"
+
+    # Show results
+    local result_msg="Successfully added ${#new_entries[@]} files:\n\n"
+    for file in "${new_entries[@]}"; do
+        #result_msg+="${file##*/}\n"  # Show filename only
+        result_msg+="${file}\n" 
+    done
+    
+    whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
+}
+
 # Manage eBooks submenu
 show_ebooks_menu() {
     while true; do
         subchoice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 12 \
-    	    "1" "Register eBook" \
-            "2" "Register Tag" \
-    	    "3" "Open eBook Search by Filename" \
-    	    "4" "Open eBook Search by Tag" \
-            "5" "Associate Tag with eBook" \
-            "6" "View All Registered eBooks" \
-    	    "7" "View All Registered Tags" \
-            "8" "Search by eBook by Tag" \
-    	    "9" "Dissociate Tag from Registered eBook" \
-    	    "10" "Delete Tag From Global List" \
-    	    "11" "Remove Registered eBook" 3>&1 1>&2 2>&3)
+            "1" "Add Files In Bulk" \
+    	    "2" "Register eBook" \
+            "3" "Register Tag" \
+    	    "4" "Open eBook Search by Filename" \
+    	    "5" "Open eBook Search by Tag" \
+            "6" "Associate Tag with eBook" \
+            "7" "View All Registered eBooks" \
+    	    "8" "View All Registered Tags" \
+            "9" "Search by eBook by Tag" \
+    	    "10" "Dissociate Tag from Registered eBook" \
+    	    "11" "Delete Tag From Global List" \
+    	    "12" "Remove Registered eBook" 3>&1 1>&2 2>&3)
         
         [[ $? -ne 0 ]] && return
 
         case $subchoice in
-            1) register_ebook ;;
-            2) register_tag ;;
-            3) open_file_search_by_filename ;;
-            4) open_file_search_by_tag ;;
-            5) associate_tag ;;
-            6) view_ebooks ;;
-            7) view_tags ;;
-            8) search_tags ;;
-            9) dissociate_tag_from_registered_ebook ;;
-            10) delete_tag_from_global_list ;;
-            11) remove_registered_ebook ;;
+	    1) add_files_in_bulk ;;
+            2) register_ebook ;;
+            3) register_tag ;;
+            4) open_file_search_by_filename ;;
+            5) open_file_search_by_tag ;;
+            6) associate_tag ;;
+            7) view_ebooks ;;
+            8) view_tags ;;
+            9) search_tags ;;
+            10) dissociate_tag_from_registered_ebook ;;
+            11) delete_tag_from_global_list ;;
+            12) remove_registered_ebook ;;
         esac
     done
 }
