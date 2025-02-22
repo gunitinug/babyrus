@@ -6,8 +6,10 @@ if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
     exit 1
 fi
 
-# Maximize the current terminal window
-wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+# Try to maximize the current terminal window
+if ! wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz &> /dev/null; then
+    echo "Please manually maximise terminal window before running this program." >&2
+fi
 
 # Allow a brief pause for the window manager to update the window size
 sleep 0.5
@@ -328,24 +330,6 @@ generate_trunc_dissoc_tag() {
 #test_arr=("$a" 'a' "$b" 'b' "$c" 'c')
 #echo generate_trunc: >&2
 #generate_trunc "${test_arr[@]}" | cat -v >&2
-
-################################################################################
-# NEED FIX!!!
-# - the code breaks if there is no match in find [fixed]
-# - handle cases where cancel is selected from whiptail menu [fixed]
-# - modify truncation logic for dirname and basename. [fixed]
-# - list hidden directories as well when navigating. [fixed]
-# - display waiting infobox when operation takes time (such as find) [fixed]
-# - WHAT IF file name contains | character? [fixed]
-# - if file starts with - eg. '- test file -.txt' then program breaks. [fixed]
-#	- maybe ban the name starting with -?
-# - paginate if file list too long. [fixed]
-# - remove verbose. [testing]
-# - truncated tags too! [fixed]
-# - assoc tag: added msg box too small [fixed
-# - dissoc tag: trunc needed here too! confirm msg box too small. [fixed]
-# - URGENT: it allows adding empty tag. fix urgent! [fixed]
-################################################################################
 
 paginate() {
     local chunk_size=200
@@ -955,9 +939,9 @@ open_file() {
         return 1
     fi
 
-    # maybe a good idea to show 'Opening file for you...' for a few seconds
+    # maybe a good idea to show 'Opening file for you...' for a second
     TERM=ansi whiptail --infobox "Opening file for you..." 8 40
-    sleep 2
+    sleep 1
     
     $open_cmd "$file" & disown
 }
@@ -1088,53 +1072,65 @@ open_file_search_by_tag() {
     open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
 }
 
-#############################################################################################################################
-# TODO:
-# - testing of new code not done. [fixed]
-# - fix whip menu items not in pairs. [fixed]
-# - view all registered tags. [fixed]
-# - delete tag from global list. [fixed]
-# - if a tag is deleted from global list what to do with ebook entry that has that tag? [fixed]
-#	- i think if there is a registered book already associated with that tag we should prevent deletion
-#	of that tag from global list until that book is deassociated.
-# - deassociate tag from a registered ebook. [fixed]
-# - list registered ebooks and when chosen open the file with external application. show ebooks' tags too. [testing]
-# - delete registered ebook (ie. remove from $EBOOKS_DB). [fixed]
-# - aesthetics.
-# - construct main menu. [fixed]
-# - construct sub main menu.
-# - when associate tag truncate output to fit in screen. [fixed]
-#############################################################################################################################
+# Manage eBooks submenu
+show_ebooks_menu() {
+    while true; do
+        subchoice=$(whiptail --title "BABYRUS v.1" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 12 \
+    	    "1" "Register eBook" \
+            "2" "Register Tag" \
+    	    "3" "Open eBook Search by Filename" \
+    	    "4" "Open eBook Search by Tag" \
+            "5" "Associate Tag with eBook" \
+            "6" "View All Registered eBooks" \
+    	    "7" "View All Registered Tags" \
+            "8" "Search by eBook by Tag" \
+    	    "9" "Dissociate Tag from Registered eBook" \
+    	    "10" "Delete Tag From Global List" \
+    	    "11" "Remove Registered eBook" 3>&1 1>&2 2>&3)
+        
+        [[ $? -ne 0 ]] && return
 
-while true; do
-    choice=$(whiptail --title "BABYRUS v.1" --menu "Main Menu" 25 50 12 \
-	"1" "Register eBook" \
-        "2" "Register Tag" \
-	"3" "Open eBook Search by Filename" \
-	"4" "Open eBook Search by Tag" \
-        "5" "Associate Tag with eBook" \
-        "6" "View All Registered eBooks" \
-	"7" "View All Registered Tags" \
-        "8" "Search by eBook by Tag" \
-	"9" "Dissociate Tag from Registered eBook" \
-	"10" "Delete Tag From Global List" \
-	"11" "Remove Registered eBook" \
-        "12" "Exit" 3>&1 1>&2 2>&3)
-    
-    case $choice in
-	1) register_ebook ;;
-        2) register_tag ;;
-	3) open_file_search_by_filename ;;
-	4) open_file_search_by_tag ;;
-        5) associate_tag ;;
-        6) view_ebooks ;;
-	7) view_tags ;;
-        8) search_tags ;;
-	9) dissociate_tag_from_registered_ebook ;;
-	10) delete_tag_from_global_list ;;
-	11) remove_registered_ebook ;;
-        12) clear; exit 0 ;;
-        *) clear; exit 1 ;;
-    esac
-done
+        case $subchoice in
+            1) register_ebook ;;
+            2) register_tag ;;
+            3) open_file_search_by_filename ;;
+            4) open_file_search_by_tag ;;
+            5) associate_tag ;;
+            6) view_ebooks ;;
+            7) view_tags ;;
+            8) search_tags ;;
+            9) dissociate_tag_from_registered_ebook ;;
+            10) delete_tag_from_global_list ;;
+            11) remove_registered_ebook ;;
+        esac
+    done
+}
 
+# Main menu function
+show_main_menu() {
+    while true; do
+        choice=$(whiptail --title "BABYRUS v.1 Main Menu" --cancel-button "Exit" --menu "'Taking a first step towards achievement.'" 20 50 5 \
+            "eBooks" "Manage eBooks" \
+            "Notes" "Manage Notes" \
+            "Goals" "Manage Goals" \
+            3>&1 1>&2 2>&3)
+
+        if [ $? != 0 ]; then
+            exit 0
+        fi
+
+        case $choice in
+            "eBooks")
+                show_ebooks_menu
+                ;;
+            "Notes")
+                # Add your Notes menu handling here
+                ;;
+            "Goals")
+                # Add your Goals menu handling here
+                ;;
+        esac
+    done
+}
+
+show_main_menu
