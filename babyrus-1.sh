@@ -433,7 +433,7 @@ check_illegal_filenames() {
 
 register_ebook() {
     # Get search string for files
-    search=$(whiptail --inputbox "Enter search string to look for ebook files:" 8 40 3>&1 1>&2 2>&3)
+    search=$(whiptail --inputbox "Enter search string to look for ebook files (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
     [ $? -ne 0 ] && return
 
     # Get search path by navigating
