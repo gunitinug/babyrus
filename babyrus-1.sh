@@ -1,5 +1,8 @@
 #!/bin/bash
 
+BABYRUS_VERSION='v.0.2'
+BABYRUS_AUTHOR='Logan Lee'
+
 # Check dependencies
 if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
     echo "Error: Both whiptail and wmctrl are required, but at least one is not installed." >&2
@@ -1075,7 +1078,7 @@ open_file_search_by_tag() {
 # Manage eBooks submenu
 show_ebooks_menu() {
     while true; do
-        subchoice=$(whiptail --title "BABYRUS v.1" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 12 \
+        subchoice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 12 \
     	    "1" "Register eBook" \
             "2" "Register Tag" \
     	    "3" "Open eBook Search by Filename" \
@@ -1109,7 +1112,7 @@ show_ebooks_menu() {
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS v.1 Main Menu" --cancel-button "Exit" --menu "'Taking a first step towards achievement.'" 20 50 5 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "'Taking a first step towards achievement.'" 20 50 5 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
