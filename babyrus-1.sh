@@ -1076,6 +1076,15 @@ open_file_search_by_tag() {
     open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
 }
 
+illegal_pattern() {
+    local pattern="$1"
+    if echo "$pattern" | grep -qE '^\||[^|]\|[^|]|\|{3,}|\|$'; then
+        return 1  # Illegal pattern detected
+    else
+        return 0  # No illegal patterns
+    fi
+}
+
 add_files_in_bulk() {
     # Show initial information
     whiptail --title "Bulk Add eBooks" --msgbox \
@@ -1099,6 +1108,12 @@ Example: *.pdf||*.epub\n\
 Matches any PDF or EPUB files" \
     --title "Search Patterns" 12 70 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && return 1  # User canceled
+
+    # Check for illegal pattern.
+    illegal_pattern "$pattern_input" || { 
+        whiptail --title "Alert" --msgbox "Illegal pattern. Try again." 8 78
+        return 1
+    }
 
     # Split patterns and validate
     local patterns=()
