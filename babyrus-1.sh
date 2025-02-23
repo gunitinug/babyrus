@@ -1258,7 +1258,7 @@ show_ebooks_menu() {
 }
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
-Copyleft February 2025 ${BABYRUS_AUTHOR}"
+Copyleft February 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
 
 # Main menu function
 show_main_menu() {
