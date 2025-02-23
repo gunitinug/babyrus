@@ -570,8 +570,22 @@ make_into_pairs() {
     (IFS=$'\x1E'; echo "${pairs[*]}")
 }
 
-# debug
-#exit
+# Filter to narrow down search.
+filter_ebooks() {
+    local filter_str="$1"
+    shift
+    local my_array=("$@")
+
+    # Escape special glob characters and convert to lowercase
+    local filter_str_escaped=$(sed 's/[][*?]/\\&/g' <<< "${filter_str,,}")
+
+    # Case-insensitive literal substring match.
+    for element in "${my_array[@]}"; do
+        if [[ "$filter_str" == "*" || "${element,,}" == *"${filter_str_escaped}"* ]]; then
+            printf "%s\0" "$element"
+        fi
+    done
+}
 
 associate_tag() {
     # Get list of ebooks
@@ -581,8 +595,22 @@ associate_tag() {
         return
     fi
 
+    # Get filter string from user using whiptail. No globbing, simple substring match.
+    filter_str=$(whiptail --title "Filter" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
+    
+    # Handle cancel/escape
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+    
+    # Defaults to "*" if unset
+    filter_str=${filter_str:-"*"}
+    
+    # Filter ebooks and store in array
+    mapfile -d $'\0' filtered_ebooks < <(filter_ebooks "$filter_str" "${ebooks[@]}")
+
     # convert ebooks array into whiptail friendly format.
-    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${ebooks[@]}")
+    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
 
     # Truncate ebooks_whip because of possible long file names.
     local trunc
@@ -1230,7 +1258,7 @@ show_ebooks_menu() {
 }
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
-Copyleft 2025 -- ${BABYRUS_AUTHOR} --"
+Copyleft February 2025 ${BABYRUS_AUTHOR}"
 
 # Main menu function
 show_main_menu() {
