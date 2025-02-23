@@ -1229,10 +1229,13 @@ show_ebooks_menu() {
     done
 }
 
+MAIN_MENU_STR="'Taking a first step towards achievement.'
+Copyleft 2025 -- ${BABYRUS_AUTHOR} --"
+
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "'Taking a first step towards achievement.'" 20 50 5 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 50 5 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
