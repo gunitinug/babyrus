@@ -183,7 +183,10 @@ truncate_tags() {
     local tags=()
     IFS=',' read -ra parts <<< "$input"
     for part in "${parts[@]}"; do
-        part=$(echo "$part" | xargs)  # Trim whitespace
+
+        # Trim leading and trailing whitespace
+        part="$(echo "$part" | awk '{sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print}')"
+
         [[ -n "$part" ]] && tags+=("$part")
     done
 
@@ -587,6 +590,33 @@ filter_ebooks() {
     done
 }
 
+# Filter to narrow down search when dissociating tag.
+filter_menu_items() {
+    local filter_str="$1"
+    shift
+    local my_array=("$@")
+
+    # Escape special glob characters and convert to lowercase
+    local filter_str_escaped=$(sed 's/[][*?]/\\&/g' <<< "${filter_str,,}")
+
+    # Iterate over the array in steps of two to process path-tag pairs
+    for ((i=0; i < ${#my_array[@]}; i+=2)); do
+        # Ensure there is a corresponding tag to avoid errors on odd array lengths
+        if (( i+1 >= ${#my_array[@]} )); then
+            continue
+        fi
+        local path="${my_array[i]}"
+        local tag="${my_array[i+1]}"
+
+        # Check if the path matches the filter (case-insensitive substring match)
+        if [[ "$filter_str" == "*" || "${path,,}" == *"${filter_str_escaped}"* ]]; then
+            # Output both path and tag as null-delimited strings
+            printf "%s\0" "$path"
+            printf "%s\0" "$tag"
+        fi
+    done
+}
+
 associate_tag() {
     # Get list of ebooks
     mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
@@ -596,7 +626,7 @@ associate_tag() {
     fi
 
     # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
+    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
     
     # Handle cancel/escape
     if [ $? -ne 0 ]; then
@@ -748,9 +778,24 @@ dissociate_tag_from_registered_ebook() {
         menu_items+=("$path" "T:${tags}")
     done
 
+    local filter_str
+    # Get filter string from user using whiptail. No globbing, simple substring match.
+    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)    
+
+    # Handle cancel/escape
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to "*" if unset
+    filter_str=${filter_str:-"*"}
+
+    # Filter menu_items and store in array
+    mapfile -d $'\0' filtered_menu_items < <(filter_menu_items "$filter_str" "${menu_items[@]}")
+
     # Truncate menu_items because of possible long file names.
     local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_dissoc_tag "${menu_items[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
     # First selection: Choose ebook
     local selected_ebook_trunc selected_ebook
@@ -766,8 +811,8 @@ dissociate_tag_from_registered_ebook() {
     #echo "n: " "$n" >&2
     #echo "m: " "$m" >&2
 
-    # Remember we want menu_items[m-1].
-    selected_ebook="${menu_items[$((m - 1))]}"
+    # Remember we want filtered_menu_items[m-1].
+    selected_ebook="${filtered_menu_items[$((m - 1))]}"
 
     # Find the selected entry
     local original_entry tags_array
@@ -1258,6 +1303,7 @@ show_ebooks_menu() {
 }
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
+
 Copyleft February 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
 
 # Main menu function
