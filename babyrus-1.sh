@@ -974,10 +974,11 @@ remove_registered_ebook() {
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
-    # Show selection dialog
+    # Show selection dialog. paginate here because trunc may be large.
     local selected_path selected_trunc
-    selected_trunc=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
-        "${trunc[@]}" 3>&1 1>&2 2>&3)
+    selected_trunc="$(paginate "${trunc[@]}")"
+    #selected_trunc=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
+    #    "${trunc[@]}" 3>&1 1>&2 2>&3)
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
