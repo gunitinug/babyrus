@@ -647,8 +647,10 @@ associate_tag() {
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
 
     # Select ebook
-    ebook_trunc=$(whiptail --menu "Choose an ebook:" 20 170 10 \
-        "${trunc[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
+    # paginate here because trunc may be large.
+    ebook_trunc="$(paginate "${trunc[@]}")"
+    #ebook_trunc=$(whiptail --menu "Choose an ebook:" 20 170 10 \
+    #    "${trunc[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
     if [[ $? -ne 0 ]]; then return; fi
 
     local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
