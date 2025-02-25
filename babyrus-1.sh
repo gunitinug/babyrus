@@ -1130,8 +1130,10 @@ open_file_search_by_tag() {
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${files[@]}" | sed 's/\x1E$//')
 
+    # paginate here because trunc might be large.
     local selected_file_trunc
-    selected_file_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    selected_file_trunc="$(paginate "${trunc[@]}")"
+    #selected_file_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
