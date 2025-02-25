@@ -398,8 +398,8 @@ paginate() {
         esac
     done
     
-    # Output the final choice
-    echo "$choice"
+    # Output the final choice but also handle error condition.
+    [[ -z "$choice" ]] && return 1 || echo "$choice"
 }
 
 # Example usage:
@@ -1054,8 +1054,10 @@ open_file_search_by_filename() {
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
 
+    # paginate in case trunc gets too big.
     local selected_trunc
-    selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    #selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    selected_trunc="$(paginate "${trunc[@]}")"
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
