@@ -719,7 +719,7 @@ view_ebooks() {
     local tmpfile
     tmpfile=$(mktemp)
     generate_ebooks_list > "$tmpfile"
-    whiptail --scrolltext --textbox "$tmpfile" 20 60
+    whiptail --scrolltext --textbox "$tmpfile" 20 80
     rm -f "$tmpfile"
 }
 
@@ -757,7 +757,7 @@ search_tags() {
         whiptail --msgbox "No ebooks found with this tag!" 8 40
     else
         echo "$result" > /tmp/search_result.txt
-        whiptail --textbox /tmp/search_result.txt 20 60
+        whiptail --textbox /tmp/search_result.txt 20 80
         rm /tmp/search_result.txt
     fi
 }
@@ -799,10 +799,11 @@ dissociate_tag_from_registered_ebook() {
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
-    # First selection: Choose ebook
+    # First selection: Choose ebook. paginate here because trunc may be large.
     local selected_ebook_trunc selected_ebook
-    selected_ebook_trunc=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
-        20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    selected_ebook_trunc="$(paginate "${trunc[@]}")"
+    #selected_ebook_trunc=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
+    #    20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && return 0  # User canceled
 
     local n="$(echo "$selected_ebook_trunc" | cut -d':' -f1)"
