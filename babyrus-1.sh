@@ -947,9 +947,32 @@ remove_registered_ebook() {
         menu_items+=("$path" "T:${tags}")
     done
 
+    # Get search string from user
+    local search_str
+    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    if [[ $? -ne 0 ]]; then
+        return 1  # User cancelled the search
+    fi
+
+    # Create filtered_menu_items based on search_str
+    local filtered_menu_items=()
+    for ((i=0; i<${#menu_items[@]}; i+=2)); do
+        path="${menu_items[i]}"
+        tags="${menu_items[i+1]}"
+        if [[ "${path,,}" == *"${search_str,,}"* ]]; then
+            filtered_menu_items+=("$path" "$tags")
+        fi
+    done
+
+    # Check if filtered list is empty
+    if [[ ${#filtered_menu_items[@]} -eq 0 ]]; then
+        whiptail --title "Error" --msgbox "No ebooks found matching '$search_str'." 10 60
+        return 1
+    fi
+
     # Truncate menu_items because of possible long file names.
     local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_delete_ebook "${menu_items[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t trunc < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
     # Show selection dialog
     local selected_path selected_trunc
@@ -967,8 +990,8 @@ remove_registered_ebook() {
     #echo "n: " "$n" >&2
     #echo "m: " "$m" >&2
 
-    # Remember we want menu_items[m-1].
-    selected_path="${menu_items[$((m - 1))]}"
+    # Remember we want filtered_menu_items[m-1].
+    selected_path="${filtered_menu_items[$((m - 1))]}"
 
     # Show confirmation dialog
     whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 80 \
