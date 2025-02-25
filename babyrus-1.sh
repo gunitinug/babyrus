@@ -1050,7 +1050,7 @@ open_file_search_by_filename() {
         return
     }
 
-    # Truncate ebooks_whip because of possible long file names.
+    # Truncate matches because of possible long file names.
     local trunc
     mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
 
