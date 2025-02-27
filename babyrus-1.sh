@@ -1192,7 +1192,8 @@ illegal_pattern() {
 add_files_in_bulk() {
     # Show initial information
     whiptail --title "Bulk Add eBooks" --msgbox \
-    "The following steps will allow you to add multiple eBook files to the database.\n\n\
+"This advanced feature allows you to add multiple eBook files to the database.\n\
+It involves the following steps:\n\
 1. Select a root directory to search\n\
 2. Enter file patterns to match (case insensitive)\n\
 3. Files will be added if not already registered" 12 70
@@ -1297,38 +1298,324 @@ Matches any PDF or EPUB files" \
     whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
 }
 
+# Parser for custom boolean patterns into a grep -P regex
+
+convert_literal() {
+    local lit="$1"
+    local start_anchor=1
+    local end_anchor=1
+
+    # Check if the literal starts with *
+    if [[ "$lit" == \** ]]; then
+        start_anchor=0
+        lit="${lit#\*}"
+    fi
+
+    # Check if the literal ends with *
+    if [[ "$lit" == *\* ]]; then
+        end_anchor=0
+        lit="${lit%\*}"
+    fi
+
+    # Escape regex special characters except *
+    # Corrected character class to include ], [ and others properly
+    lit=$(echo "$lit" | sed -E 's/([].^$+?{}|()\\[])/\\\1/g')
+    # Replace remaining * with .*
+    lit=$(echo "$lit" | sed 's/\*/.*/g')
+
+    # Handle case where lit is empty (e.g., input was *)
+    if [ -z "$lit" ]; then
+        lit=".*"
+    fi
+
+    # Apply start and end anchors
+    if [ $start_anchor -eq 1 ]; then
+        lit="^$lit"
+    else
+        lit=".*$lit"
+    fi
+
+    if [ $end_anchor -eq 1 ]; then
+        lit="$lit$"
+    else
+        lit="$lit.*"
+    fi
+
+    echo "$lit"
+}
+
+# Check if a string is enclosed by a matching pair of outer parentheses
+is_enclosed_by_parentheses() {
+    local s="$1"
+    # Must start with ( and end with )
+    if [[ ${s:0:1} != "(" || ${s: -1} != ")" ]]; then
+         echo 0
+         return
+    fi
+    local level=0
+    local i char
+    for (( i=0; i<${#s}; i++ )); do
+         char="${s:$i:1}"
+         if [[ "$char" == "(" ]]; then
+             level=$((level+1))
+         elif [[ "$char" == ")" ]]; then
+             level=$((level-1))
+         fi
+         # If level drops to 0 before the end, the outer parentheses aren’t encompassing all
+         if [ $level -eq 0 ] && [ $i -lt $((${#s}-1)) ]; then
+             echo 0
+             return
+         fi
+    done
+    echo 1
+}
+
+# Split string by a delimiter (e.g. "&&" or "||") at the top level,
+# ignoring delimiters inside parentheses.
+split_top_level() {
+    local s="$1"
+    local delim="$2"
+    local delim_len=${#delim}
+    local level=0
+    local token=""
+    local i char
+    for (( i=0; i<${#s}; i++ )); do
+         char="${s:$i:1}"
+         if [[ "$char" == "(" ]]; then
+             level=$((level+1))
+         elif [[ "$char" == ")" ]]; then
+             level=$((level-1))
+         fi
+         if [ $level -eq 0 ] && [[ "${s:$i:$delim_len}" == "$delim" ]]; then
+             echo "$token"
+             token=""
+             i=$(( i + delim_len - 1 ))
+         else
+             token+="$char"
+         fi
+    done
+    echo "$token"
+}
+
+# Parse a primary expression: either a grouped expression or a literal string.
+parse_primary() {
+    local expr="$1"
+    # Trim leading/trailing whitespace.
+    expr="$(echo -n "$expr" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [[ "$expr" == "("*")" ]]; then
+         if [ "$(is_enclosed_by_parentheses "$expr")" -eq 1 ]; then
+             # Remove outer parentheses and parse inside (non-top-level so no ^)
+             expr="${expr:1:-1}"
+             echo "$(parse_expr "$expr" 0)"
+             return
+         fi
+    fi
+    # Otherwise, treat as literal pattern.
+    echo "$(convert_literal "$expr")"
+}
+
+# Parse an OR expression by splitting on top-level "||"
+parse_or() {
+    local expr="$1"
+    local alternatives=()
+    while IFS= read -r line; do
+         alternatives+=("$line")
+    done < <(split_top_level "$expr" "||")
+    
+    # If there’s only one alternative, return its parsed primary.
+    if [ ${#alternatives[@]} -eq 1 ]; then
+         echo "$(parse_primary "${alternatives[0]}")"
+         return
+    fi
+    local regex_alts=""
+    for alt in "${alternatives[@]}"; do
+         local parsed
+         parsed=$(parse_primary "$alt")
+         if [ -z "$regex_alts" ]; then
+              regex_alts="$parsed"
+         else
+              regex_alts="$regex_alts|$parsed"
+         fi
+    done
+    echo "($regex_alts)"
+}
+
+# Parse a full boolean expression.
+# This splits on top-level "&&" and wraps each part in a lookahead (?=.*...)
+# If 'top' is 1 (default), a '^' anchor is prepended.
+parse_expr() {
+    local expr="$1"
+    local top="${2:-1}"
+    local parts=()
+    while IFS= read -r line; do
+         parts+=("$line")
+    done < <(split_top_level "$expr" "&&")
+    
+    local regex=""
+    for part in "${parts[@]}"; do
+         local part_regex
+         part_regex=$(parse_or "$part")
+         regex="$regex(?=.*$part_regex)"
+    done
+    if [ "$top" -eq 1 ]; then
+         echo "^$regex"
+    else
+         echo "$regex"
+    fi
+}
+
+# Depends on parser code above for parsing custom boolean patterns to be used here.
+lookup_registered_files() {
+    # Show initial information
+    whiptail --title "Lookup Registered Files" --msgbox \
+    "This advanced feature allows you to look up full file information by narrowing it down by file name and tags." 8 78
+
+    # Show boolean pattern help information
+    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
+    "Boolean Pattern HELP:\n\n\
+Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
+The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
+We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
+Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
+Searches are case insensitive.\n\n\
+Some examples:\n\
+1. (*.pdf||*.epub)&&*schaum*\n\
+Search pdf or epub containing 'schaum' in their file name.\n\
+2. *.pdf&&*dover*\n\
+Search pdf files with 'dover' in their file name.\n\
+3. *.pdf||*.epub||*.txt\n\
+Search for pdf or epub or txt files.\n\
+4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
+Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
+'dover' and 'linear algebra' in their file names." 20 80
+
+    local pattern regex filtered_paths filtered_lines final_list tag_pattern
+
+    # Step 1: Get the file name search pattern from the user
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to *
+    pattern="${pattern:-*}"
+
+    # DEBUG
+    echo pattern: >&2
+    echo "$pattern" >&2
+
+    # Convert pattern to regex using your existing parse_expr function
+    regex=$(parse_expr "$pattern")
+
+    # DEBUG
+    echo regex: >&2
+    echo "$regex" >&2
+
+    # Filter file paths from $EBOOKS_DB using the regex.
+    # Only the file path part is considered (everything before the |)
+    filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")
+    if [ -z "$filtered_paths" ]; then
+        whiptail --msgbox "No files match the given file name pattern." 8 60
+        return 1
+    fi
+
+    # DEBUG
+    #echo filtered_paths: >&2
+    #echo "$filtered_paths" >&2 # check!
+
+    # Get the full lines from $EBOOKS_DB corresponding to the filtered file paths.
+    # The grep -F -x -f ensures we only get exact matches from the file path field.
+    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
+
+    # DEBUG
+    #echo filtered_lines: >&2
+    #echo "$filtered_lines" >&2
+
+    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
+    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
+    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
+This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
+
+    # Step 2: Ask the user for a tag search pattern
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to .*
+    tag_pattern="${tag_pattern:-.*}"
+
+    # Further filter the lines by matching the tag pattern (which appears after the |)
+    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
+    if [ -z "$final_list" ]; then
+        whiptail --msgbox "No files match the given tag pattern." 8 60
+        return 1
+    fi
+
+    # Step 3: Loop to show the final list in a whiptail menu repeatedly
+    while true; do
+        local menu_items=()
+        local idx=1
+        declare -A line_map
+        # Build the menu items array. Each menu entry is a pair:
+        # the index number and a description (file path with tags)
+        while IFS= read -r line; do
+            # Replace the | separator with a more readable format for display.
+            menu_items+=("$idx" "$(echo "$line" | sed 's/|/ - Tags: /')")
+            line_map["$idx"]="$line"
+            idx=$((idx + 1))
+        done <<< "$final_list"
+
+        # menu_items need truncating. the format is "line#" "full path including tags"
+        # PLACE HERE.
+
+        # Display the whiptail menu. The menu shows all items, each identified by a number.
+        local selection
+        selection=$(whiptail --title "Select a File" --menu "Choose a file (or Cancel to exit)" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+        if [ $? -ne 0 ]; then
+            break
+        fi
+
+        # Retrieve and display the selected file (full line with path and tags)
+        local selected_line="${line_map[$selection]}"
+        whiptail --scrolltext --msgbox "Selected File:\n$selected_line" 20 80
+    done
+}
+
 # Manage eBooks submenu
 show_ebooks_menu() {
     while true; do
-        subchoice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 12 \
+        subchoice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 13 \
             "1" "Add Files In Bulk" \
-    	    "2" "Register eBook" \
-            "3" "Register Tag" \
-    	    "4" "Open eBook Search by Filename" \
-    	    "5" "Open eBook Search by Tag" \
-            "6" "Associate Tag with eBook" \
-            "7" "View All Registered eBooks" \
-    	    "8" "View All Registered Tags" \
-            "9" "Search by eBook by Tag" \
-    	    "10" "Dissociate Tag from Registered eBook" \
-    	    "11" "Delete Tag From Global List" \
-    	    "12" "Remove Registered eBook" 3>&1 1>&2 2>&3)
+	    "2" "Lookup Registered Files" \
+    	    "3" "Register eBook" \
+            "4" "Register Tag" \
+    	    "5" "Open eBook Search by Filename" \
+    	    "6" "Open eBook Search by Tag" \
+            "7" "Associate Tag with eBook" \
+            "8" "View All Registered eBooks" \
+    	    "9" "View All Registered Tags" \
+            "10" "Search by eBook by Tag" \
+    	    "11" "Dissociate Tag from Registered eBook" \
+    	    "12" "Delete Tag From Global List" \
+    	    "13" "Remove Registered eBook" 3>&1 1>&2 2>&3)
         
         [[ $? -ne 0 ]] && return
 
         case $subchoice in
 	    1) add_files_in_bulk ;;
-            2) register_ebook ;;
-            3) register_tag ;;
-            4) open_file_search_by_filename ;;
-            5) open_file_search_by_tag ;;
-            6) associate_tag ;;
-            7) view_ebooks ;;
-            8) view_tags ;;
-            9) search_tags ;;
-            10) dissociate_tag_from_registered_ebook ;;
-            11) delete_tag_from_global_list ;;
-            12) remove_registered_ebook ;;
+	    2) lookup_registered_files ;;
+            3) register_ebook ;;
+            4) register_tag ;;
+            5) open_file_search_by_filename ;;
+            6) open_file_search_by_tag ;;
+            7) associate_tag ;;
+            8) view_ebooks ;;
+            9) view_tags ;;
+            10) search_tags ;;
+            11) dissociate_tag_from_registered_ebook ;;
+            12) delete_tag_from_global_list ;;
+            13) remove_registered_ebook ;;
         esac
     done
 }
