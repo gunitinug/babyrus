@@ -330,6 +330,35 @@ generate_trunc_dissoc_tag() {
         done < <(split_second_print "$@")
 }
 
+generate_trunc_lookup() {
+        local idx the_rest path tags dir file
+        local truncated_dir truncated_file truncated_tags
+
+        while IFS= read -r -d $'\x1f' group; do
+            # Skip empty groups (e.g., from trailing separator)
+            [[ -z "$group" ]] && continue
+
+            # Split group into fields using \x1E as delimiter
+            IFS=$'\x1e' read -r idx the_rest _ <<< "$group"
+
+            # the_rest format: /path/to/file/some book.pdf|tag1,another tag
+            path=${the_rest%|*}
+            tags=${the_rest##*|}
+
+            dir="$(dirname "$path")"
+            file="$(basename "$path")"
+
+            # Truncate
+            truncated_dir="$(truncate_dirname "$dir" 35)"
+            truncated_file="$(truncate_filename "$file" 65)"
+
+            # Truncate tags too!
+            truncated_tags="$(truncate_tags "$tags")"
+
+            printf "%s\x1E%s\x1E" "$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}"
+        done < <(split_second_print "$@")
+}
+
 # debug
 #a="$(printf 'a%.0s' {1..55})"
 #b="$(printf 'b%.0s' {1..55})"
@@ -1561,17 +1590,21 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
         # the index number and a description (file path with tags)
         while IFS= read -r line; do
             # Replace the | separator with a more readable format for display.
-            menu_items+=("$idx" "$(echo "$line" | sed 's/|/ - Tags: /')")
+            menu_items+=("$idx" "$(echo "$line")")
             line_map["$idx"]="$line"
             idx=$((idx + 1))
         done <<< "$final_list"
 
-        # menu_items need truncating. the format is "line#" "full path including tags"
+        # menu_items need truncating. the format is "idx#" "full path including tags"
         # PLACE HERE.
+        local trunc
+        mapfile -d $'\x1e' -t trunc < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
+        # then paginate it.
 
         # Display the whiptail menu. The menu shows all items, each identified by a number.
         local selection
-        selection=$(whiptail --title "Select a File" --menu "Choose a file (or Cancel to exit)" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+        selection="$(paginate "${trunc[@]}")"
+        #selection=$(whiptail --title "Select a File" --menu "Choose a file (or Cancel to exit)" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
         if [ $? -ne 0 ]; then
             break
         fi
