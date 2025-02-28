@@ -1308,7 +1308,7 @@ Matches any PDF or EPUB files" \
     fi
 
     # Confirm yes/no to proceed.
-    whiptail --title "Confirm" --yesno "Do you want to proceed and update database?" 8 78 || return 1
+    whiptail --title "Confirm" --yesno "${#new_entries[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
 
     # Add to database
     {
@@ -1324,7 +1324,11 @@ Matches any PDF or EPUB files" \
         result_msg+="${file}\n" 
     done
     
-    whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
+    # Too large to display from msgbox so use temporary file and textbox.
+    echo "$result_msg" > /tmp/result_msg.txt
+    whiptail --scrolltext --title "Results" --textbox /tmp/result_msg.txt 20 80
+    rm /tmp/result_msg.txt
+    #whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
 }
 
 # Parser for custom boolean patterns into a grep -P regex
