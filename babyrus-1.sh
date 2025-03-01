@@ -407,7 +407,7 @@ paginate() {
         # Append the current page items
         menu_options+=("${current_chunk[@]}")
 
-        choice=$(whiptail --title "Paged Menu" \
+        choice=$(whiptail --title "Paged Menu" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
             20 170 10 \
             "${menu_options[@]}" \
@@ -1593,6 +1593,8 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
         whiptail --msgbox "No files match the given tag pattern." 8 60
         return 1
     fi
+
+    in_operation_msg # show 'in operation...' while building menu items...
 
     local menu_items=()
     local idx=1
