@@ -1511,8 +1511,8 @@ format_file_info() {
     local selected_line="$1"
 
     # Split the line at the first '|' into two parts.
-    local file_with_path="${selected_line%%|*}"
-    local tags="${selected_line#*|}"
+    local file_with_path="${selected_line%|*}"
+    local tags="${selected_line##*|}"
 
     # Extract the directory and filename
     local directory
