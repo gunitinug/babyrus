@@ -1506,6 +1506,31 @@ parse_expr() {
     fi
 }
 
+# Formats string for individual file info.
+format_file_info() {
+    local selected_line="$1"
+
+    # Split the line at the first '|' into two parts.
+    local file_with_path="${selected_line%%|*}"
+    local tags="${selected_line#*|}"
+
+    # Extract the directory and filename
+    local directory
+    local filename
+    directory=$(dirname "$file_with_path")
+    filename=$(basename "$file_with_path")
+
+    # Print the formatted output
+    echo "File name:"
+    echo "$filename"
+    echo ""
+    echo "Directory path:"
+    echo "${directory}/"
+    echo ""
+    echo "Tags:"
+    echo "$tags"
+}
+
 # Depends on parser code above for parsing custom boolean patterns to be used here.
 lookup_registered_files() {
     # Show initial information
@@ -1630,7 +1655,10 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 
         # Retrieve and display the selected file (full line with path and tags)
         local selected_line="${line_map[$selection]}"
-        whiptail --scrolltext --msgbox "Selected File:\n$selected_line" 20 80
+
+        # Format file info and display it.
+        local formatted_str="$(format_file_info "$selected_line")"
+        whiptail --scrolltext --msgbox "$formatted_str" 20 80
     done
 }
 
