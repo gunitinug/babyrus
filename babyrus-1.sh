@@ -367,68 +367,73 @@ generate_trunc_lookup() {
 #echo generate_trunc: >&2
 #generate_trunc "${test_arr[@]}" | cat -v >&2
 
+# Global variables to hold the list and current page
+TRUNC=()         # will hold the list items
+CURRENT_PAGE=0   # persists page state across paginate() calls
+
 paginate() {
+    # Clear any previous selection
+    SELECTED_ITEM=""
+
     local chunk_size=200
-    # Populate array 'trunc' with all the passed arguments
-    local trunc=("$@")
-    
-    # Calculate total pages (rounding up for any remainder)
-    local total_pages=$(( (${#trunc[@]} + chunk_size - 1) / chunk_size ))
-    local current_page=0
+
+    # If new items are passed in, update TRUNC and reset CURRENT_PAGE.
+    if [ "$#" -gt 0 ]; then
+        TRUNC=("$@")
+        CURRENT_PAGE=0
+    fi
+
+    local total_pages=$(( ( ${#TRUNC[@]} + chunk_size - 1 ) / chunk_size ))
+    # Ensure CURRENT_PAGE is within valid bounds
+    if (( CURRENT_PAGE >= total_pages )); then
+        CURRENT_PAGE=$(( total_pages - 1 ))
+    fi
+
     local choice=""
-    
     while true; do
-        # Determine start index for current page
-        local start=$(( current_page * chunk_size ))
-        
-        # Extract current chunk of items
-        local current_chunk=("${trunc[@]:$start:$chunk_size}")
-        
-        # Build navigation options
+        local start=$(( CURRENT_PAGE * chunk_size ))
+        # Extract the current chunk from the global TRUNC
+        local current_chunk=("${TRUNC[@]:$start:$chunk_size}")
         local menu_options=()
-        
-        # Add "previous page" if not on the first page
-        if (( current_page > 0 )); then
+
+        # Add navigation options if needed
+        if (( CURRENT_PAGE > 0 )); then
             menu_options+=("previous page" " ")
         fi
-        
-        # Add "next page" if not on the last page
-        if (( current_page < total_pages - 1 )); then
+        if (( CURRENT_PAGE < total_pages - 1 )); then
             menu_options+=("next page" " ")
         fi
-        
-        # Append the items for the current page
+
+        # Append the current page items
         menu_options+=("${current_chunk[@]}")
-        
-        # Display the whiptail menu
+
         choice=$(whiptail --title "Paged Menu" \
-            --menu "Choose an item (Page $((current_page + 1))/$total_pages)" \
+            --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
             20 170 10 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3)
-        
-        # If the user cancels or presses Esc, exit the loop
+
+        # Exit if user cancels
         if [ $? -ne 0 ]; then
             break
         fi
-        
-        # Process the user's selection
+
         case "$choice" in
             "previous page")
-                (( current_page-- ))
+                (( CURRENT_PAGE-- ))
                 ;;
             "next page")
-                (( current_page++ ))
+                (( CURRENT_PAGE++ ))
                 ;;
             *)
-                # If an actual item was selected, exit the loop
-                break
+                # Return the selected item (page state remains for next call)
+                SELECTED_ITEM="$choice"
+                return 0
                 ;;
         esac
     done
-    
-    # Output the final choice but also handle error condition.
-    [[ -z "$choice" ]] && return 1 || echo "$choice"
+
+    return 1
 }
 
 # Example usage:
@@ -510,13 +515,16 @@ register_ebook() {
 
     # shortened filtered output with line numbers:
     # shorten the dirname if its length is greater than 50.
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # debug
     #echo "trunc: " "${trunc[@]}" >&2
     #echo "trunc length: " "${#trunc[*]}" >&2
 
-    selected_trunc="$(paginate "${trunc[@]}")"
+    paginate
+    selected_trunc="$SELECTED_ITEM"
+    #selected_trunc="$(paginate "${trunc[@]}")"
     # debug
     #echo selected_trunc: >&2
     #echo "$selected_trunc" >&2
@@ -672,15 +680,15 @@ associate_tag() {
     mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
 
     # Truncate ebooks_whip because of possible long file names.
-    local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # Select ebook
     # paginate here because trunc may be large.
-    ebook_trunc="$(paginate "${trunc[@]}")"
-    #ebook_trunc=$(whiptail --menu "Choose an ebook:" 20 170 10 \
-    #    "${trunc[@]}" 3>&1 1>&2 2>&3)				# remember whiptail menu items must come in pairs!!!!
+    paginate
     if [[ $? -ne 0 ]]; then return; fi
+    ebook_trunc="$SELECTED_ITEM"
+    #ebook_trunc="$(paginate "${trunc[@]}")"
 
     local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -825,15 +833,16 @@ dissociate_tag_from_registered_ebook() {
     mapfile -d $'\0' filtered_menu_items < <(filter_menu_items "$filter_str" "${menu_items[@]}")
 
     # Truncate menu_items because of possible long file names.
-    local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # First selection: Choose ebook. paginate here because trunc may be large.
-    local selected_ebook_trunc selected_ebook
-    selected_ebook_trunc="$(paginate "${trunc[@]}")"
-    #selected_ebook_trunc=$(whiptail --title "Select eBook" --menu "Choose eBook to edit tags:" \
-    #    20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    paginate
     [[ $? -ne 0 ]] && return 0  # User canceled
+    selected_ebook_trunc="$SELECTED_ITEM"
+
+    local selected_ebook
+    #selected_ebook_trunc="$(paginate "${trunc[@]}")"
 
     local n="$(echo "$selected_ebook_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -1000,17 +1009,17 @@ remove_registered_ebook() {
     fi
 
     # Truncate menu_items because of possible long file names.
-    local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # Show selection dialog. paginate here because trunc may be large.
-    local selected_path selected_trunc
-    selected_trunc="$(paginate "${trunc[@]}")"
-    #selected_trunc=$(whiptail --title "Remove Ebook" --menu "\nChoose an ebook to remove:" 20 170 10 \
-    #    "${trunc[@]}" 3>&1 1>&2 2>&3)
-
+    local selected_path
+    paginate
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
+    selected_trunc="$SELECTED_ITEM"
+
+    #selected_trunc="$(paginate "${trunc[@]}")"
 
     local n="$(echo "$selected_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -1107,16 +1116,16 @@ open_file_search_by_filename() {
     }
 
     # Truncate matches because of possible long file names.
-    local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # paginate in case trunc gets too big.
-    local selected_trunc
-    #selected_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
-    selected_trunc="$(paginate "${trunc[@]}")"
-
+    paginate
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
+
+    selected_trunc="$SELECTED_ITEM"
+    #selected_trunc="$(paginate "${trunc[@]}")"
 
     local n="$(echo "$selected_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -1183,16 +1192,16 @@ open_file_search_by_tag() {
     }
 
     # Truncate ebooks_whip because of possible long file names.
-    local trunc
-    mapfile -d $'\x1e' -t trunc < <(generate_trunc_assoc_tag "${files[@]}" | sed 's/\x1E$//')
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${files[@]}" | sed 's/\x1E$//')
+    CURRENT_PAGE=0
 
     # paginate here because trunc might be large.
-    local selected_file_trunc
-    selected_file_trunc="$(paginate "${trunc[@]}")"
-    #selected_file_trunc=$(whiptail --menu "Select file to open" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
-
+    paginate
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
+    
+    selected_file_trunc="$SELECTED_ITEM"
+    #selected_file_trunc="$(paginate "${trunc[@]}")"
 
     local n="$(echo "$selected_file_trunc" | cut -d':' -f1)"
     local m=$((2 * n - 1))
@@ -1585,33 +1594,37 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
         return 1
     fi
 
+    local menu_items=()
+    local idx=1
+    declare -A line_map
+    # Build the menu items array. Each menu entry is a pair:
+    # the index number and a description (file path with tags)
+    while IFS= read -r line; do
+        # Replace the | separator with a more readable format for display.
+        menu_items+=("$idx" "$(echo "$line")")
+        line_map["$idx"]="$line"
+        idx=$((idx + 1))
+    done <<< "$final_list"
+
+    # menu_items need truncating. the format is "idx#" "full path including tags"
+    # Build the large list once:
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
+
+    # Reset CURRENT_PAGE for this new TRUNC array.
+    CURRENT_PAGE=0
+
     # Step 3: Loop to show the final list in a whiptail menu repeatedly
     while true; do
-        local menu_items=()
-        local idx=1
-        declare -A line_map
-        # Build the menu items array. Each menu entry is a pair:
-        # the index number and a description (file path with tags)
-        while IFS= read -r line; do
-            # Replace the | separator with a more readable format for display.
-            menu_items+=("$idx" "$(echo "$line")")
-            line_map["$idx"]="$line"
-            idx=$((idx + 1))
-        done <<< "$final_list"
-
-        # menu_items need truncating. the format is "idx#" "full path including tags"
-        # PLACE HERE.
-        local trunc
-        mapfile -d $'\x1e' -t trunc < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
         # then paginate it.
+        paginate
 
-        # Display the whiptail menu. The menu shows all items, each identified by a number.
-        local selection
-        selection="$(paginate "${trunc[@]}")"
-        #selection=$(whiptail --title "Select a File" --menu "Choose a file (or Cancel to exit)" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
         if [ $? -ne 0 ]; then
             break
         fi
+
+        # Display the whiptail menu.
+        local selection
+        selection="$SELECTED_ITEM"
 
         # Retrieve and display the selected file (full line with path and tags)
         local selected_line="${line_map[$selection]}"
