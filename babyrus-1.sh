@@ -1085,7 +1085,7 @@ open_file() {
     TERM=ansi whiptail --infobox "Opening file for you..." 8 40
     sleep 1
     
-    $open_cmd "$file" & disown
+    $open_cmd "$file" &>/dev/null & disown
 }
 
 # Open file by search by filename workflow
