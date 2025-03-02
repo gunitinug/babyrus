@@ -1567,16 +1567,16 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
     # Defaults to *
     pattern="${pattern:-*}"
 
-    # DEBUG
-    echo pattern: >&2
-    echo "$pattern" >&2
+    # DEBUG - if need be save to a temp file perhaps?
+    #echo pattern: >&2
+    #echo "$pattern" >&2
 
     # Convert pattern to regex using your existing parse_expr function
     regex=$(parse_expr "$pattern")
 
     # DEBUG
-    echo regex: >&2
-    echo "$regex" >&2
+    #echo regex: >&2
+    #echo "$regex" >&2
 
     # Filter file paths from $EBOOKS_DB using the regex.
     # Only the file path part is considered (everything before the |)
@@ -1662,47 +1662,89 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
     done
 }
 
-# Manage eBooks submenu
+# Manage eBooks menu
 show_ebooks_menu() {
-    while true; do
-        subchoice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Manage eBooks Menu" 25 50 13 \
-            "1" "Add Files In Bulk" \
-	    "2" "Lookup Registered Files" \
-    	    "3" "Register eBook" \
-            "4" "Register Tag" \
-    	    "5" "Open eBook Search by Filename" \
-    	    "6" "Open eBook Search by Tag" \
-            "7" "Associate Tag with eBook" \
-            "8" "View All Registered eBooks" \
-    	    "9" "View All Registered Tags" \
-            "10" "Search by eBook by Tag" \
-    	    "11" "Dissociate Tag from Registered eBook" \
-    	    "12" "Delete Tag From Global List" \
-    	    "13" "Remove Registered eBook" 3>&1 1>&2 2>&3)
-        
-        [[ $? -ne 0 ]] && return
+    local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION
 
-        case $subchoice in
-	    1) add_files_in_bulk ;;
-	    2) lookup_registered_files ;;
-            3) register_ebook ;;
-            4) register_tag ;;
-            5) open_file_search_by_filename ;;
-            6) open_file_search_by_tag ;;
-            7) associate_tag ;;
-            8) view_ebooks ;;
-            9) view_tags ;;
-            10) search_tags ;;
-            11) dissociate_tag_from_registered_ebook ;;
-            12) delete_tag_from_global_list ;;
-            13) remove_registered_ebook ;;
+    while true; do
+        SUBCHOICE=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Categories: Manage eBooks" 15 50 4 \
+            "1" "File Management" \
+            "2" "Tag Management" \
+            "3" "Search & Lookup" \
+            "4" "Open & Read" 3>&1 1>&2 2>&3)
+
+        # Exit if user presses Cancel or Esc
+        [ $? -ne 0 ] && break
+
+        case "$SUBCHOICE" in
+            "1")
+                # File Management submenu: Items 1, 3, and 13
+                FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                    "1" "Add Files In Bulk" \
+                    "2" "Register eBook" \
+                    "3" "Remove Registered eBook" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && continue
+                case "$FILE_OPTION" in
+                    "1") add_files_in_bulk ;;
+                    "2") register_ebook ;;
+                    "3") remove_registered_ebook ;;
+                    *) whiptail --msgbox "Invalid Option" 8 40 ;;
+                esac
+                ;;
+            "2")
+                # Tag Management submenu: Items 4, 7, 11, and 12
+                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 15 50 4 \
+                    "1" "Register Tag" \
+                    "2" "Associate Tag with eBook" \
+                    "3" "Dissociate Tag from Registered eBook" \
+                    "4" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && continue
+                case "$TAG_OPTION" in
+                    "1") register_tag ;;
+                    "2") associate_tag ;;
+                    "3") dissociate_tag_from_registered_ebook ;;
+                    "4") delete_tag_from_global_list ;;
+                    *) whiptail --msgbox "Invalid Option" 8 40 ;;
+                esac
+                ;;
+            "3")
+                # Search & Lookup submenu: Items 2, 10, 8, and 9
+                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 4 \
+                    "1" "Lookup Registered Files" \
+                    "2" "Search by eBook by Tag" \
+                    "3" "View All Registered eBooks" \
+                    "4" "View All Registered Tags" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && continue
+                case "$SEARCH_OPTION" in
+                    "1") lookup_registered_files ;;
+                    "2") search_tags ;;
+                    "3") view_ebooks ;;
+                    "4") view_tags ;;
+                    *) whiptail --msgbox "Invalid Option" 8 40 ;;
+                esac
+                ;;
+            "4")
+                # Open & Read submenu: Items 5 and 6
+                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 2 \
+                    "1" "Open eBook Search by Filename" \
+                    "2" "Open eBook Search by Tag" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && continue
+                case "$OPEN_OPTION" in
+                    "1") open_file_search_by_filename ;;
+                    "2") open_file_search_by_tag ;;
+                    *) whiptail --msgbox "Invalid Option" 8 40 ;;
+                esac
+                ;;
+            *)
+                whiptail --msgbox "Invalid Category" 8 40
+                ;;
         esac
     done
 }
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
 
-Copyleft February 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
+Copyleft February, March 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
 
 # Main menu function
 show_main_menu() {
