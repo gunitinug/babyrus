@@ -960,7 +960,7 @@ delete_tag_from_global_list() {
         local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
         message+=$(printf '%s\n' "${used_in[@]}")
         message+="\n\nDissociate tag first!"
-        whiptail --msgbox "$message" 20 80
+        whiptail --scrolltext --msgbox "$message" 20 80
         return 1
     fi
 
@@ -1853,6 +1853,107 @@ If you proceed, all of the matching entries will be associated with the tag '${s
 "Bulk files have been associated with the tag '${selected_tag}'." 0 0
 }
 
+dissoc_tag_to_bulk() {
+    # Initial message.
+    whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files." 0 0
+
+    # Present tag selection menu using whiptail
+    local tags=()
+    while IFS= read -r tag; do
+        tags+=("$tag" " ")
+    done < "$TAGS_DB"
+    
+    [[ ${#tags[@]} -eq 0 ]] && { 
+        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 0 0
+        return 1
+    }
+    
+    local selected_tag
+    selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 0 0 0 "${tags[@]}" 3>&1 1>&2 2>&3)
+    [[ -z "$selected_tag" ]] && return 1  # User canceled
+    
+    # Read bulk entries
+    local tempfile=$(mktemp) || return 1
+
+    build_bulk > "$tempfile" || {
+        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        return 1
+    }
+
+    local bulk
+    mapfile -d '' bulk < "$tempfile"
+    rm -f "$tempfile"
+    
+    # Process bulk entries
+    local processed_bulk=()
+    for entry in "${bulk[@]}"; do
+        IFS='|' read -r path current_tags <<< "$entry"
+        local new_tags
+
+        # Remove selected_tag if present
+        if [[ -n "$current_tags" ]]; then
+            IFS=',' read -ra tags_array <<< "$current_tags"
+            local new_tags_array=()
+            for tag in "${tags_array[@]}"; do
+                [[ "$tag" != "$selected_tag" ]] && new_tags_array+=("$tag")
+            done
+            # Join array back to comma-separated string
+            new_tags=$(IFS=','; echo "${new_tags_array[*]}")
+        else
+            new_tags="$current_tags"
+        fi
+
+        processed_bulk+=("$path|$new_tags")
+    done
+
+    # Create associative array for updates
+    declare -A updated_entries
+    for entry in "${processed_bulk[@]}"; do
+        IFS='|' read -r path tags <<< "$entry"
+        # Only add to updates if tags changed
+        if [[ "$tags" != "$(grep -F "$path|" "$EBOOKS_DB" | cut -d'|' -f2-)" ]]; then
+            updated_entries["$path"]="$tags"
+        fi
+    done
+
+    # Skip if no changes
+    [[ ${#updated_entries[@]} -eq 0 ]] && {
+        whiptail --title "No Changes" --msgbox "No files were found with the tag '${selected_tag}'. Database remains unchanged." 0 0
+        return 0
+    }
+
+    # Confirmation dialog
+    whiptail --title "Confirm Update" --yesno \
+"We have ${#updated_entries[@]} entries that will be modified. \
+If you proceed, all selected entries will have the tag '${selected_tag}' removed. Update database?" \
+0 0
+
+    [[ $? -ne 0 ]] && {
+        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 0 0
+        return 1
+    }
+
+    # Update EBOOKS_DB
+    local tmpfile=$(mktemp) || return 1
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        
+        IFS='|' read -r path tags <<< "$line"
+        if [[ -v "updated_entries[$path]" ]]; then
+            echo "$path|${updated_entries[$path]}" >> "$tmpfile"
+        else
+            echo "$line" >> "$tmpfile"
+        fi
+    done < "$EBOOKS_DB"
+
+    # Replace original file with updated version
+    mv -- "$tmpfile" "$EBOOKS_DB"
+
+    # Final message
+    whiptail --title "Bulk Update Finished" --msgbox \
+"Bulk files have been dissociated from the tag '${selected_tag}'." 0 0
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION
@@ -1889,14 +1990,16 @@ show_ebooks_menu() {
                     "2" "Associate Tag with eBook" \
                     "3" "Associate Tag to Bulk" \
                     "4" "Dissociate Tag from Registered eBook" \
-                    "5" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
+                    "5" "Dissociate Tag from Bulk" \
+                    "6" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$TAG_OPTION" in
                     "1") register_tag ;;
                     "2") associate_tag ;;
                     "3") assoc_tag_to_bulk ;;
                     "4") dissociate_tag_from_registered_ebook ;;
-                    "5") delete_tag_from_global_list ;;
+                    "5") dissoc_tag_to_bulk ;;
+                    "6") delete_tag_from_global_list ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
