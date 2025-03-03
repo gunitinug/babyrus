@@ -752,6 +752,16 @@ generate_ebooks_list() {
     done < "$EBOOKS_DB"
 }
 
+generate_ebooks_result_list() {
+    local counter=1
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines if desired
+        [[ -z "$line" ]] && continue
+        echo "${counter}:${line}"
+        ((counter++))
+    done < "$1"
+}
+
 view_ebooks() {
     local tmpfile
     tmpfile=$(mktemp)
@@ -793,8 +803,8 @@ search_tags() {
     if [[ -z "$result" ]]; then
         whiptail --msgbox "No ebooks found with this tag!" 8 40
     else
-        echo "$result" > /tmp/search_result.txt
-        whiptail --textbox /tmp/search_result.txt 20 80
+        generate_ebooks_result_list <(echo "$result") >/tmp/search_result.txt
+        whiptail --scrolltext --textbox /tmp/search_result.txt 20 80
         rm /tmp/search_result.txt
     fi
 }
@@ -1662,6 +1672,187 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
     done
 }
 
+# Build list of filtered items from $EBOOKS_DB filtered by full path name and tag.
+build_bulk() {    
+    # Show boolean pattern help information
+    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
+    "Boolean Pattern HELP:\n\n\
+Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
+The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
+We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
+Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
+Searches are case insensitive.\n\n\
+Some examples:\n\
+1. (*.pdf||*.epub)&&*schaum*\n\
+Search pdf or epub containing 'schaum' in their file name.\n\
+2. *.pdf&&*dover*\n\
+Search pdf files with 'dover' in their file name.\n\
+3. *.pdf||*.epub||*.txt\n\
+Search for pdf or epub or txt files.\n\
+4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
+Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
+'dover' and 'linear algebra' in their file names." 20 80 >/dev/tty
+
+    local pattern regex filtered_paths filtered_lines final_list tag_pattern
+
+    # Step 1: Get the file name search pattern from the user
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to *
+    pattern="${pattern:-*}"
+
+    # DEBUG - if need be save to a temp file perhaps?
+    #echo pattern: >&2
+    #echo "$pattern" >&2
+
+    # Convert pattern to regex using your existing parse_expr function
+    regex=$(parse_expr "$pattern")
+
+    # DEBUG
+    #echo regex: >&2
+    #echo "$regex" >&2
+
+    # Filter file paths from $EBOOKS_DB using the regex.
+    # Only the file path part is considered (everything before the |)
+    filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")
+    if [ -z "$filtered_paths" ]; then
+        whiptail --msgbox "No files match the given file name pattern." 8 60 >/dev/tty
+        return 1
+    fi
+
+    # DEBUG
+    #echo filtered_paths: >&2
+    #echo "$filtered_paths" >&2 # check!
+
+    # Get the full lines from $EBOOKS_DB corresponding to the filtered file paths.
+    # The grep -F -x -f ensures we only get exact matches from the file path field.
+    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
+
+    # DEBUG
+    #echo filtered_lines: >&2
+    #echo "$filtered_lines" >&2
+
+    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
+    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
+    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
+This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60 >/dev/tty
+
+    # Step 2: Ask the user for a tag search pattern
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to .*
+    tag_pattern="${tag_pattern:-.*}"
+
+    # Further filter the lines by matching the tag pattern (which appears after the |)
+    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
+    if [ -z "$final_list" ]; then
+        whiptail --msgbox "No files match the given tag pattern." 8 60 >/dev/tty
+        return 1
+    fi
+    
+    # Echo with \0 delimiter for further processing.
+    # Remember trailing \0 is actually needed to be transformed into an array.
+    echo "$final_list" | while IFS= read -r line; do
+        printf '%s\0' "$line"
+    done    
+}
+
+assoc_tag_to_bulk() {
+    # Initial message.
+    whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files." 0 0
+
+    # Present tag selection menu using whiptail
+    local tags=()
+    while IFS= read -r tag; do
+        tags+=("$tag" " ")
+    done < "$TAGS_DB"
+    
+    [[ ${#tags[@]} -eq 0 ]] && { 
+        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 0 0
+        return 1
+    }
+    
+    local selected_tag
+    selected_tag=$(whiptail --menu "Choose a tag to associate to bulk" 0 0 0 "${tags[@]}" 3>&1 1>&2 2>&3)
+    [[ -z "$selected_tag" ]] && return 1  # User canceled
+    
+    # Read bulk entries
+    local tempfile=$(mktemp) || return 1
+
+    build_bulk > "$tempfile" || {
+        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        return 1
+    }
+
+    local bulk
+    mapfile -d '' bulk < "$tempfile"
+    rm -f "$tempfile"
+    
+    # Process bulk entries
+    local processed_bulk=()
+    for entry in "${bulk[@]}"; do
+        IFS='|' read -r path current_tags <<< "$entry"
+        
+        # Handle empty tags case
+        if [[ -z "$current_tags" ]]; then
+            new_tags="$selected_tag"
+        else
+            # Check if tag already exists
+            if [[ ",$current_tags," == *",$selected_tag,"* ]]; then
+                new_tags="$current_tags"
+            else
+                new_tags="$current_tags,$selected_tag"
+            fi
+        fi
+        
+        processed_bulk+=("$path|$new_tags")
+    done
+
+    # Create associative array for updates
+    declare -A updated_entries
+    for entry in "${processed_bulk[@]}"; do
+        IFS='|' read -r path tags <<< "$entry"
+        updated_entries["$path"]="$tags"
+    done
+
+    # Before updating database, ask user to confirm.
+    whiptail --title "Confirm Update" --yesno \
+"We have maximum of ${#updated_entries[@]} entries that could potentially be overwritten. \
+If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" \
+0 0
+
+    [[ $? -ne 0 ]] && {
+        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 0 0
+        return 1
+    }
+
+    # Update EBOOKS_DB
+    local tmpfile=$(mktemp) || return 1
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        
+        IFS='|' read -r path tags <<< "$line"
+        if [[ -v "updated_entries[$path]" ]]; then
+            echo "$path|${updated_entries[$path]}" >> "$tmpfile"
+        else
+            echo "$line" >> "$tmpfile"
+        fi
+    done < "$EBOOKS_DB"
+
+    # Replace original file with updated version
+    mv -- "$tmpfile" "$EBOOKS_DB"
+
+    # Display final message.
+    whiptail --title "Bulk Update Finished" --msgbox \
+"Bulk files have been associated with the tag '${selected_tag}'." 0 0
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION
@@ -1693,17 +1884,19 @@ show_ebooks_menu() {
                 ;;
             "2")
                 # Tag Management submenu: Items 4, 7, 11, and 12
-                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 15 50 4 \
+                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 15 50 6 \
                     "1" "Register Tag" \
                     "2" "Associate Tag with eBook" \
-                    "3" "Dissociate Tag from Registered eBook" \
-                    "4" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
+                    "3" "Associate Tag to Bulk" \
+                    "4" "Dissociate Tag from Registered eBook" \
+                    "5" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$TAG_OPTION" in
                     "1") register_tag ;;
                     "2") associate_tag ;;
-                    "3") dissociate_tag_from_registered_ebook ;;
-                    "4") delete_tag_from_global_list ;;
+                    "3") assoc_tag_to_bulk ;;
+                    "4") dissociate_tag_from_registered_ebook ;;
+                    "5") delete_tag_from_global_list ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
