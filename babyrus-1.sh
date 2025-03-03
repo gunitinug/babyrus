@@ -1002,6 +1002,9 @@ remove_registered_ebook() {
         return 1  # User cancelled the search
     fi
 
+    # Display 'In operation' message because creating TRUNC may take some time.
+    in_operation_msg
+
     # Create filtered_menu_items based on search_str
     local filtered_menu_items=()
     for ((i=0; i<${#menu_items[@]}; i+=2)); do
@@ -1954,6 +1957,73 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 "Bulk files have been dissociated from the tag '${selected_tag}'." 0 0
 }
 
+# Remove files in bulk.
+remove_files_in_bulk() {
+    # Initial message
+    whiptail --title "Bulk File Removal" --msgbox "This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 0 0
+
+    # Read bulk entries
+    local tempfile=$(mktemp) || return 1
+
+    build_bulk > "$tempfile" || {
+        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        return 1
+    }
+
+    local bulk
+    mapfile -d '' bulk < "$tempfile"
+    rm -f "$tempfile"
+
+    # Extract paths from bulk entries
+    declare -A paths_to_remove
+    for entry in "${bulk[@]}"; do
+        IFS='|' read -r path _ <<< "$entry"
+        paths_to_remove["$path"]=1
+    done
+
+    # Check if any paths were selected
+    [[ ${#paths_to_remove[@]} -eq 0 ]] && {
+        whiptail --title "Error" --msgbox "No files selected for removal." 0 0
+        return 1
+    }
+
+    # Confirmation dialog
+    whiptail --title "Confirm Removal" --yesno \
+"About to remove ${#paths_to_remove[@]} entries from the database. This operation cannot be undone!\n\nProceed with deletion?" \
+0 0
+
+    [[ $? -ne 0 ]] && {
+        whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 0 0
+        return 1
+    }
+
+    # Process database file
+    local tmpfile=$(mktemp) || return 1
+    local removed_count=0
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        
+        IFS='|' read -r path _ <<< "$line"
+        if [[ -v paths_to_remove["$path"] ]]; then
+            ((removed_count++))
+        else
+            echo "$line" >> "$tmpfile"
+        fi
+    done < "$EBOOKS_DB"
+
+    # Handle actual removals
+    if (( removed_count > 0 )); then
+        mv -- "$tmpfile" "$EBOOKS_DB"
+        whiptail --title "Removal Complete" --msgbox \
+"Successfully removed $removed_count entries from the database." 0 0
+    else
+        rm -f "$tmpfile"
+        whiptail --title "No Changes" --msgbox \
+"No matching entries found in the database. No files were removed." 0 0
+    fi
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION
@@ -1971,15 +2041,17 @@ show_ebooks_menu() {
         case "$SUBCHOICE" in
             "1")
                 # File Management submenu: Items 1, 3, and 13
-                FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Select an option" 15 50 6 \
                     "1" "Add Files In Bulk" \
                     "2" "Register eBook" \
-                    "3" "Remove Registered eBook" 3>&1 1>&2 2>&3)
+                    "3" "Remove Registered eBook" \
+                    "4" "Remove Files In Bulk" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$FILE_OPTION" in
                     "1") add_files_in_bulk ;;
                     "2") register_ebook ;;
                     "3") remove_registered_ebook ;;
+                    "4") remove_files_in_bulk ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
