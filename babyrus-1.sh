@@ -51,7 +51,7 @@ list_files() {
         entry="$(echo -n "$entry" | tr -s '/')"
 
         if [[ -d "$entry" && "$mode" == "D" ]]; then
-            entries+=("$entry" "$(basename "$entry")")
+            entries+=("$entry" " ")
         elif [[ -f "$entry" && "$mode" == "F" ]]; then
             entries+=("$entry" "$(basename "$entry")")
         fi
