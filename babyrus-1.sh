@@ -1960,7 +1960,7 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 # Remove files in bulk.
 remove_files_in_bulk() {
     # Initial message
-    whiptail --title "Bulk File Removal" --msgbox "This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 0 0
+    whiptail --title "DANGER: Bulk File Removal" --msgbox "This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 0 0
 
     # Read bulk entries
     local tempfile=$(mktemp) || return 1
@@ -2024,16 +2024,87 @@ remove_files_in_bulk() {
     fi
 }
 
+# Search each line in $EBOOKS_DB for broken entries and remove them.
+remove_broken_entries() { 
+  # Initial information
+  whiptail --title "Remove Broken Entries" --msgbox \
+"This feature allows you to fix the database file by finding and removing broken entries (ie. paths to files that point to non-existent files)." 10 78
+
+  # Check if the EBOOKS_DB variable is set and file exists.
+  if [ -z "$EBOOKS_DB" ] || [ ! -f "$EBOOKS_DB" ]; then
+    whiptail --msgbox "EBOOKS_DB is not set or the file does not exist." 8 78
+    return 1
+  fi
+
+  # Declare an array to hold conflicting (broken) entries.
+  local conflicting_entries=()
+
+  # Process each line in the database.
+  while IFS= read -r line; do
+    # Retrieve the file path (everything before the first |)
+    local filepath="${line%|*}"
+    # Check if the file exists.
+    if [ ! -f "$filepath" ]; then
+      conflicting_entries+=("$line")
+    fi
+  done < "$EBOOKS_DB"
+
+  # If no broken entries were found, inform the user.
+  if [ ${#conflicting_entries[@]} -eq 0 ]; then
+    whiptail --msgbox "There are no broken entries in the database." 8 78
+    return 0
+  fi
+
+  # Prepare a message listing all broken entries.
+  local message="${#conflicting_entries[@]} broken entries found:\n"
+  for entry in "${conflicting_entries[@]}"; do
+    message+="$entry\n"
+  done
+
+  # Inform the user about the conflicting lines.
+  whiptail --msgbox "$message" 20 78
+
+  # Confirm deletion with the user.
+  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 78; then
+    # Create a temporary file.
+    local tmp_file
+    tmp_file=$(mktemp) || { whiptail --msgbox "Failed to create temporary file." 8 78; return 1; }
+
+    # Write back only the valid entries.
+    while IFS= read -r line; do
+      local found=0
+      for broken in "${conflicting_entries[@]}"; do
+        if [ "$line" = "$broken" ]; then
+          found=1
+          break
+        fi
+      done
+      if [ $found -eq 0 ]; then
+        echo "$line" >> "$tmp_file"
+      fi
+    done < "$EBOOKS_DB"
+
+    # Replace the original database with the filtered version.
+    mv "$tmp_file" "$EBOOKS_DB"
+    
+    # Inform the user that deletion is complete.
+    whiptail --msgbox "Deletion of ${#conflicting_entries[@]} conflicting entries has completed." 8 78
+  else
+    whiptail --msgbox "No entries were deleted." 8 78
+  fi
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
-    local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION
+    local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
 
     while true; do
-        SUBCHOICE=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Categories: Manage eBooks" 15 50 4 \
+        SUBCHOICE=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Categories: Manage eBooks" 15 50 6 \
             "1" "File Management" \
             "2" "Tag Management" \
             "3" "Search & Lookup" \
-            "4" "Open & Read" 3>&1 1>&2 2>&3)
+            "4" "Open & Read" \
+            "5" "Maintenance & Backup" 3>&1 1>&2 2>&3)
 
         # Exit if user presses Cancel or Esc
         [ $? -ne 0 ] && break
@@ -2093,13 +2164,23 @@ show_ebooks_menu() {
                 ;;
             "4")
                 # Open & Read submenu: Items 5 and 6
-                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 2 \
+                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 3 \
                     "1" "Open eBook Search by Filename" \
                     "2" "Open eBook Search by Tag" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$OPEN_OPTION" in
                     "1") open_file_search_by_filename ;;
                     "2") open_file_search_by_tag ;;
+                    *) whiptail --msgbox "Invalid Option" 8 40 ;;
+                esac
+                ;;
+            "5")
+                # Open & Read submenu: Items 5 and 6
+                MAINTENANCE_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                    "1" "Find Remove Broken Entries" 3>&1 1>&2 2>&3)
+                [ $? -ne 0 ] && continue
+                case "$MAINTENANCE_OPTION" in
+                    "1") remove_broken_entries ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
