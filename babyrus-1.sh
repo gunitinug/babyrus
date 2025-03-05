@@ -2122,6 +2122,37 @@ remove_broken_entries() {
   fi
 }
 
+# Just a mock function - feature incomplete.
+# Also think about open_file_by_filepath()
+lookup_by_filepath() {
+    # Extract unique directories (full path minus file name) from ebooks.db
+    local dirs
+    dirs=$(cut -d'|' -f1 ebooks.db | sed -E 's:/[^/]+$::' | sort | uniq)
+
+    # Build menu items for whiptail (each item appears as "tag description")
+    local menu_items=()
+    while IFS= read -r dir; do
+        menu_items+=( "$dir" " " )
+    done <<< "$dirs"
+
+    # Prompt user to choose a directory with whiptail
+    local choice
+    choice=$(whiptail --title "Select Directory" --menu "Choose a directory:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+    # If user cancels, exit the function
+    if [ $? -ne 0 ]; then
+        echo "User canceled."
+        return 1
+    fi
+
+    # Display all lines in ebooks.db that match the chosen directory
+    # In practice, I need further interaction with user to be feature complete.
+    local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" ebooks.db)"
+
+    # Just output into msgbox for now.
+    whiptail --scrolltext --title "Matching files in ${choice}/" --msgbox "$matching_files_in_chosen_dir" 20 80
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
@@ -2176,17 +2207,19 @@ show_ebooks_menu() {
                 ;;
             "3")
                 # Search & Lookup submenu: Items 2, 10, 8, and 9
-                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 4 \
+                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 6 \
                     "1" "Lookup Registered Files" \
                     "2" "Search by eBook by Tag" \
-                    "3" "View All Registered eBooks" \
-                    "4" "View All Registered Tags" 3>&1 1>&2 2>&3)
+                    "3" "Lookup By Filepath" \
+                    "4" "View All Registered eBooks" \
+                    "5" "View All Registered Tags" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$SEARCH_OPTION" in
                     "1") lookup_registered_files ;;
                     "2") search_tags ;;
-                    "3") view_ebooks ;;
-                    "4") view_tags ;;
+                    "3") lookup_by_filepath ;;
+                    "4") view_ebooks ;;
+                    "5") view_tags ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
