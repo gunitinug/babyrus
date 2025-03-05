@@ -3,6 +3,34 @@
 BABYRUS_VERSION='v.0.2'
 BABYRUS_AUTHOR='Logan Lee'
 
+# CHECK MINIMUM BASH VERSION A.B.C
+check_bash_ver() {
+    # Minimum bash version A.B.C
+    local A B C bash_ver
+    A=5
+    B=2
+    C=21
+
+    IFS=. read -ra bash_ver <<< "$(bash --version | grep -Po '(?<=GNU bash, version )[0-9.]+')"
+
+    i=0
+    err_msg="Bash version at least $A.$B.$C required!"
+
+    while [ $i -lt 3 ]; do
+        part=${bash_ver[i]}
+
+        if [[ $i -eq 0 && $part -ge $A ]] || [[ $i -eq 1 && $part -ge $B ]] || [[ $i -eq 2 && $part -ge $C ]]; then
+            # Continue only if the condition is met for each part
+            ((i++))
+        else
+            # Print error message and exit if bash is too old.
+            echo "$err_msg" >&2
+            exit 1
+        fi
+    done
+}
+check_bash_ver
+
 # Check dependencies
 if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
     echo "Error: Both whiptail and wmctrl are required, but at least one is not installed." >&2
