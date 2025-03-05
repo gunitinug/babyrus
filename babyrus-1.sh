@@ -2149,8 +2149,14 @@ lookup_by_filepath() {
     # In practice, I need further interaction with user to be feature complete.
     local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" ebooks.db)"
 
+    # Truncate whiptail title.
+    local whip_title="Matching files in ${choice}/"
+    if [ ${#whip_title} -gt 50 ]; then
+        whip_title="${whip_title:0:50}..."
+    fi
+
     # Just output into msgbox for now.
-    whiptail --scrolltext --title "Matching files in ${choice}/" --msgbox "$matching_files_in_chosen_dir" 20 80
+    whiptail --scrolltext --title "$whip_title" --msgbox "$matching_files_in_chosen_dir" 20 80
 }
 
 # Manage eBooks menu
