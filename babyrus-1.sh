@@ -1918,6 +1918,9 @@ dissoc_tag_to_bulk() {
     selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 0 0 0 "${tags[@]}" 3>&1 1>&2 2>&3)
     [[ -z "$selected_tag" ]] && return 1  # User canceled
     
+    # In operation msg because building bulk takes time.
+    in_operation_msg
+
     # Read bulk entries
     local tempfile=$(mktemp) || return 1
 
@@ -1967,6 +1970,21 @@ dissoc_tag_to_bulk() {
         whiptail --title "No Changes" --msgbox "No files were found with the tag '${selected_tag}'. Database remains unchanged." 0 0
         return 0
     }
+
+    # Before updating database, show the candidates for update:
+    local key
+    local entries_str=""
+
+    # Loop through the keys and format each line
+    for key in "${!updated_entries[@]}"; do
+        entries_str+="$key New:${updated_entries[$key]}\n"
+    done
+
+    # Inform user of candidates for update
+    local tempfile=$(mktemp)
+    printf "%b" "$entries_str" > "$tempfile"
+    whiptail --scrolltext --title "ATTENTION Candidates For Tag '${selected_tag}' Removal" --textbox "$tempfile" 20 80
+    rm -f "$tempfile"
 
     # Confirmation dialog
     whiptail --title "Confirm Update" --yesno \
