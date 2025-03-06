@@ -1798,7 +1798,7 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 
 assoc_tag_to_bulk() {
     # Initial message.
-    whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files." 0 0
+    whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files." 10 60
 
     # Present tag selection menu using whiptail
     local tags=()
@@ -1903,7 +1903,7 @@ If you proceed, all of the matching entries will be associated with the tag '${s
 
 dissoc_tag_to_bulk() {
     # Initial message.
-    whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files." 0 0
+    whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files." 10 60
 
     # Present tag selection menu using whiptail
     local tags=()
@@ -2023,7 +2023,8 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 # Remove files in bulk.
 remove_files_in_bulk() {
     # Initial message
-    whiptail --title "DANGER: Bulk File Removal" --msgbox "This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 0 0
+    whiptail --title "DANGER: Bulk File Removal" --msgbox \
+"This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 10 60
 
     # Read bulk entries
     local tempfile=$(mktemp) || return 1
