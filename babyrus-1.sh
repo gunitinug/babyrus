@@ -996,7 +996,9 @@ delete_tag_from_global_list() {
     whiptail --yesno "Permanently delete tag:\n'$selected_tag'?" 10 40 || return 0
 
     # Delete from tags database
-    grep -Fx -v -- "$selected_tag" "$TAGS_DB" > "$TAGS_DB.tmp" && mv -f "$TAGS_DB.tmp" "$TAGS_DB"
+    grep -Fx -v -- "$selected_tag" "$TAGS_DB" > "$TAGS_DB.tmp"; mv -f "$TAGS_DB.tmp" "$TAGS_DB"
+    #grep -Fx -v -- "$selected_tag" "$TAGS_DB" > "$TAGS_DB.tmp" && mv -f "$TAGS_DB.tmp" "$TAGS_DB" # BIG FIX. you know why this doesn't work?
+    # it's because LHS is false when grep output is empty so RHS is not run.
     whiptail --msgbox "Tag '$selected_tag' deleted successfully!" 8 40
 }
 
