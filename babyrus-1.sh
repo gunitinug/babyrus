@@ -1852,6 +1852,21 @@ assoc_tag_to_bulk() {
         updated_entries["$path"]="$tags"
     done
 
+    # Before updating database, show the candidates for update:
+    local key
+    local entries_str=""
+
+    # Loop through the keys and format each line
+    for key in "${!updated_entries[@]}"; do
+        entries_str+="$key New:${updated_entries[$key]}\n"
+    done
+
+    # Inform user of candidates for update
+    local tempfile=$(mktemp)
+    printf "%b" "$entries_str" > "$tempfile"
+    whiptail --scrolltext --title "ATTENTION Candidates For Tag Update" --textbox "$tempfile" 20 80
+    rm -f "$tempfile"
+
     # Before updating database, ask user to confirm.
     whiptail --title "Confirm Update" --yesno \
 "We have maximum of ${#updated_entries[@]} entries that could potentially be overwritten. \
