@@ -691,7 +691,7 @@ associate_tag() {
     fi
 
     # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
+    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (literal substring search; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
     
     # Handle cancel/escape
     if [ $? -ne 0 ]; then
