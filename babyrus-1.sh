@@ -2122,9 +2122,16 @@ remove_broken_entries() {
   fi
 }
 
-# Just a mock function - feature incomplete.
+# Lookup by choosing a file path from registered files first.
 # Also think about open_file_by_filepath()
 lookup_by_filepath() {
+    # Initial message.
+    whiptail --title "Lookup By File Path" --msgbox \
+"This feature allows you to query files by first choosing a file path from registered files:\n\
+After choosing a path from the list, you can further narrow the search by both file name(boolean pattern) and tag(literal substring match)." 20 80
+
+    # First, choose the path among registered files.
+
     # Extract unique directories (full path minus file name) from ebooks.db
     local dirs
     dirs=$(cut -d'|' -f1 ebooks.db | sed -E 's:/[^/]+$::' | sort | uniq)
@@ -2137,26 +2144,149 @@ lookup_by_filepath() {
 
     # Prompt user to choose a directory with whiptail
     local choice
-    choice=$(whiptail --title "Select Directory" --menu "Choose a directory:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    choice=$(whiptail --title "Select Directory" --menu "Choose a directory for registered files:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
     # If user cancels, exit the function
     if [ $? -ne 0 ]; then
-        echo "User canceled."
+        whiptail --msgbox "User canceled." 8 60
         return 1
     fi
 
     # Display all lines in ebooks.db that match the chosen directory
-    # In practice, I need further interaction with user to be feature complete.
     local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" ebooks.db)"
 
-    # Truncate whiptail title.
-    local whip_title="Matching files in ${choice}/"
-    if [ ${#whip_title} -gt 50 ]; then
-        whip_title="${whip_title:0:50}..."
+    # Now, get from user pattern and tag_pattern to further narrow the search.
+    # Show boolean pattern help information
+    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
+    "Boolean Pattern HELP:\n\n\
+Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
+The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
+We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
+Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
+Searches are case insensitive.\n\n\
+Some examples:\n\
+1. (*.pdf||*.epub)&&*schaum*\n\
+Search pdf or epub containing 'schaum' in their file name.\n\
+2. *.pdf&&*dover*\n\
+Search pdf files with 'dover' in their file name.\n\
+3. *.pdf||*.epub||*.txt\n\
+Search for pdf or epub or txt files.\n\
+4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
+Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
+'dover' and 'linear algebra' in their file names." 20 80
+
+    local pattern regex filtered_lines final_list tag_pattern
+
+    # Step 1: Get the file name search pattern from the user
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        return 1
     fi
 
-    # Just output into msgbox for now.
-    whiptail --scrolltext --title "$whip_title" --msgbox "$matching_files_in_chosen_dir" 20 80
+    # Defaults to *
+    pattern="${pattern:-*}"
+
+    # DEBUG - if need be save to a temp file perhaps?
+    #echo pattern: >&2
+    #echo "$pattern" >&2
+
+    # Convert pattern to regex using your existing parse_expr function
+    regex=$(parse_expr "$pattern")
+
+    # DEBUG
+    #echo regex: >&2
+    #echo "$regex" >&2
+
+    # Filter file paths from $EBOOKS_DB using the regex.
+    # Only the file path part is considered (everything before the |)
+    filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
+
+    if [ -z "$filtered_paths" ]; then
+        whiptail --msgbox "No files match the given file name pattern." 8 60
+        return 1
+    fi
+
+    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
+
+    # DEBUG
+    #echo filtered lines:
+    #echo "$filtered_lines"
+    #exit 1
+
+    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
+    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
+    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
+This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
+
+    # Step 2: Ask the user for a tag search pattern
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    # Defaults to .*
+    tag_pattern="${tag_pattern:-.*}"
+
+    # Further filter the lines by matching the tag pattern (which appears after the |)
+    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
+
+    # DEBUG
+    #echo final list
+    #echo "$final_list"
+    #exit 1
+
+    if [ -z "$final_list" ]; then
+        whiptail --msgbox "No files match the given tag pattern." 8 60
+        return 1
+    fi
+
+    in_operation_msg # show 'in operation...' while building menu items...
+
+    local menu_items=()
+    local idx=1
+    declare -A line_map
+    # Build the menu items array. Each menu entry is a pair:
+    # the index number and a description (file path with tags)
+    while IFS= read -r line; do
+        # Replace the | separator with a more readable format for display.
+        menu_items+=("$idx" "$(echo "$line")")
+        line_map["$idx"]="$line"
+        idx=$((idx + 1))
+    done <<< "$final_list"
+
+    # menu_items need truncating. the format is "idx#" "full path including tags"
+    # Build the large list once:
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
+
+    # Reset CURRENT_PAGE for this new TRUNC array.
+    CURRENT_PAGE=0
+
+    # Step 3: Loop to show the final list in a whiptail menu repeatedly
+    while true; do
+        # then paginate it.
+        paginate
+
+        if [ $? -ne 0 ]; then
+            break
+        fi
+
+        # Display the whiptail menu.
+        local selection
+        selection="$SELECTED_ITEM"
+
+        # Retrieve and display the selected file (full line with path and tags)
+        local selected_line="${line_map[$selection]}"
+
+        # Truncate whiptail title.
+        local whip_title="Matching file in ${choice}/:"
+        if [ ${#whip_title} -gt 50 ]; then
+            whip_title="${whip_title:0:50}..."
+        fi
+
+        # Format file info and display it.
+        local formatted_str="$(format_file_info "$selected_line")"
+        whiptail --scrolltext --title "$whip_title" --msgbox "$formatted_str" 20 80
+    done
 }
 
 # Manage eBooks menu
