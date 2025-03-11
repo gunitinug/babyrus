@@ -11,6 +11,9 @@ EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 # Create notes directories if not created
 mkdir -p "${NOTES_METADATA_PATH}"
 
+# Create if not existent
+touch "$NOTES_DB" "$NOTES_TAGS_DB" "$NOTES_EBOOKS_DB"
+
 # Global array to store filtered entries.
 declare -a FILTERED_EBOOKS
 
@@ -195,27 +198,20 @@ manage_tags() {
 }
 
 manage_ebooks() {
-    while true; do
-        # Read existing ebooks, skipping empty lines
-        local -a ebooks=()
-        if [ -f "$NOTES_EBOOKS_DB" ]; then
-            while IFS= read -r line; do
-                if [[ -n "$line" ]]; then
-                    ebooks+=("$line")
-                fi
-            done < "$NOTES_EBOOKS_DB"
-        fi
+    # Load existing ebooks into ebook_entries if desired (remove if starting fresh)
+    # If you want to edit existing entries, uncomment the following lines:
+    # if [ -f "$NOTES_EBOOKS_DB" ]; then
+    #     while IFS= read -r line; do
+    #         [[ -n "$line" ]] && ebook_entries+=("$line")
+    #     done < "$NOTES_EBOOKS_DB"
+    # fi
 
-        # Prepare menu options
+    while true; do
+        # Prepare menu options from ebook_entries
         local menu_options=()
-        for ebook in "${ebooks[@]}"; do
-            local chapters=""
-            for entry in "${ebook_entries[@]}"; do
-                if [[ "$entry" == "${ebook}#"* ]]; then
-                    chapters=$(cut -d# -f2- <<< "$entry")
-                    break
-                fi
-            done
+        for entry in "${ebook_entries[@]}"; do
+            ebook=$(cut -d# -f1 <<< "$entry")
+            chapters=$(cut -d# -f2- <<< "$entry")
             menu_options+=("$ebook" "$chapters")
         done
         menu_options+=("Add new ebook" "")
@@ -225,7 +221,7 @@ manage_ebooks() {
         local selection
         selection=$(whiptail --title "Manage Ebooks" --menu "Manage ebook associations" 20 100 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-        [ $? -eq 0 ] || return
+        [ $? -eq 0 ] || break
 
         case "$selection" in
             "Add new ebook")
@@ -237,29 +233,32 @@ manage_ebooks() {
                 paginate
                 new_ebook="$SELECTED_ITEM"
 
-                # Check if the user selected an ebook
                 if [[ -z "$new_ebook" ]]; then
                     whiptail --msgbox "No ebook selected. Operation cancelled." 8 60 >/dev/tty
                     continue
                 fi
 
-                # Add to global ebooks list if not already present
-                if ! grep -qxF "$new_ebook" "$NOTES_EBOOKS_DB"; then
-                    echo "$new_ebook" >> "$NOTES_EBOOKS_DB"
-                fi
-
-                # Prompt for chapters/pages
-                local chapters
-                chapters=$(whiptail --inputbox "Enter chapter:page pairs (e.g., chapter1:5, chapter3:10-15):" \
-                    12 60 3>&1 1>&2 2>&3 </dev/tty)
-                # Check if user cancelled chapters input
-                if [ $? -ne 0 ]; then
-                    whiptail --msgbox "Chapters input cancelled. Ebook not added." 8 60 >/dev/tty
+                # Check if ebook already exists in ebook_entries
+                local exists=0
+                for entry in "${ebook_entries[@]}"; do
+                    if [[ "$entry" == "${new_ebook}#"* ]]; then
+                        exists=1
+                        break
+                    fi
+                done
+                if [ $exists -eq 1 ]; then
+                    whiptail --msgbox "Ebook already exists in the current session." 8 60 >/dev/tty
                     continue
                 fi
 
+                local chapters
+                chapters=$(whiptail --inputbox "Enter chapter:page pairs (e.g., chapter1:5, chapter3:10-15):" \
+                    12 60 "" 3>&1 1>&2 2>&3 </dev/tty)
+                [ $? -ne 0 ] && continue
+
                 ebook_entries+=("${new_ebook}#${chapters}")
                 ;;
+
             "Remove ebook")
                 local remove_options=()
                 for entry in "${ebook_entries[@]}"; do
@@ -270,26 +269,23 @@ manage_ebooks() {
                     20 100 10 "${remove_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
                 [ $? -eq 0 ] || continue
 
-                whiptail --yesno "Remove all associations for '${to_remove}'?" 8 60 </dev/tty >/dev/tty && {
-                    local new_ebook_entries=()  # Temporary array for filtered entries
-                    for entry in "${ebook_entries[@]}"; do
-                        # If the entry does NOT start with "${to_remove}#", keep it
-                        if [[ "$entry" != "${to_remove}"#* ]]; then
-                            new_ebook_entries+=("$entry")
-                        fi
-                    done
-                    ebook_entries=("${new_ebook_entries[@]}")  # Overwrite original array
-                }
+                local new_entries=()
+                for entry in "${ebook_entries[@]}"; do
+                    [[ "$entry" != "${to_remove}#"* ]] && new_entries+=("$entry")
+                done
+                ebook_entries=("${new_entries[@]}")
                 ;;
+
             "Back")
                 return
                 ;;
+
             *)
                 # Edit existing entry
                 local current_chapters=""
-                for entry in "${ebook_entries[@]}"; do
-                    if [[ "$entry" == "${selection}#"* ]]; then
-                        current_chapters=$(cut -d# -f2- <<< "$entry")
+                for idx in "${!ebook_entries[@]}"; do
+                    if [[ "${ebook_entries[idx]}" == "${selection}#"* ]]; then
+                        current_chapters=$(cut -d# -f2- <<< "${ebook_entries[idx]}")
                         break
                     fi
                 done
@@ -299,35 +295,31 @@ manage_ebooks() {
                     "$current_chapters" 3>&1 1>&2 2>&3 </dev/tty)
                 [ $? -eq 0 ] || continue
 
-                # Update entry
-                local new_update_entries=()  # Temporary array for filtered entries
-            
-                # Remove the existing entry matching "${selection}#*"
-                for entry in "${ebook_entries[@]}"; do
-                    if [[ "$entry" != "${selection}"#* ]]; then
-                        new_update_entries+=("$entry")
+                # Update the entry in ebook_entries
+                for idx in "${!ebook_entries[@]}"; do
+                    if [[ "${ebook_entries[idx]}" == "${selection}#"* ]]; then
+                        ebook_entries[idx]="${selection}#${new_chapters}"
+                        break
                     fi
                 done
-            
-                # Add the updated entry
-                new_update_entries+=("${selection}#${new_chapters}")
-            
-                # Replace the original array with the updated one
-                ebook_entries=("${new_update_entries[@]}")
                 ;;
         esac
     done
 }
 
 save_note() {
+    # DEBUG
+    echo note title: >&2
+    echo "$note_title" >&2
+
     # Check that note_title and note_path are set; if not, do not save
-    if [[ -z "$note_title" || -z "$note_path" ]]; then
-        whiptail --title "Error" --msgbox "Note title and note path can't be empty!" 8 50 >/dev/tty
+    if [[ -z "$note_title" ]]; then
+        whiptail --title "Error" --msgbox "Note title can't be empty!" 8 50 >/dev/tty
         return 1
     fi
 
     local timestamp
-    timestamp=$(date +"%d-%m-%Y")
+    timestamp=$(date +"%d-%m-%Y") # Change format to day-month-year-hour-second.
     local sanitized_title
     sanitized_title=$(tr -cd '[:alnum:]-_ ' <<< "$note_title" | tr ' ' '_')
     note_path="${NOTES_PATH}/${sanitized_title}-${timestamp}.txt"
@@ -341,8 +333,8 @@ save_note() {
 
     # Update databases
     echo "${note_title}|${note_path}|${tags_str}|${ebooks_str}" >> "$NOTES_DB"
-    sort -u "$HOME/notes/metadata/notes-tags.db" -o "$NOTES_TAGS_DB"
-    sort -u "$HOME/notes/metadata/notes-ebooks.db" -o "$NOTES_EBOOKS_DB"
+    sort -u "$NOTES_TAGS_DB" -o "$NOTES_TAGS_DB"
+    sort -u "$NOTES_EBOOKS_DB" -o "$NOTES_EBOOKS_DB"
 
     whiptail --msgbox "Note created successfully:\n${note_path}" 10 60 >/dev/tty
 }
