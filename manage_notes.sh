@@ -129,8 +129,6 @@ filter_by_filename() {
   whiptail --msgbox "Found $(( ${#FILTERED_EBOOKS[@]} / 2 )) matching entries." 8 60 --title "Filter Results" >/dev/tty
 }
 
-#!/bin/bash
-
 # Global variables used by add_note and its helpers.
 note_title=""
 note_path=""
@@ -319,7 +317,7 @@ save_note() {
     fi
 
     local timestamp
-    timestamp=$(date +"%d-%m-%Y") # Change format to day-month-year-hour-second.
+    timestamp=$(date "+%d%m%Y-%H%M%S") # Change format to day-month-year-hour-second.
     local sanitized_title
     sanitized_title=$(tr -cd '[:alnum:]-_ ' <<< "$note_title" | tr ' ' '_')
     note_path="${NOTES_PATH}/${sanitized_title}-${timestamp}.txt"
@@ -330,6 +328,15 @@ save_note() {
     tags_str=$(IFS=','; echo "${current_tags[*]}")
     local ebooks_str
     ebooks_str=$(IFS=';'; echo "${ebook_entries[*]}")
+
+    # Copy over current_tags and ebooks_entries to files
+    for tg in "${current_tags[@]}"; do
+        echo "$tg" >> "$NOTES_TAGS_DB"
+    done
+
+    for eb in "${ebook_entries[@]}"; do
+        echo "${eb%#*}" >> "$NOTES_EBOOKS_DB"
+    done
 
     # Update databases
     echo "${note_title}|${note_path}|${tags_str}|${ebooks_str}" >> "$NOTES_DB"
