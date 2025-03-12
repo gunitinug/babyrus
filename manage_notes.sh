@@ -85,6 +85,8 @@ truncate_chapters() {
     if [[ "$chapters" == *","* ]]; then
         last="${chapters##*,}"
     else
+        # If only one chapter is encoded then empty prefix.
+        prefix=""
         last="$chapters"
     fi
 
