@@ -14,6 +14,84 @@ mkdir -p "${NOTES_METADATA_PATH}"
 # Create if not existent
 touch "$NOTES_DB" "$NOTES_TAGS_DB" "$NOTES_EBOOKS_DB"
 
+# truncate logic for filenames (ie. basename)
+# the logic is:
+# "a very long truncated file.pdf" becomes "a very long truncated....pdf"
+# preserves the file extension.
+truncate_filename() {
+    local filename="$1"
+    local max_length="${2:-85}" # defaults to 85
+
+    # Extract filename and extension
+    local name="${filename%.*}"
+    local ext="${filename##*.}"
+
+    # If there's no extension, treat whole as name
+    [[ "$filename" == "$ext" ]] && ext=""
+
+    # Calculate max length for the name part (allow space for dots and extension)
+    local trunc_length=$(( max_length - ${#ext} - 4 ))  # 4 accounts for "...."
+
+    # If filename is within limit, return as-is
+    if [[ ${#filename} -le $max_length ]]; then
+        echo "$filename"
+        return
+    fi
+
+    # Truncate the name and append "...." + extension
+    local truncated_name="${name:0:trunc_length}"
+    echo "${truncated_name}....${ext}"
+}
+
+# truncation logic for dirname
+# like this:
+# "/this/is/a/very/long/path" to "/this/is/a/.../long/path"
+truncate_dirname() {
+    local dir="$1"
+    local max_length="${2:-50}" # defaults to 50
+
+    if [[ ${#dir} -le $max_length ]]; then
+        echo "$dir"
+    else
+        local keep_length=$(( max_length - 5 ))  # Space left after "/.../"
+        local start_length=$(( keep_length / 2 ))  # Half for start
+        local end_length=$(( keep_length - start_length ))  # Remaining for end
+
+        local start="${dir:0:start_length}"
+        local end="${dir: -end_length}"
+
+        echo "${start}/.../${end}"
+    fi
+}
+
+# Need this function to create TRUNC_FILTERED_EBOOKS array
+generate_trunc_manage_ebooks() {
+    # Initialize the TRUNC_FILTERED_EBOOKS array
+    TRUNC_FILTERED_EBOOKS=()
+
+    # If FILTERED_EBOOKS is empty return
+    [[ ${#FILTERED_EBOOKS[@]} -eq 0 ]] && return 1
+
+    # Process each full path from FILTERED_EBOOKS (assuming pairs: fullpath "" ...)
+    for ((i=0; i < ${#FILTERED_EBOOKS[@]}; i+=2)); do
+        fullpath="${FILTERED_EBOOKS[i]}"
+
+        # Extract the directory and filename parts
+        dir=$(dirname "$fullpath")
+        file=$(basename "$fullpath")
+
+        # Apply truncation functions to the directory and filename respectively
+        truncated_dir=$(truncate_dirname "$dir")
+        truncated_file=$(truncate_filename "$file")
+
+        # Reassemble the truncated path
+        truncated_path="${truncated_dir}/${truncated_file}"
+
+        # Append the truncated path and an empty string to maintain pair structure
+        TRUNC_FILTERED_EBOOKS+=( "$truncated_path" "" )
+    done
+}
+
 # Global array to store filtered entries.
 declare -a FILTERED_EBOOKS
 
