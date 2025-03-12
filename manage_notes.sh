@@ -72,6 +72,7 @@ generate_trunc_manage_ebooks() {
     # If FILTERED_EBOOKS is empty return
     [[ ${#FILTERED_EBOOKS[@]} -eq 0 ]] && return 1
 
+    local idx=1
     # Process each full path from FILTERED_EBOOKS (assuming pairs: fullpath "" ...)
     for ((i=0; i < ${#FILTERED_EBOOKS[@]}; i+=2)); do
         fullpath="${FILTERED_EBOOKS[i]}"
@@ -88,7 +89,8 @@ generate_trunc_manage_ebooks() {
         truncated_path="${truncated_dir}/${truncated_file}"
 
         # Append the truncated path and an empty string to maintain pair structure
-        TRUNC_FILTERED_EBOOKS+=( "$truncated_path" "" )
+        TRUNC_FILTERED_EBOOKS+=( "$idx:${truncated_path}" "" )
+        (( idx ++ ))
     done
 }
 
@@ -115,11 +117,15 @@ paginate() {
         CURRENT_PAGE=$(( total_pages - 1 ))
     fi
 
+    # populate TRUNC_FILTERED_EBOOKS from FILTERED_EBOOKS
+    generate_trunc_manage_ebooks
+
     local choice=""
     while true; do
         local start=$(( CURRENT_PAGE * chunk_size ))
         # Extract the current chunk from the global TRUNC
-        local current_chunk=("${FILTERED_EBOOKS[@]:$start:$chunk_size}")
+        #local current_chunk=("${FILTERED_EBOOKS[@]:$start:$chunk_size}")
+        local current_chunk=("${TRUNC_FILTERED_EBOOKS[@]:$start:$chunk_size}")
         local menu_options=()
 
         # Add navigation options if needed
@@ -153,7 +159,10 @@ paginate() {
                 ;;
             *)
                 # Return the selected item (page state remains for next call)
-                SELECTED_ITEM="$choice"
+                local n="$(echo "$choice" | cut -d':' -f1)"
+                local m=$((2 * n - 1))
+
+                SELECTED_ITEM="${FILTERED_EBOOKS[$((m - 1))]}"
                 return 0
                 ;;
         esac
