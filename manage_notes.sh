@@ -114,6 +114,36 @@ truncate_chapters() {
     echo "${prefix}${last}"
 }
 
+# Need this to truncate menu inside manage ebooks().
+generate_trunc_manage_ebooks_menu() {
+    # Initialize the result array
+    TRUNC_MANAGE_EBOOKS_MENU=()
+    
+    # Get the input array from arguments
+    local input_array=("$@")
+    
+    # Process pairs of elements
+    for ((i = 0; i < ${#input_array[@]}; i += 2)); do
+        local full_path="${input_array[i]}"
+        local chapters="${input_array[i+1]}"
+        
+        # Split path into directory and filename
+        local dir_part=$(dirname "$full_path")
+        local file_part=$(basename "$full_path")
+        
+        # Truncate components
+        local trunc_dir=$(truncate_dirname "$dir_part")
+        local trunc_file=$(truncate_filename "$file_part")
+        local truncated_path="${trunc_dir}/${trunc_file}"
+        
+        # Truncate chapters
+        local trunc_chapters=$(truncate_chapters "$chapters")
+        
+        # Add to result array
+        TRUNC_MANAGE_EBOOKS_MENU+=("$truncated_path" "$trunc_chapters")
+    done
+}
+
 # Need this function to create TRUNC_FILTERED_EBOOKS array
 generate_trunc_manage_ebooks() {
     # Initialize the TRUNC_FILTERED_EBOOKS array
