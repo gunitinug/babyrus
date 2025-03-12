@@ -64,6 +64,56 @@ truncate_dirname() {
     fi
 }
 
+# Truncation logic for chapters.
+# Output:
+# ...,last_chapter:pages
+truncate_chapters() {
+    local chapters="$1"
+    local max_len="$2"
+    local prefix="...,"
+    local prefix_len=${#prefix}
+
+    # If chapters is empty, just output an empty string.
+    if [ -z "$chapters" ]; then
+        echo ""
+        return
+    fi
+
+    # Get the last chapter by taking the substring after the final comma.
+    # If no comma is present, consider the entire string as the last chapter.
+    local last
+    if [[ "$chapters" == *","* ]]; then
+        last="${chapters##*,}"
+    else
+        last="$chapters"
+    fi
+
+    # Compose the result with the fixed prefix.
+    local result="${prefix}${last}"
+
+    # If the full result is within the allowed length, output it.
+    if [ ${#result} -le "$max_len" ]; then
+        echo "$result"
+        return
+    fi
+
+    # Otherwise, calculate the available space for the last chapter.
+    local available=$(( max_len - prefix_len ))
+    # If the limit is too small even for the prefix, just return a cut-off.
+    if [ "$available" -le 0 ]; then
+        echo "${result:0:max_len}"
+        return
+    fi
+
+    # Truncate the last chapter from the left (keeping its end)
+    # so that the overall length does not exceed max_len.
+    if [ ${#last} -gt "$available" ]; then
+        last="${last: -available}"
+    fi
+
+    echo "${prefix}${last}"
+}
+
 # Need this function to create TRUNC_FILTERED_EBOOKS array
 generate_trunc_manage_ebooks() {
     # Initialize the TRUNC_FILTERED_EBOOKS array
@@ -198,14 +248,11 @@ filter_by_filename() {
     # Extract the filename using basename.
     local filename
     filename=$(basename "$filepath")
+
     # If the filename contains the search term, add filepath to FILTERED_EBOOKS.
-    shopt -s nocasematch  # Enable case-insensitive matching  
-  
-    if [[ "$filename" == *"$search_term"* ]]; then
+    if [[ "${filename,,}" == *"${search_term,,}"* ]]; then
       FILTERED_EBOOKS+=("$filepath" "")
     fi
-
-    shopt -u nocasematch
   done < "$EBOOKS_DB"
 
   # DEBUG
