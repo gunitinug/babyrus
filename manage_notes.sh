@@ -143,7 +143,7 @@ generate_trunc_manage_ebooks_menu() {
         
         # Truncate components
         local trunc_dir=$(truncate_dirname "$dir_part")
-        local trunc_file=$(truncate_filename "$file_part")
+        local trunc_file=$(truncate_filename "$file_part" 50)
         local truncated_path="${trunc_dir}/${trunc_file}"
         
         # Truncate chapters
