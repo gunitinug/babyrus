@@ -123,11 +123,19 @@ generate_trunc_manage_ebooks_menu() {
     
     # Get the input array from arguments
     local input_array=("$@")
+
+    # If input_array is empty return
+    [[ ${#input_array[@]} -eq 0 ]] && return 1
     
+    local idx=1
     # Process pairs of elements
     for ((i = 0; i < ${#input_array[@]}; i += 2)); do
         local full_path="${input_array[i]}"
         local chapters="${input_array[i+1]}"
+
+        # DEBUG
+        echo "chapters:" >&2
+        echo "$chapters" >&2
         
         # Split path into directory and filename
         local dir_part=$(dirname "$full_path")
@@ -139,10 +147,15 @@ generate_trunc_manage_ebooks_menu() {
         local truncated_path="${trunc_dir}/${trunc_file}"
         
         # Truncate chapters
-        local trunc_chapters=$(truncate_chapters "$chapters")
+        local trunc_chapters=$(truncate_chapters "$chapters" 20)
         
+        # DEBUG
+        echo "trunc_chapters:" >&2
+        echo "$trunc_chapters" >&2
+
         # Add to result array
-        TRUNC_MANAGE_EBOOKS_MENU+=("$truncated_path" "$trunc_chapters")
+        TRUNC_MANAGE_EBOOKS_MENU+=("${idx}:${truncated_path}" "$trunc_chapters")
+        (( idx++ ))
     done
 }
 
@@ -171,8 +184,8 @@ generate_trunc_manage_ebooks() {
         truncated_path="${truncated_dir}/${truncated_file}"
 
         # Append the truncated path and an empty string to maintain pair structure
-        TRUNC_FILTERED_EBOOKS+=( "$idx:${truncated_path}" "" )
-        (( idx ++ ))
+        TRUNC_FILTERED_EBOOKS+=( "${idx}:${truncated_path}" "" )
+        (( idx++ ))
     done
 }
 
@@ -378,14 +391,30 @@ manage_ebooks() {
             chapters=$(cut -d# -f2- <<< "$entry")
             menu_options+=("$ebook" "$chapters")
         done
-        menu_options+=("Add new ebook" "")
-        [ ${#ebook_entries[@]} -gt 0 ] && menu_options+=("Remove ebook" "")
-        menu_options+=("Back" "Return to previous menu")
 
-        local selection
-        selection=$(whiptail --title "Manage Ebooks" --menu "Manage ebook associations" 20 100 10 \
-            "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+        # Generate TRUNC_MANAGE_EBOOKS_MENU
+        generate_trunc_manage_ebooks_menu "${menu_options[@]}"
+
+        TRUNC_MANAGE_EBOOKS_MENU+=("Add new ebook" "")
+        [ ${#ebook_entries[@]} -gt 0 ] && TRUNC_MANAGE_EBOOKS_MENU+=("Remove ebook" "")
+        TRUNC_MANAGE_EBOOKS_MENU+=("Back" "Return to previous menu")
+
+        local selection_trunc
+        selection_trunc=$(whiptail --title "Manage Ebooks" --menu "Manage ebook associations" 20 170 10 \
+            "${TRUNC_MANAGE_EBOOKS_MENU[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -eq 0 ] || break
+
+        # Get selection from TRUNC_MANAGE_EBOOKS_MENU
+        local n m selection
+
+        # Account for when selection_trunc is "Add new ebook" or "Remove ebook" or "Back"
+        if [[ "$selection_trunc" != "Add new ebook" && "$selection_trunc" != "Remove ebook" && "$selection_trunc" != "Back" ]]; then
+            n="$(echo "$selection_trunc" | cut -d':' -f1)"
+            m=$((2 * n - 1))
+            selection="${menu_options[$((m - 1))]}"
+        else
+            selection="$selection_trunc"
+        fi
 
         case "$selection" in
             "Add new ebook")
