@@ -592,4 +592,55 @@ add_note() {
     done
 }
 
-add_note
+list_notes() {
+    local db_file="$NOTES_DB"
+    [ ! -f "$db_file" ] && {
+        whiptail --msgbox "No notes database found" 8 40
+        return 1
+    }
+
+    # Initialize arrays and index
+    local -a menu_entries=()
+    local -a MENU_PATH_ENTRIES=()
+    local idx=1
+
+    # Process notes database
+    while IFS='|' read -r title path tags _; do
+        # Build menu entry with index and tags
+        local tag_display=""
+        [ -n "$tags" ] && tag_display=" [${tags}]"
+        menu_entries+=("${idx}:${title}" "${tag_display}")
+        
+        # Store path with empty string pair
+        MENU_PATH_ENTRIES+=("$path" "")
+        ((idx++))
+    done < "$db_file"
+
+    [ ${#menu_entries[@]} -eq 0 ] && {
+        whiptail --msgbox "No notes found in database" 8 40
+        return 1
+    }
+
+    # Display selection menu
+    local selected_idx
+    selected_idx=$(whiptail \
+        --title "Note Selection" \
+        --menu "Choose a note to edit" \
+        20 170 10 \
+        "${menu_entries[@]}" \
+        3>&1 1>&2 2>&3)
+
+    [ $? -eq 0 ] && {
+        selected_idx="$(echo "$selected_idx" | cut -d':' -f1)"
+        
+        # Calculate path array index
+        local m=$((2 * selected_idx - 1))
+        local array_index=$((m - 1))
+        local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
+        
+        #edit_note "$selected_path"
+        whiptail --title "File Content: ${selected_path}" --msgbox "$(cat "$selected_path")" 8 80
+    }
+}
+
+list_notes
