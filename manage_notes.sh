@@ -134,8 +134,8 @@ generate_trunc_manage_ebooks_menu() {
         local chapters="${input_array[i+1]}"
 
         # DEBUG
-        echo "chapters:" >&2
-        echo "$chapters" >&2
+        #echo "chapters:" >&2
+        #echo "$chapters" >&2
         
         # Split path into directory and filename
         local dir_part=$(dirname "$full_path")
@@ -150,8 +150,8 @@ generate_trunc_manage_ebooks_menu() {
         local trunc_chapters=$(truncate_chapters "$chapters" 20)
         
         # DEBUG
-        echo "trunc_chapters:" >&2
-        echo "$trunc_chapters" >&2
+        #echo "trunc_chapters:" >&2
+        #echo "$trunc_chapters" >&2
 
         # Add to result array
         TRUNC_MANAGE_EBOOKS_MENU+=("${idx}:${truncated_path}" "$trunc_chapters")
@@ -592,6 +592,135 @@ add_note() {
     done
 }
 
+# Helper function to load existing note data
+load_note_data() {
+    # note_path is global.
+    #note_path="$1"
+
+    # Reset globals
+    note_title=""
+    current_tags=()
+    ebook_entries=()
+
+    # Find the line in NOTES_DB
+    local line
+    line=$(grep -F "|${note_path}|" "$NOTES_DB")
+    if [ -z "$line" ]; then
+        echo "Note not found in database: $note_path" >&2
+        return 1
+    fi
+
+    # Split into fields
+    IFS='|' read -r note_title _note_path tags_str ebooks_str <<< "$line"
+
+    # Ensure note_path is correct
+    [[ "$note_path" != "$_note_path" ]] && return 1
+
+    # Split tags and ebooks
+    IFS=',' read -ra current_tags <<< "$tags_str"
+    IFS=';' read -ra ebook_entries <<< "$ebooks_str"
+
+    return 0
+}
+
+# Helper function to update note in database
+update_note_in_db() {
+    # Compose new line
+    local tags_str=$(IFS=','; echo "${current_tags[*]}")
+    local ebooks_str=$(IFS=';'; echo "${ebook_entries[*]}")
+
+    # Update tags and ebooks databases
+    for tag in "${current_tags[@]}"; do
+        echo "$tag" >> "$NOTES_TAGS_DB"
+    done
+    for entry in "${ebook_entries[@]}"; do
+        local ebook_path="${entry%#*}"
+        echo "$ebook_path" >> "$NOTES_EBOOKS_DB"
+    done
+
+    # Sort and deduplicate
+    sort -u "$NOTES_TAGS_DB" -o "$NOTES_TAGS_DB"
+    sort -u "$NOTES_EBOOKS_DB" -o "$NOTES_EBOOKS_DB"
+
+    # Replace the line in NOTES_DB
+    local old_line=$(grep -F "|${note_path}|" "$NOTES_DB")
+    local new_line="${note_title}|${note_path}|${tags_str}|${ebooks_str}"
+
+    # Use temp file to update NOTES_DB
+    local temp_db
+    temp_db=$(mktemp)
+    while IFS= read -r line; do
+        if [[ "$line" == "$old_line" ]]; then
+            echo "$new_line"
+        else
+            echo "$line"
+        fi
+    done < "$NOTES_DB" > "$temp_db"
+
+    if ! mv "$temp_db" "$NOTES_DB"; then
+        whiptail --msgbox "Failed to update the note in the database." 8 50 >/dev/tty
+        return 1
+    fi
+
+    whiptail --msgbox "Note attributes updated successfully." 8 50 >/dev/tty
+    return 0
+}
+
+edit_note() {
+    # Global
+    note_path="$1"
+
+    # Load existing note data into globals
+    if ! load_note_data; then
+        whiptail --msgbox "Error loading note data." 8 50 >/dev/tty
+        return 1
+    fi
+
+    local choice
+    while true; do
+        # Prepare status messages
+        local path_status="$note_path"
+        local tag_status="none"
+        [ ${#current_tags[@]} -gt 0 ] && tag_status="${#current_tags[@]} tags"
+        local ebook_status="none"
+        [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} ebooks"
+
+        choice=$(whiptail --title "Edit Note" --menu "Edit note properties" 20 100 8 \
+            "Note Title"    "Current: ${note_title}" \
+            "Note Path"     "Path: ${path_status}" \
+            "Tags"          "Status: ${tag_status}" \
+            "Ebooks"        "Status: ${ebook_status}" \
+            "Save and Edit" "Save changes and open in editor" \
+            "Save and Return" "Save changes and exit" 3>&1 1>&2 2>&3)
+        [ $? -eq 0 ] || break
+
+        case "$choice" in
+            "Note Title")
+                note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
+                ;;
+            "Note Path")
+                whiptail --msgbox "Note path cannot be edited: $note_path" 10 60
+                ;;
+            "Tags")
+                manage_tags
+                ;;
+            "Ebooks")
+                manage_ebooks
+                ;;
+            "Save and Edit")
+                if update_note_in_db; then
+                    nano "$note_path"
+                    break
+                fi
+                ;;
+            "Save and Return")
+                update_note_in_db
+                break
+                ;;
+        esac
+    done
+}
+
 list_notes() {
     while true; do
         local db_file="$NOTES_DB"
@@ -638,8 +767,8 @@ list_notes() {
         local array_index=$((m - 1))
         local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
         
-        #edit_note "$selected_path"
-        whiptail --title "File Content: ${selected_path}" --msgbox "$(cat "$selected_path")" 8 80
+        # Edit note, exactly as it says ;-)
+        edit_note "$selected_path"
     done
 }
 
