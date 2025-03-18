@@ -59,14 +59,14 @@ truncate_dirname() {
     if [[ ${#dir} -le $max_length ]]; then
         echo "$dir"
     else
-        local keep_length=$(( max_length - 5 ))  # Space left after "/.../"
+        local keep_length=$(( max_length - 3 ))  # Space left after "..."
         local start_length=$(( keep_length / 2 ))  # Half for start
         local end_length=$(( keep_length - start_length ))  # Remaining for end
 
         local start="${dir:0:start_length}"
         local end="${dir: -end_length}"
 
-        echo "${start}/.../${end}"
+        echo "${start}...${end}"
     fi
 }
 
@@ -191,6 +191,48 @@ generate_trunc_manage_ebooks() {
 
         # Append the truncated path and an empty string to maintain pair structure
         TRUNC_FILTERED_EBOOKS+=( "${idx}:${truncated_path}" "" )
+        (( idx++ ))
+    done
+}
+
+generate_trunc_manage_ebooks_remove_ebook() {
+    # Initialize the TRUNC_FILTERED_EBOOKS_REMOVE array
+    TRUNC_FILTERED_EBOOKS_REMOVE=()
+
+    local remove_options=("$@")   # OMG, forgot to enclose in ()!!
+    local fullpath dir file truncated_dir truncated_file truncated_path
+
+    # If remove_options is empty return
+    [[ ${#remove_options[@]} -eq 0 ]] && return 1
+
+    local idx=1
+    # Process each full path from remove_options (assuming pairs: fullpath "" ...)
+    for ((i=0; i < ${#remove_options[@]}; i+=2)); do
+        fullpath="${remove_options[i]}"
+
+        # DEBUG
+        echo "fullpath:" >&2
+        echo "$fullpath" >&2
+
+        # Extract the directory and filename parts
+        dir=$(dirname "$fullpath")
+        file=$(basename "$fullpath")
+
+        # Apply truncation functions to the directory and filename respectively
+        truncated_dir=$(truncate_dirname "$dir")
+        truncated_file=$(truncate_filename "$file" 50)
+
+        # DEBUG
+        echo "dir:" >&2
+        echo "$dir" >&2
+        echo "trunc dir:" >&2
+        echo "$truncated_dir" >&2
+
+        # Reassemble the truncated path
+        truncated_path="${truncated_dir}/${truncated_file}"
+
+        # Append the truncated path and an empty string to maintain pair structure
+        TRUNC_FILTERED_EBOOKS_REMOVE+=( "${idx}:${truncated_path}" "" )
         (( idx++ ))
     done
 }
@@ -465,14 +507,33 @@ manage_ebooks() {
                 ;;
 
             "Remove ebook")
+                # DEBUG
+                echo Remove ebook: >&2
+                echo ebook_entries: >&2
+                declare -p ebook_entries >&2
+
                 local remove_options=()
                 for entry in "${ebook_entries[@]}"; do
                     remove_options+=("$(cut -d# -f1 <<< "$entry")" "")
                 done
-                local to_remove
-                to_remove=$(whiptail --title "Remove Ebook" --menu "Select ebook to remove:" \
-                    20 100 10 "${remove_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+
+                # DEBUG
+                echo Remove ebook: >&2
+                echo remove_options: >&2
+                declare -p remove_options >&2
+
+                # Truncate remove_options
+                generate_trunc_manage_ebooks_remove_ebook "${remove_options[@]}"
+
+                local to_remove to_remove_tr
+                to_remove_tr=$(whiptail --title "Remove Ebook" --menu "Select ebook to remove:" \
+                    20 100 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
                 [ $? -eq 0 ] || continue
+
+                local n m
+                n="$(echo "$to_remove_tr" | cut -d':' -f1)"
+                m=$((2 * n - 1))
+                to_remove="${remove_options[$((m - 1))]}"
 
                 local new_entries=()
                 for entry in "${ebook_entries[@]}"; do
@@ -710,8 +771,8 @@ edit_note() {
     fi
 
     # DEBUG
-    echo ebook_entries: >&2
-    declare -p ebook_entries >&2
+    #echo ebook_entries: >&2
+    #declare -p ebook_entries >&2
 
     local choice
     while true; do
