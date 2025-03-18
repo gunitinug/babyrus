@@ -14,6 +14,12 @@ mkdir -p "${NOTES_METADATA_PATH}"
 # Create if not existent
 touch "$NOTES_DB" "$NOTES_TAGS_DB" "$NOTES_EBOOKS_DB"
 
+# This script is not able to deal with file names containing: | , # : ;
+# So, if that's the case then stop right there.
+illegal_filename() {
+  echo "$1" | grep -q '[|,#:;]' && return 1 || return 0
+}
+
 # truncate logic for filenames (ie. basename)
 # the logic is:
 # "a very long truncated file.pdf" becomes "a very long truncated....pdf"
@@ -258,6 +264,7 @@ paginate() {
                 local m=$((2 * n - 1))
 
                 SELECTED_ITEM="${FILTERED_EBOOKS[$((m - 1))]}"
+                ! illegal_filename "$SELECTED_ITEM" && SELECTED_ITEM="" && return 1
                 return 0
                 ;;
         esac
@@ -301,8 +308,8 @@ filter_by_filename() {
   done < "$EBOOKS_DB"
 
   # DEBUG
-  echo FILTERED_EBOOKS: >&2
-  declare -p FILTERED_EBOOKS >&2
+  #echo FILTERED_EBOOKS: >&2
+  #declare -p FILTERED_EBOOKS >&2
 
   # Optionally, notify the user how many entries were found.
   whiptail --msgbox "Found $(( ${#FILTERED_EBOOKS[@]} / 2 )) matching entries." 8 60 --title "Filter Results" >/dev/tty
@@ -423,7 +430,12 @@ manage_ebooks() {
                 SELECTED_ITEM=""
 
                 filter_by_filename
-                paginate
+
+                ! paginate && {
+                    whiptail --title "Error" --msgbox "Illegal file name contains | , # : ;. Rename file and try again." 10 60
+                    return 1
+                }
+
                 new_ebook="$SELECTED_ITEM"
 
                 if [[ -z "$new_ebook" ]]; then
@@ -502,8 +514,8 @@ manage_ebooks() {
 
 save_note() {
     # DEBUG
-    echo note title: >&2
-    echo "$note_title" >&2
+    #echo note title: >&2
+    #echo "$note_title" >&2
 
     # Check that note_title and note_path are set; if not, do not save
     if [[ -z "$note_title" ]]; then
@@ -551,8 +563,28 @@ add_note() {
 
     # Main loop
     while true; do
+        # Truncate Note Title.
+        local note_title_tr tr_max
+        tr_max=25
+
+        if [ -n "$note_title" ]; then
+            if [ ${#note_title} -gt $(($tr_max + 3)) ]; then
+                note_title_tr="${note_title:0:$tr_max}..."
+            else
+                note_title_tr="$note_title"
+            fi
+        fi
+
         local path_status="(will be generated)"
-        [ -n "$note_title" ] && path_status="${NOTES_PATH}/${note_title}-*.txt"
+        [ -n "$note_title" ] && {
+            local dirname_tr filename_tr
+
+            dirname_tr="$(truncate_dirname "$NOTES_PATH")"
+            filename_tr="$note_title_tr"
+
+            #path_status="${NOTES_PATH}/${note_title}-*.txt"
+            path_status="${dirname_tr}/${filename_tr}-*.txt"
+        }
 
         local tag_status="none"
         [ ${#current_tags[@]} -gt 0 ] && tag_status="${#current_tags[@]} tags"
@@ -561,7 +593,7 @@ add_note() {
         [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} ebooks"
 
         choice=$(whiptail --title "Create New Note" --menu "Configure note properties" 20 100 8 \
-            "Note Title"    "Current: ${note_title:-<not set>}" \
+            "Note Title"    "Current: ${note_title_tr:-<not set>}" \
             "Note Path"     "Status: ${path_status}" \
             "Tags"          "Status: ${tag_status}" \
             "Ebooks"        "Status: ${ebook_status}" \
@@ -572,6 +604,7 @@ add_note() {
         case "$choice" in
             "Note Title")
                 note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
+                [ -z "$note_title" ] && note_title_tr=""
                 ;;
             "Tags")
                 manage_tags
@@ -676,14 +709,31 @@ edit_note() {
         return 1
     fi
 
+    # DEBUG
+    echo ebook_entries: >&2
+    declare -p ebook_entries >&2
+
     local choice
     while true; do
         # Prepare status messages
-        local path_status="$note_path"
+        #local path_status="$note_path"
+        local path_status
         local tag_status="none"
         [ ${#current_tags[@]} -gt 0 ] && tag_status="${#current_tags[@]} tags"
         local ebook_status="none"
         [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} ebooks"
+
+        # Truncate Note Path
+        local dirname filename dirname_tr filename_tr tr_max
+        tr_max=34 # max-*.txt
+
+        dirname="$(dirname "$note_path")"
+        dirname_tr="$(truncate_dirname "$dirname")"
+
+        filename="$(basename "$note_path")"
+        filename_tr="$(truncate_filename "$filename" $tr_max)"
+
+        path_status="${dirname_tr}/${filename_tr}"
 
         choice=$(whiptail --title "Edit Note" --menu "Edit note properties" 20 100 8 \
             "Note Title"    "Current: ${note_title}" \
@@ -699,7 +749,7 @@ edit_note() {
                 note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
                 ;;
             "Note Path")
-                whiptail --msgbox "Note path cannot be edited: $note_path" 10 60
+                whiptail --msgbox "Note path is: $note_path" 10 60
                 ;;
             "Tags")
                 manage_tags
@@ -772,4 +822,25 @@ list_notes() {
     done
 }
 
-list_notes
+# Main menu function
+manage_notes() {
+    while true; do
+        local option
+        option=$(whiptail --title "Manage Notes" --menu "Choose an option:" 15 50 3 \
+            "1" "Add Note" \
+            "2" "Edit Note" 3>&1 1>&2 2>&3)
+
+        # Exit the function if the user presses Esc or Cancel
+        if [ $? -ne 0 ] || [ -z "$option" ]; then
+            return
+        fi
+
+        case $option in
+            1) add_note ;;
+            2) list_notes ;;
+            *) return ;;
+        esac
+    done
+}
+
+manage_notes
