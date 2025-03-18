@@ -211,8 +211,8 @@ generate_trunc_manage_ebooks_remove_ebook() {
         fullpath="${remove_options[i]}"
 
         # DEBUG
-        echo "fullpath:" >&2
-        echo "$fullpath" >&2
+        #echo "fullpath:" >&2
+        #echo "$fullpath" >&2
 
         # Extract the directory and filename parts
         dir=$(dirname "$fullpath")
@@ -223,10 +223,10 @@ generate_trunc_manage_ebooks_remove_ebook() {
         truncated_file=$(truncate_filename "$file" 50)
 
         # DEBUG
-        echo "dir:" >&2
-        echo "$dir" >&2
-        echo "trunc dir:" >&2
-        echo "$truncated_dir" >&2
+        #echo "dir:" >&2
+        #echo "$dir" >&2
+        #echo "trunc dir:" >&2
+        #echo "$truncated_dir" >&2
 
         # Reassemble the truncated path
         truncated_path="${truncated_dir}/${truncated_file}"
@@ -508,9 +508,9 @@ manage_ebooks() {
 
             "Remove ebook")
                 # DEBUG
-                echo Remove ebook: >&2
-                echo ebook_entries: >&2
-                declare -p ebook_entries >&2
+                #echo Remove ebook: >&2
+                #echo ebook_entries: >&2
+                #declare -p ebook_entries >&2
 
                 local remove_options=()
                 for entry in "${ebook_entries[@]}"; do
@@ -518,9 +518,9 @@ manage_ebooks() {
                 done
 
                 # DEBUG
-                echo Remove ebook: >&2
-                echo remove_options: >&2
-                declare -p remove_options >&2
+                #echo Remove ebook: >&2
+                #echo remove_options: >&2
+                #declare -p remove_options >&2
 
                 # Truncate remove_options
                 generate_trunc_manage_ebooks_remove_ebook "${remove_options[@]}"
@@ -847,9 +847,12 @@ list_notes() {
 
         # Load current database state
         while IFS='|' read -r title path tags _; do
+            # Truncate long title
+            title_tr="${title:0:50}"
+
             local tag_display=""
             [ -n "$tags" ] && tag_display=" [${tags}]"
-            menu_entries+=("${idx}:${title}" "${tag_display}")
+            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
             MENU_PATH_ENTRIES+=("$path" "")
             ((idx++))
         done < "$db_file"
