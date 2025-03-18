@@ -797,7 +797,7 @@ edit_note() {
         path_status="${dirname_tr}/${filename_tr}"
 
         choice=$(whiptail --title "Edit Note" --menu "Edit note properties" 20 100 8 \
-            "Note Title"    "Current: ${note_title}" \
+            "Note Title"    "Current: ${note_title:0:50}" \
             "Note Path"     "Path: ${path_status}" \
             "Tags"          "Status: ${tag_status}" \
             "Ebooks"        "Status: ${ebook_status}" \
@@ -810,7 +810,7 @@ edit_note() {
                 note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
                 ;;
             "Note Path")
-                whiptail --msgbox "Note path is: $note_path" 10 60
+                whiptail --msgbox "Note path is: $note_path" 10 80
                 ;;
             "Tags")
                 manage_tags
