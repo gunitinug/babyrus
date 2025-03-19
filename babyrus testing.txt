@@ -1,6 +1,6 @@
 19 March 2025
 
-Lookup by filepath -> edge case when there are no registered files.
+Lookup by filepath -> edge case when there are no registered files. [fixed]
 Manage ebooks:Add new ebook -> Enter search term -> Explain empty is wildcard. NOT a glob so * is literal \*.
 
 Edit Note -> Remove tag doesn't work. Adding more than one tag doesn't work.
