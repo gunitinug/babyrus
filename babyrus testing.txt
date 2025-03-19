@@ -1,3 +1,5 @@
+19 March 2025
+
 Lookup by filepath -> edge case when there are no registered files.
 Manage ebooks:Add new ebook -> Enter search term -> Explain empty is wildcard. NOT a glob so * is literal \*.
 
