@@ -2185,6 +2185,9 @@ After choosing a path from the list, you can further narrow the search by both f
     local dirs
     dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
 
+    # Edge case when there are no registered files (so dirs is empty).
+    [[ -z "$dirs" ]] && whiptail --title "Error" --msgbox "No registered files!" 10 40 && return 1
+
     # Build menu items for whiptail (each item appears as "tag description")
     local menu_items=()
     while IFS= read -r dir; do
