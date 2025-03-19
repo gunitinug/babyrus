@@ -1,0 +1,23 @@
+Lookup by filepath -> edge case when there are no registered files.
+Manage ebooks:Add new ebook -> Enter search term -> Explain empty is wildcard. NOT a glob so * is literal \*.
+
+Edit Note -> Remove tag doesn't work. Adding more than one tag doesn't work.
+Seems to be a problem with regisering tag. Maybe not? Seems to work now. Find out what edge case is involved here.
+
+Edit Note->Manage Tags: When Cancel selected shouldn't update tags.
+
+Open and Read seems to be functional.
+
+View all reg tags: maybe if empty display msgbox instead of blank box. same with show all reg ebooks.
+
+Truncating path blah/.../blah seems good compared to blah...blah.
+
+Need a better UI for removing tag from a particular book.
+
+Assoc tag with ebook -> if no match it just returns. Should display a msgbox saying No matches.
+
+Edit Note -> When adding new ebook, perhaps filter by ebook tag too.
+
+Feature suggest: maybe function to delete tag from global list (for manage notes).
+
+
