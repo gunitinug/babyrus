@@ -5,7 +5,7 @@ Manage ebooks:Add new ebook -> Enter search term -> Explain empty is wildcard. N
 Manage ebooks:Add new ebook -> Search: Perhaps add in_operation box while waiting.
 
 Edit Note -> Remove tag doesn't work. Adding more than one tag doesn't work.
-Seems to be a problem with regisering tag. Maybe not? Seems to work now. Find out what edge case is involved here.
+Seems to be a problem with regisering tag. Maybe not? Seems to work now. Find out what edge case is involved here. [skip for now]
 
 Edit Note->Manage Tags: When Cancel selected shouldn't update tags.
 
