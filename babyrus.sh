@@ -718,6 +718,9 @@ associate_tag() {
     # Filter ebooks and store in array
     mapfile -d $'\0' filtered_ebooks < <(filter_ebooks "$filter_str" "${ebooks[@]}")
 
+    # Show msgbox and return if filtered_ebooks is empty.
+    [[ "${#filtered_ebooks[@]}" -eq 0  ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return
+
     # convert ebooks array into whiptail friendly format.
     mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
 
