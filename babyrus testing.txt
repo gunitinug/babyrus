@@ -15,7 +15,8 @@ View all reg tags: maybe if empty display msgbox instead of blank box. same with
 
 Truncating path blah/.../blah seems good compared to blah...blah. truncate_dirname()? [skip]
 
-Need a better UI for removing tag from a particular book.
+Need a better UI for removing tag from a particular book: show list of registered tags -> user selects a tag -> show list of assoc files -> user selects a file \
+-> deassoc the tag from that file.
 
 Assoc tag with ebook -> if no match it just returns. Should display a msgbox saying No matches.
 
