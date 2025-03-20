@@ -18,7 +18,7 @@ Truncating path blah/.../blah seems good compared to blah...blah. truncate_dirna
 Need a better UI for removing tag from a particular book: show list of registered tags -> user selects a tag -> show list of assoc files -> user selects a file \
 -> deassoc the tag from that file.
 
-Assoc tag with ebook -> if no match it just returns. Should display a msgbox saying No matches.
+Assoc tag with ebook -> if no match it just returns. Should display a msgbox saying No matches. [fixed]
 
 Edit Note -> When adding new ebook, perhaps filter by ebook tag too.
 
