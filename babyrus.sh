@@ -805,6 +805,8 @@ generate_ebooks_result_list() {
 }
 
 view_ebooks() {
+    [[ $(wc -l < "$EBOOKS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No ebooks registered." 10 40 && return
+
     local tmpfile
     tmpfile=$(mktemp)
     generate_ebooks_list > "$tmpfile"
@@ -813,6 +815,7 @@ view_ebooks() {
 }
 
 view_tags() {
+    [[ $(wc -l < "$TAGS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No tags registered." 10 40 && return
     whiptail --scrolltext --textbox "$TAGS_DB" 20 60
 }
 
@@ -2869,7 +2872,7 @@ paginate_n() {
 filter_by_filename() {
   # Prompt the user for a search term using whiptail.
   local search_term
-  search_term=$(whiptail --inputbox "Enter search term for ebook file name:" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
+  search_term=$(whiptail --inputbox "Enter search term for ebook file name (empty is wildcard; * is literal \*):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
     echo "User cancelled the filter."
     return 1
@@ -2883,6 +2886,8 @@ filter_by_filename() {
     echo "EBOOKS_DB file not found: $EBOOKS_DB" >&2
     return 1
   fi
+
+  in_operation_msg
 
   # Read the EBOOKS_DB file line by line.
   while IFS= read -r line; do
@@ -2931,10 +2936,10 @@ manage_tags() {
             fi
         done
         menu_options+=("Add new tag" "")
-        menu_options+=("Back" "Return to previous menu")
+        #menu_options+=("Back" "Return to previous menu")
 
         local selection
-        selection=$(whiptail --title "Manage Tags" --menu "Current tags: ${current_tags[*]}" 20 60 10 \
+        selection=$(whiptail --title "Manage Tags" --cancel-button "Back" --menu "Current tags: ${current_tags[*]}" 20 60 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -eq 0 ] || return
 
@@ -2950,9 +2955,9 @@ manage_tags() {
                     current_tags+=("$new_tag")
                 fi
                 ;;
-            "Back")
-                return
-                ;;
+            #"Back")
+            #    return
+            #    ;;
             *)
                 # Toggle tag selection
                 if [[ " ${current_tags[@]} " =~ " ${selection} " ]]; then
