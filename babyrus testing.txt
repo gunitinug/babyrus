@@ -11,7 +11,7 @@ Edit Note->Manage Tags: When Cancel selected shouldn't update tags. [just rename
 
 Open and Read seems to be functional.
 
-View all reg tags: maybe if empty display msgbox instead of blank box. same with show all reg ebooks.
+View all reg tags: maybe if empty display msgbox instead of blank box. same with show all reg ebooks. [fixed]
 
 Truncating path blah/.../blah seems good compared to blah...blah.
 
