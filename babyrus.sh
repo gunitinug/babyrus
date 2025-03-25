@@ -2981,6 +2981,31 @@ manage_tags() {
     done
 }
 
+# Verify pages string (for an ebook).
+verify_pages_str() {
+    local pages="$1"
+    
+    # Check for single page (e.g. "5")
+    if [[ "$pages" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+    
+    # Check for page range (e.g. "5-10")
+    if [[ "$pages" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        local start="${BASH_REMATCH[1]}"
+        local end="${BASH_REMATCH[2]}"
+        
+        # Verify that the ending page is greater than the starting page
+        if (( end > start )); then
+            return 0
+        fi
+    fi
+
+    # Return non-zero for invalid string
+    return 1
+}
+
+# UI to construct CHAPTER_PAGES string.
 add_chapters() {
     # Reset global
     CHAPTER_PAGES=""
@@ -3016,13 +3041,16 @@ add_chapters() {
                 
                 chapter_pages=$(whiptail --inputbox "Enter pages for '$chapter_name' (eg. 1 or 1-10):" \
                     8 40 3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && continue
 
                 # Check for syntax page1 or page1-page2 here.
                 # Check for:
                 # If pages a-b, b must be > a.
                 # ^[0-9]+-[0-9]+$ or ^[0-9]+$.
-
-                [[ $? -ne 0 ]] && continue
+                if ! verify_pages_str "$chapter_pages"; then
+                    whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
+                    continue
+                fi
                 
                 # Remember that we can have same chapter name but different pages.
                 new_entry="$chapter_name:$chapter_pages"
@@ -3057,13 +3085,18 @@ add_chapters() {
                         while true; do
                             new_pages=$(whiptail --inputbox "New pages for '$old_name' (eg. 1 or 1-10):" \
                                 8 40 "$old_pages" 3>&1 1>&2 2>&3)
-                            # Check for pages syntax here.
-
                             [[ $? -ne 0 ]] && break
+
+                            # Check for pages syntax here.
+                            if ! verify_pages_str "$new_pages"; then
+                                whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
+                                continue
+                            fi
                             
                             new_entry="$old_name:$new_pages"
                             if [[ " ${chapters[*]} " =~ " $new_entry " ]]; then
-                                whiptail --msgbox "Duplicate entry: $new_entry" 8 40
+                                whiptail --msgbox "No change." 8 40
+                                break
                             else
                                 chapters[index]="$new_entry"
                                 break
