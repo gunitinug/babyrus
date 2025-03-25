@@ -2981,6 +2981,111 @@ manage_tags() {
     done
 }
 
+add_chapters() {
+    # Reset global
+    CHAPTER_PAGES=""
+
+    declare -a chapters=()
+    local chapter_name chapter_pages new_entry
+    local choice index chapter_entry old_name old_pages new_pages
+    local num_chapters
+
+    while true; do
+        num_chapters=${#chapters[@]}
+        #add_choice=$((num_chapters + 1))
+        #save_choice=$((num_chapters + 2))
+        
+        # Build menu with chapters first, then static options
+        menu_options=()
+        for ((index=0; index<num_chapters; index++)); do
+            menu_options+=("$((index+1))" "${chapters[index]}")
+        done
+        menu_options+=("Add chapter" "")
+        menu_options+=("Save and return" "")
+
+        choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Choose an option:" \
+            15 50 $((num_chapters + 2)) "${menu_options[@]}" 3>&1 1>&2 2>&3)
+        
+        [[ $? -ne 0 ]] && choice="Save and return"  # Handle ESC/Cancel as Save
+        
+        if [[ "$choice" == "Add chapter" ]]; then
+            # Add new chapter
+            while true; do
+                chapter_name=$(whiptail --inputbox "Enter chapter name:" 8 40 3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && break
+                
+                chapter_pages=$(whiptail --inputbox "Enter pages for '$chapter_name' (eg. 1 or 1-10):" \
+                    8 40 3>&1 1>&2 2>&3)
+
+                # Check for syntax page1 or page1-page2 here.
+                # Check for:
+                # If pages a-b, b must be > a.
+                # ^[0-9]+-[0-9]+$ or ^[0-9]+$.
+
+                [[ $? -ne 0 ]] && continue
+                
+                # Remember that we can have same chapter name but different pages.
+                new_entry="$chapter_name:$chapter_pages"
+                if [[ " ${chapters[*]} " =~ " $new_entry " ]]; then
+                    whiptail --msgbox "Duplicate entry: $new_entry" 8 40
+                else
+                    chapters+=("$new_entry")
+                    break
+                fi
+            done
+
+        elif [[ "$choice" == "Save and return" ]]; then
+            # Save and exit
+            CHAPTER_PAGES=$(IFS=','; echo "${chapters[*]}")
+            return 0
+
+        elif [[ $choice -le $num_chapters ]]; then
+            # Chapter selected - show edit/delete menu
+            index=$((choice - 1))
+            chapter_entry="${chapters[index]}"
+            old_name="${chapter_entry%%:*}"
+            old_pages="${chapter_entry#*:}"
+            
+            action=$(whiptail --menu "Chapter: $chapter_entry" 15 50 5 \
+                "Edit pages" "" \
+                "Delete chapter" "" \
+                3>&1 1>&2 2>&3)
+            
+            if [[ $? -eq 0 ]]; then
+                case $action in
+                    "Edit pages")  # Edit pages
+                        while true; do
+                            new_pages=$(whiptail --inputbox "New pages for '$old_name' (eg. 1 or 1-10):" \
+                                8 40 "$old_pages" 3>&1 1>&2 2>&3)
+                            # Check for pages syntax here.
+
+                            [[ $? -ne 0 ]] && break
+                            
+                            new_entry="$old_name:$new_pages"
+                            if [[ " ${chapters[*]} " =~ " $new_entry " ]]; then
+                                whiptail --msgbox "Duplicate entry: $new_entry" 8 40
+                            else
+                                chapters[index]="$new_entry"
+                                break
+                            fi
+                        done
+                        ;;
+                    "Delete chapter")  # Delete chapter
+                        unset 'chapters[index]'
+                        chapters=("${chapters[@]}")  # Re-index array
+                        ;;
+                esac
+            fi
+        fi
+    done
+}
+
+# DEBUG
+add_chapters
+echo CHAPTER_PAGES:
+echo "$CHAPTER_PAGES"
+exit
+
 manage_ebooks() {
     # Load existing ebooks into ebook_entries if desired (remove if starting fresh)
     # If you want to edit existing entries, uncomment the following lines:
