@@ -3009,8 +3009,17 @@ verify_pages_str() {
 add_chapters() {
     # Reset global
     CHAPTER_PAGES=""
-
     declare -a chapters=()
+
+    # If need to prefill chapters.
+    local current_chapters="$1"
+
+    # Prefill chapters array if current_chapters is given as $1.
+    if [[ -n "$current_chapters" ]]; then
+        # Split current_chapters by comma and populate the chapters array.
+        IFS=',' read -ra chapters <<< "$current_chapters"
+    fi   
+
     local chapter_name chapter_pages new_entry
     local choice index chapter_entry old_name old_pages new_pages
     local num_chapters
@@ -3114,10 +3123,10 @@ add_chapters() {
 }
 
 # DEBUG
-add_chapters
-echo CHAPTER_PAGES:
-echo "$CHAPTER_PAGES"
-exit
+#add_chapters
+#echo CHAPTER_PAGES: >&2
+#echo "$CHAPTER_PAGES" >&2
+#exit
 
 manage_ebooks() {
     # Load existing ebooks into ebook_entries if desired (remove if starting fresh)
@@ -3197,10 +3206,18 @@ manage_ebooks() {
                     continue
                 fi
 
-                local chapters
-                chapters=$(whiptail --inputbox "Enter chapter:page pairs (e.g., chapter1:5, chapter3:10-15):" \
-                    12 60 "" 3>&1 1>&2 2>&3 </dev/tty)
-                [ $? -ne 0 ] && continue
+                #local chapters
+                #chapters=$(whiptail --inputbox "Enter chapter:page pairs (e.g., chapter1:5, chapter3:10-15):" \
+                #    12 60 "" 3>&1 1>&2 2>&3 </dev/tty)
+                #[ $? -ne 0 ] && continue
+
+                # get CHAPTER_PAGES
+                add_chapters
+                if [[ -z "$CHAPTER_PAGES" ]]; then
+                    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
+                    continue
+                fi
+                local chapters="$CHAPTER_PAGES"
 
                 ebook_entries+=("${new_ebook}#${chapters}")
                 ;;
@@ -3255,10 +3272,19 @@ manage_ebooks() {
                     fi
                 done
 
-                local new_chapters
-                new_chapters=$(whiptail --inputbox "Edit chapter:page pairs for ${selection}:" 12 60 \
-                    "$current_chapters" 3>&1 1>&2 2>&3 </dev/tty)
-                [ $? -eq 0 ] || continue
+                #local new_chapters
+                #new_chapters=$(whiptail --inputbox "Edit chapter:page pairs for ${selection}:" 12 60 \
+                #    "$current_chapters" 3>&1 1>&2 2>&3 </dev/tty)
+                #[ $? -eq 0 ] || continue
+
+                # Get CHAPTER_PAGES
+                # Prefilled
+                add_chapters "$current_chapters"
+                if [[ -z "$CHAPTER_PAGES" ]]; then
+                    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
+                    continue
+                fi
+                local new_chapters="$CHAPTER_PAGES"
 
                 # Update the entry in ebook_entries
                 for idx in "${!ebook_entries[@]}"; do
