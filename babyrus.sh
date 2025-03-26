@@ -3677,11 +3677,22 @@ get_ebooks() {
     local ebook_options=()
     for i in "${!ebooks[@]}"; do
         local ebook_path=$(cut -d'#' -f1 <<< "${ebooks[$i]}")
-        ebook_options+=("$((i+1))" "$ebook_path")
+
+        # Truncate ebook path
+        local dir_tr filename_tr ebook_path_tr
+        dir_tr="$(dirname "$ebook_path")"
+        dir_tr="$(truncate_dirname "$dir_tr" 50)"
+        filename_tr="$(basename "$ebook_path")"
+        filename_tr="$(truncate_filename "$filename_tr" 50)"
+        ebook_path_tr="${dir_tr}/${filename_tr}"
+
+        # Menu options, now truncated
+        #ebook_options+=("$((i+1))" "$ebook_path")
+        ebook_options+=("$((i+1))" "${ebook_path_tr}")
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 80 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
+    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 100 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
