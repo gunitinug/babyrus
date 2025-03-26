@@ -3639,7 +3639,8 @@ get_notes() {
         options+=("$((i+1))" "$note_path | Tags: $tags")
     done
 
-    local selected_line_tag=$(whiptail --menu "Select a note" 20 80 10 "${options[@]}" 3>&1 1>&2 2>&3)
+    local selected_line_tag
+    selected_line_tag=$(whiptail --menu "Select a note" 20 80 10 "${options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local selected_index=$((selected_line_tag - 1))
@@ -3664,7 +3665,8 @@ get_ebooks() {
         ebook_options+=("$((i+1))" "$ebook_path")
     done
 
-    local selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 80 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
+    local selected_ebook_tag
+    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 80 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
@@ -3688,7 +3690,8 @@ get_chapters() {
         chapter_options+=("$((i+1))" "${chapters[$i]}")
     done
 
-    local selected_chapter_tag=$(whiptail --menu "Select a chapter" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
+    local selected_chapter_tag
+    selected_chapter_tag=$(whiptail --menu "Select a chapter" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local chapter_index=$((selected_chapter_tag - 1))
