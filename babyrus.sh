@@ -3614,6 +3614,73 @@ list_notes() {
 
 # Following code section is about opening ebook file associated with a note
 # with an external viewer like evince.
+paginate_get_notes() {
+    # Clear any previous selection
+    SELECTED_ITEM=""
+
+    local chunk_size=200
+
+    # If new items are passed in, update TRUNC and reset CURRENT_PAGE.
+    if [ "$#" -gt 0 ]; then
+        FILTERED_EBOOKS=("$@")
+        CURRENT_PAGE=0
+    fi
+
+    [[ ${#FILTERED_EBOOKS[@]} -eq 0 ]] && return 1
+
+    local total_pages=$(( ( ${#FILTERED_EBOOKS[@]} + chunk_size - 1 ) / chunk_size ))
+    # Ensure CURRENT_PAGE is within valid bounds
+    if (( CURRENT_PAGE >= total_pages )); then
+        CURRENT_PAGE=$(( total_pages - 1 ))
+    fi
+
+    local choice=""
+    while true; do
+        local start=$(( CURRENT_PAGE * chunk_size ))
+        # Extract the current chunk
+        local current_chunk=("${FILTERED_EBOOKS[@]:$start:$chunk_size}")
+        local menu_options=()
+
+        # Add navigation options if needed
+        if (( CURRENT_PAGE > 0 )); then
+            menu_options+=("previous page" "")
+        fi
+        if (( CURRENT_PAGE < total_pages - 1 )); then
+            menu_options+=("next page" "")
+        fi
+
+        # Append the current page items
+        menu_options+=("${current_chunk[@]}")
+
+        choice=$(whiptail --title "Paged Menu" --cancel-button "Back" \
+            --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
+            20 170 10 \
+            "${menu_options[@]}" \
+            3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+
+        # Exit if user cancels
+        if [ $? -ne 0 ]; then
+            break
+        fi
+
+        case "$choice" in
+            "previous page")
+                (( CURRENT_PAGE-- ))
+                ;;
+            "next page")
+                (( CURRENT_PAGE++ ))
+                ;;
+            *)
+                # Return the index              
+                SELECTED_ITEM="$choice"                
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
 get_notes() {
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
         whiptail --msgbox "No notes found in $NOTES_DB" 20 80
@@ -3654,12 +3721,21 @@ get_notes() {
         options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
     done
 
-    local selected_line_tag
-    selected_line_tag=$(whiptail --menu "Select a note" 20 100 10 "${options[@]}" 3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && { echo ""; return 1; }
+    #local selected_line_tag
+    #selected_line_tag=$(whiptail --menu "Select a note" 20 100 10 "${options[@]}" 3>&1 1>&2 2>&3)
+    #[[ $? -ne 0 ]] && { echo ""; return 1; }
+
+    # Paginate instead
+    CURRENT_PAGE=0
+    SELECTED_ITEM=""
+
+    ! paginate_get_notes "${options[@]}" && {
+        whiptail --title "Attention" --msgbox "No notes registered." 8 40
+    }
+    local selected_line_tag="$SELECTED_ITEM"
 
     local selected_index=$((selected_line_tag - 1))
-    [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && { echo ""; return 1; }
+    [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && return 1
 
     echo "${lines[$selected_index]}"
 }
