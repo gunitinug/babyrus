@@ -3154,7 +3154,7 @@ manage_ebooks() {
         TRUNC_MANAGE_EBOOKS_MENU+=("Back" "Return to previous menu")
 
         local selection_trunc
-        selection_trunc=$(whiptail --title "Manage Ebooks" --menu "Manage ebook associations" 20 170 10 \
+        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" --menu "Manage ebook associations" 20 170 10 \
             "${TRUNC_MANAGE_EBOOKS_MENU[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -eq 0 ] || break
 
@@ -3213,10 +3213,11 @@ manage_ebooks() {
 
                 # get CHAPTER_PAGES
                 add_chapters
-                if [[ -z "$CHAPTER_PAGES" ]]; then
-                    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
-                    continue
-                fi
+                # Comment these out to allow registering ebook without chapter-pages.
+                #if [[ -z "$CHAPTER_PAGES" ]]; then
+                #    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
+                #    continue
+                #fi
                 local chapters="$CHAPTER_PAGES"
 
                 ebook_entries+=("${new_ebook}#${chapters}")
@@ -3280,10 +3281,10 @@ manage_ebooks() {
                 # Get CHAPTER_PAGES
                 # Prefilled
                 add_chapters "$current_chapters"
-                if [[ -z "$CHAPTER_PAGES" ]]; then
-                    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
-                    continue
-                fi
+                #if [[ -z "$CHAPTER_PAGES" ]]; then
+                #    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
+                #    continue
+                #fi
                 local new_chapters="$CHAPTER_PAGES"
 
                 # Update the entry in ebook_entries
@@ -3711,12 +3712,18 @@ extract_page() {
 open_evince() {
     local selected_ebook="$1"
     local page="$2"
-    [[ -z "$selected_ebook" || -z "$page" ]] && return 1
+    [[ -z "$selected_ebook" ]] && return 1   # Allow empty pages to just open the document.
 
     local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
     [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
 
-    evince -p "$page" "$ebook_path" &> /dev/null & disown
+    #evince -p "$page" "$ebook_path" &> /dev/null & disown
+
+    if [ -z "$page" ]; then
+        evince "$ebook_path" &> /dev/null & disown
+    else
+        evince -p "$page" "$ebook_path" &> /dev/null & disown
+    fi
 }
 
 open_note_ebook_page() {
@@ -3726,13 +3733,24 @@ open_note_ebook_page() {
     local selected_ebook=$(get_ebooks "$selected_line")
     [[ -z "$selected_ebook" ]] && return 1
 
-    local selected_chapter=$(get_chapters "$selected_ebook")
-    [[ -z "$selected_chapter" ]] && return 1
+    # Extract the chapters part from the selected_ebook
+    local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
 
-    local page=$(extract_page "$selected_chapter")
-    [[ -z "$page" ]] && return 1
-
-    open_evince "$selected_ebook" "$page"
+    if [[ -n "$chapters_part" ]]; then
+        # Chapters are present, prompt user to select one
+        local selected_chapter=$(get_chapters "$selected_ebook")
+        if [ -n "$selected_chapter" ]; then
+            local page=$(extract_page "$selected_chapter")
+            [[ -z "$page" ]] && return 1
+            open_evince "$selected_ebook" "$page"
+        #else
+        #    # User canceled chapter selection; open without page
+        #    open_evince "$selected_ebook"
+        fi
+    else
+        # No chapters available; open the ebook directly
+        open_evince "$selected_ebook"
+    fi
 }
 
 # Main menu function
