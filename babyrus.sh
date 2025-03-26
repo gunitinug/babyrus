@@ -3660,7 +3660,8 @@ paginate_get_notes() {
 
         # Exit if user cancels
         if [ $? -ne 0 ]; then
-            break
+            #break
+            return 0
         fi
 
         case "$choice" in
