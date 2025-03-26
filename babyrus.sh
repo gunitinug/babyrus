@@ -3611,13 +3611,138 @@ list_notes() {
     done
 }
 
+# Following code section is about opening ebook file associated with a note
+# with an external viewer like evince.
+get_notes() {
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --msgbox "No notes found in $NOTES_DB" 20 80
+        echo ""
+        return 1
+    fi
+
+    local lines=()
+    while IFS= read -r line; do
+        lines+=("$line")
+    done < "$NOTES_DB"
+
+    if [[ ${#lines[@]} -eq 0 ]]; then
+        whiptail --msgbox "No notes found in $NOTES_DB" 20 80
+        echo ""
+        return 1
+    fi
+
+    local options=()
+    for i in "${!lines[@]}"; do
+        local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
+        local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
+        options+=("$((i+1))" "$note_path | Tags: $tags")
+    done
+
+    local selected_line_tag=$(whiptail --menu "Select a note" 20 80 10 "${options[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && { echo ""; return 1; }
+
+    local selected_index=$((selected_line_tag - 1))
+    [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && { echo ""; return 1; }
+
+    echo "${lines[$selected_index]}"
+}
+
+get_ebooks() {
+    local selected_line="$1"
+    [[ -z "$selected_line" ]] && { echo ""; return 1; }
+
+    local ebooks_part=$(cut -d'|' -f4 <<< "$selected_line")
+    [[ -z "$ebooks_part" ]] && { whiptail --msgbox "No ebooks associated with the note." 20 80; echo ""; return 1; }
+
+    IFS=';' read -ra ebooks <<< "$ebooks_part"
+    [[ ${#ebooks[@]} -eq 0 ]] && { whiptail --msgbox "No ebooks associated with the note." 20 80; echo ""; return 1; }
+
+    local ebook_options=()
+    for i in "${!ebooks[@]}"; do
+        local ebook_path=$(cut -d'#' -f1 <<< "${ebooks[$i]}")
+        ebook_options+=("$((i+1))" "$ebook_path")
+    done
+
+    local selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 80 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && { echo ""; return 1; }
+
+    local ebook_index=$((selected_ebook_tag - 1))
+    [[ $ebook_index -lt 0 || $ebook_index -ge ${#ebooks[@]} ]] && { echo ""; return 1; }
+
+    echo "${ebooks[$ebook_index]}"
+}
+
+get_chapters() {
+    local selected_ebook="$1"
+    [[ -z "$selected_ebook" ]] && { echo ""; return 1; }
+
+    local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
+    [[ -z "$chapters_part" ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
+
+    IFS=',' read -ra chapters <<< "$chapters_part"
+    [[ ${#chapters[@]} -eq 0 ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
+
+    local chapter_options=()
+    for i in "${!chapters[@]}"; do
+        chapter_options+=("$((i+1))" "${chapters[$i]}")
+    done
+
+    local selected_chapter_tag=$(whiptail --menu "Select a chapter" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && { echo ""; return 1; }
+
+    local chapter_index=$((selected_chapter_tag - 1))
+    [[ $chapter_index -lt 0 || $chapter_index -ge ${#chapters[@]} ]] && { echo ""; return 1; }
+
+    echo "${chapters[$chapter_index]}"
+}
+
+extract_page() {
+    local chapter_entry="$1"
+    [[ -z "$chapter_entry" ]] && { echo ""; return 1; }
+
+    local page_part="${chapter_entry#*:}"
+    page_part="${page_part%%-*}"
+    [[ -z "$page_part" ]] && { whiptail --msgbox "Invalid chapter format." 20 80; echo ""; return 1; }
+    [[ "$page_part" =~ ^[0-9]+$ ]] || { whiptail --msgbox "Invalid page number: $page_part" 20 80; echo ""; return 1; }
+
+    echo "$page_part"
+}
+
+open_evince() {
+    local selected_ebook="$1"
+    local page="$2"
+    [[ -z "$selected_ebook" || -z "$page" ]] && return 1
+
+    local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
+    [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
+
+    evince -p "$page" "$ebook_path" &> /dev/null & disown
+}
+
+open_note_ebook_page() {
+    local selected_line=$(get_notes)
+    [[ -z "$selected_line" ]] && return 1
+
+    local selected_ebook=$(get_ebooks "$selected_line")
+    [[ -z "$selected_ebook" ]] && return 1
+
+    local selected_chapter=$(get_chapters "$selected_ebook")
+    [[ -z "$selected_chapter" ]] && return 1
+
+    local page=$(extract_page "$selected_chapter")
+    [[ -z "$page" ]] && return 1
+
+    open_evince "$selected_ebook" "$page"
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
         option=$(whiptail --title "Manage Notes" --menu "Choose an option:" 15 50 3 \
             "1" "Add Note" \
-            "2" "Edit Note" 3>&1 1>&2 2>&3)
+            "2" "Edit Note" \
+            "3" "Open Associated eBook" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -3627,6 +3752,7 @@ manage_notes() {
         case $option in
             1) add_note ;;
             2) list_notes ;;
+            3) open_note_ebook_page ;;
             *) return ;;
         esac
     done
