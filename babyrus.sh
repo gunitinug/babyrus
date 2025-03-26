@@ -3636,11 +3636,26 @@ get_notes() {
     for i in "${!lines[@]}"; do
         local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
         local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
-        options+=("$((i+1))" "$note_path | Tags: $tags")
+
+        # Truncate note path
+        local dir_tr filename_tr note_path_tr
+        dir_tr="$(dirname "$note_path")"
+        dir_tr="$(truncate_dirname "$dir_tr" 50)"
+        filename_tr="$(basename "$note_path")"
+        filename_tr="$(truncate_filename "$filename_tr" 50)"
+        note_path_tr="${dir_tr}/${filename_tr}"
+
+        # Truncate tags
+        local tags_tr
+        tags_tr="$(truncate_tags "$tags")"
+
+        # Menu options (now, truncated)
+        #options+=("$((i+1))" "$note_path | Tags: $tags")
+        options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
     done
 
     local selected_line_tag
-    selected_line_tag=$(whiptail --menu "Select a note" 20 80 10 "${options[@]}" 3>&1 1>&2 2>&3)
+    selected_line_tag=$(whiptail --menu "Select a note" 20 100 10 "${options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local selected_index=$((selected_line_tag - 1))
