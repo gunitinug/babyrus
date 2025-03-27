@@ -2877,7 +2877,7 @@ filter_by_filename() {
   local search_term
   search_term=$(whiptail --inputbox "Enter search term for ebook file name (empty is wildcard; * is literal \*):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
-    echo "User cancelled the filter."
+    #echo "User cancelled the filter." >&2
     return 1
   fi
 
@@ -3176,7 +3176,7 @@ manage_ebooks() {
                 CURRENT_PAGE=0
                 SELECTED_ITEM=""
 
-                filter_by_filename
+                ! filter_by_filename && return 1
 
                 paginate_n
 
