@@ -3564,11 +3564,19 @@ paginate_get_notes() {
 
     local chunk_size=200
 
-    # If new items are passed in, update TRUNC and reset CURRENT_PAGE.
+    # If new items are passed in, update FILTERED_EBOOKS and reset CURRENT_PAGE.
+    # First arg is custom menu title.
+    local menu_title
     if [ "$#" -gt 0 ]; then
-        FILTERED_EBOOKS=("$@")
+        menu_title="$1"  # First argument is the title
+        shift  # Shift to remove the title from the arguments
+        FILTERED_EBOOKS=("$@")  # Remaining arguments are the items
         CURRENT_PAGE=0
     fi
+
+    # Set default title if menu_title is not provided.
+    # But if menu_title is not privided as $1 then FILTERED_EBOOKS will be errorneous.
+    : "${menu_title:=Paged Menu}"
 
     [[ ${#FILTERED_EBOOKS[@]} -eq 0 ]] && return 1
 
@@ -3596,7 +3604,7 @@ paginate_get_notes() {
         # Append the current page items
         menu_options+=("${current_chunk[@]}")
 
-        choice=$(whiptail --title "Paged Menu" --cancel-button "Back" \
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
             20 170 10 \
             "${menu_options[@]}" \
@@ -3673,7 +3681,7 @@ list_notes() {
         CURRENT_PAGE=0
         SELECTED_ITEM=""
 
-        ! paginate_get_notes "${menu_entries[@]}" && break
+        ! paginate_get_notes "Edit Note" "${menu_entries[@]}" && break
 
         local selected_idx="$SELECTED_ITEM"
 
@@ -3741,7 +3749,7 @@ get_notes() {
     CURRENT_PAGE=0
     SELECTED_ITEM=""
 
-    ! paginate_get_notes "${options[@]}" && return 1
+    ! paginate_get_notes "Open Associated eBook" "${options[@]}" && return 1
     local selected_line_tag="$SELECTED_ITEM"
 
     local selected_index=$((selected_line_tag - 1))
