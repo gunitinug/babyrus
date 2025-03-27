@@ -3558,62 +3558,6 @@ edit_note() {
     done
 }
 
-list_notes() {
-    while true; do
-        local db_file="$NOTES_DB"
-        [ ! -f "$db_file" ] && {
-            whiptail --msgbox "No notes database found" 8 40
-            return 1
-        }
-
-        # Reset arrays and index for fresh load each iteration
-        local -a menu_entries=()
-        local -a MENU_PATH_ENTRIES=()
-        local idx=1
-
-        # Load current database state
-        while IFS='|' read -r title path tags _; do
-            # Truncate long title
-            title_tr="${title:0:50}"
-
-            local tag_display=""
-            [ -n "$tags" ] && tag_display=" [${tags}]"
-            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
-            MENU_PATH_ENTRIES+=("$path" "")
-            ((idx++))
-        done < "$db_file"
-
-        [ ${#menu_entries[@]} -eq 0 ] && {
-            whiptail --msgbox "No notes found in database" 8 40
-            return 1
-        }
-
-        # Show interactive menu
-        local selected_idx
-        selected_idx=$(whiptail \
-            --title "Note Selection" \
-            --cancel-button "Back" \
-            --menu "Choose a note to edit" \
-            20 170 10 \
-            "${menu_entries[@]}" \
-            3>&1 1>&2 2>&3)
-
-        # Exit on cancel
-        [ $? -ne 0 ] && break
-
-        # Process selection
-        selected_idx="$(echo "$selected_idx" | cut -d':' -f1)"
-        local m=$((2 * selected_idx - 1))
-        local array_index=$((m - 1))
-        local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
-        
-        # Edit note, exactly as it says ;-)
-        edit_note "$selected_path"
-    done
-}
-
-# Following code section is about opening ebook file associated with a note
-# with an external viewer like evince.
 paginate_get_notes() {
     # Clear any previous selection
     SELECTED_ITEM=""
@@ -3658,10 +3602,10 @@ paginate_get_notes() {
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
-        # Exit if user cancels
+        # Exit with code 1 if user cancels. Make sure to reset SELECTED_ITEM.
         if [ $? -ne 0 ]; then
-            #break
-            return 0
+            SELECTED_ITEM=""
+            return 1
         fi
 
         case "$choice" in
@@ -3682,6 +3626,73 @@ paginate_get_notes() {
     return 1
 }
 
+list_notes() {
+    while true; do
+        local db_file="$NOTES_DB"
+        [ ! -f "$db_file" ] && {
+            whiptail --msgbox "No notes database found" 8 40
+            return 1
+        }
+
+        # Reset arrays and index for fresh load each iteration
+        local -a menu_entries=()
+        local -a MENU_PATH_ENTRIES=()
+        local idx=1
+
+        # Load current database state
+        while IFS='|' read -r title path tags _; do
+            # Truncate long title
+            title_tr="${title:0:50}"
+
+            local tag_display=""
+            [ -n "$tags" ] && tag_display=" [${tags}]"
+            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
+            MENU_PATH_ENTRIES+=("$path" "")
+            ((idx++))
+        done < "$db_file"
+
+        [ ${#menu_entries[@]} -eq 0 ] && {
+            whiptail --msgbox "No notes found in database" 8 40
+            return 1
+        }
+
+        # Show interactive menu
+        #local selected_idx
+        #selected_idx=$(whiptail \
+        #    --title "Note Selection" \
+        #    --cancel-button "Back" \
+        #    --menu "Choose a note to edit" \
+        #    20 170 10 \
+        #    "${menu_entries[@]}" \
+        #    3>&1 1>&2 2>&3)
+        #
+        # Exit on cancel
+        #[ $? -ne 0 ] && break
+
+        # Paginate menu entries instead.
+        CURRENT_PAGE=0
+        SELECTED_ITEM=""
+
+        ! paginate_get_notes "${menu_entries[@]}" && break
+
+        local selected_idx="$SELECTED_ITEM"
+
+        # If user cancels out of paginate menu then SELECTED_ITEM is empty.
+        [ -z "selected_idx" ] && break
+
+        # Process selection
+        selected_idx="$(echo "$selected_idx" | cut -d':' -f1)"
+        local m=$((2 * selected_idx - 1))
+        local array_index=$((m - 1))
+        local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
+        
+        # Edit note, exactly as it says ;-)
+        edit_note "$selected_path"
+    done
+}
+
+# Following code section is about opening ebook file associated with a note
+# with an external viewer like evince.
 get_notes() {
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
         whiptail --msgbox "No notes found in $NOTES_DB" 20 80
@@ -3730,9 +3741,7 @@ get_notes() {
     CURRENT_PAGE=0
     SELECTED_ITEM=""
 
-    ! paginate_get_notes "${options[@]}" && {
-        whiptail --title "Attention" --msgbox "No notes registered." 8 40
-    }
+    ! paginate_get_notes "${options[@]}" && return 1
     local selected_line_tag="$SELECTED_ITEM"
 
     local selected_index=$((selected_line_tag - 1))
