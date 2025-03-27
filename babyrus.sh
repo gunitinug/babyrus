@@ -3176,7 +3176,7 @@ manage_ebooks() {
                 CURRENT_PAGE=0
                 SELECTED_ITEM=""
 
-                ! filter_by_filename && return 1
+                ! filter_by_filename && continue
 
                 paginate_n
 
