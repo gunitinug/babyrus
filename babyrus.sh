@@ -3849,6 +3849,38 @@ open_evince() {
     fi
 }
 
+handle_no_chapters() {
+    local selected_ebook="$1"
+    local choice exit_status
+
+    # Display whiptail menu and capture both output and exit status
+    choice=$(whiptail --title "No Chapters Found" \
+                     --menu "What would you like to do?" \
+                     15 60 4 \
+                     "Open" "Open ebook anyway" \
+                     "Return" "Return without opening" \
+                     3>&1 1>&2 2>&3)
+    exit_status=$?
+
+    # Handle user selection
+    case $exit_status in
+        0)
+            case "$choice" in
+                "Open")
+                    open_evince "$selected_ebook"
+                    ;;
+                "Return")
+                    return
+                    ;;
+            esac
+            ;;
+        *)
+            # User pressed Cancel or closed dialog
+            return
+            ;;
+    esac
+}
+
 open_note_ebook_page() {
     local selected_line=$(get_notes)
     [[ -z "$selected_line" ]] && return 1
@@ -3871,8 +3903,9 @@ open_note_ebook_page() {
         #    open_evince "$selected_ebook"
         fi
     else
-        # No chapters available; open the ebook directly
-        open_evince "$selected_ebook"
+        # No chapters available; ask to open the ebook directly
+        #open_evince "$selected_ebook"
+        handle_no_chapters "$selected_ebook"
     fi
 }
 
