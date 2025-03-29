@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.3'
+BABYRUS_VERSION='v.0.4'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="/my-projects/babyrus"
@@ -4134,18 +4134,39 @@ open_ebook_note_from_global_list() {
 
     # Prepare the options array for whiptail
     local options=()
+    local OPTIONS_LINE=()
+
+    local idx=1
     for line in "${ebook_paths[@]}"; do
-        options+=("$line" "")
+        # Truncate this.
+        local dirname filename dirname_tr filename_tr
+        dirname="$(dirname "$line")"
+        dirname_tr="$(truncate_dirname "$dirname" 50)"
+        filename="$(basename "$line")"
+        filename_tr="$(truncate_filename "$filename" 50)"
+
+        local line_tr
+        line_tr="${dirname_tr}/${filename_tr}"
+
+        options+=("$idx" "$line_tr")
+        
+        # Store full line here.
+        OPTIONS_LINE+=("$line")
+
+        ((idx++))
     done
 
     # Show the menu and get the selected line
-    local selected_line
-    selected_line=$(whiptail --title "Open eBook File From Global List" \
+    local selected_idx selected_line
+    selected_idx=$(whiptail --title "Open eBook File From Global List" \
         --cancel-button "Back" \
         --menu "Choose an eBook to open:" \
         20 100 10 \
         "${options[@]}" \
         3>&1 1>&2 2>&3) || return 1
+
+    # Get line
+    selected_line="${OPTIONS_LINE["$((selected_idx-1))"]}"
 
     # Check if a line was selected
     if [[ -n "$selected_line" ]]; then
