@@ -4110,6 +4110,49 @@ by their associated tag and do stuff with them. You can edit note or open associ
     esac
 }
 
+# The following code section is about opening an ebook file in global list NOTES_EBOOKS_DB.
+open_ebook_note_from_global_list() {
+    # Initial message
+    whiptail --title "Open eBook File From Global List" \
+         --msgbox "This feature allows you to open an ebook file from global list." 8 78
+
+    # Check if the database file exists
+    if [[ ! -f "$NOTES_EBOOKS_DB" ]]; then
+        echo "Error: Notes eBooks database file not found: $NOTES_EBOOKS_DB" >&2
+        return 1
+    fi
+
+    # Read all lines into an array
+    local ebook_paths=()
+    mapfile -t ebook_paths < "$NOTES_EBOOKS_DB"
+
+    # Check if there are any ebooks
+    if [[ ${#ebook_paths[@]} -eq 0 ]]; then
+        echo "No eBooks found in the database." >&2
+        return 1
+    fi
+
+    # Prepare the options array for whiptail
+    local options=()
+    for line in "${ebook_paths[@]}"; do
+        options+=("$line" "")
+    done
+
+    # Show the menu and get the selected line
+    local selected_line
+    selected_line=$(whiptail --title "Open eBook File From Global List" \
+        --cancel-button "Back" \
+        --menu "Choose an eBook to open:" \
+        20 100 10 \
+        "${options[@]}" \
+        3>&1 1>&2 2>&3) || return 1
+
+    # Check if a line was selected
+    if [[ -n "$selected_line" ]]; then
+        open_evince "$selected_line"
+    fi
+}
+
 # Main menu function
 manage_notes() {
     while true; do
@@ -4118,7 +4161,8 @@ manage_notes() {
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Open Associated eBook" \
-            "4" "Do Stuff by Tag" 3>&1 1>&2 2>&3)
+            "4" "Do Stuff by Tag" \
+            "5" "Open an eBook From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -4130,6 +4174,7 @@ manage_notes() {
             2) list_notes ;;
             3) open_note_ebook_page ;;
             4) do_note_filter_by_tag ;;
+            5) open_ebook_note_from_global_list ;;
             *) return ;;
         esac
     done
