@@ -3909,14 +3909,216 @@ open_note_ebook_page() {
     fi
 }
 
+# Following code section is about doing operations with note filtered by tag.
+get_note_tag_from_global_list() {
+    local tags_file="${NOTES_TAGS_DB}"
+    if [[ ! -f "$tags_file" ]]; then
+        echo "Error: Tags database file not found." >&2
+        return 1
+    fi
+
+    # Read tags into array
+    local tags=()
+    while IFS= read -r tag; do
+        tags+=("$tag" "")
+    done < "$tags_file"
+
+    if [[ ${#tags[@]} -eq 0 ]]; then
+        echo "No tags available in the database." >&2
+        return 1
+    fi
+
+    # Use whiptail to display menu
+    local selected_tag
+    selected_tag=$(whiptail --title "Do stuff by Tag" --menu "Choose a tag" 20 40 10 "${tags[@]}" 3>&1 1>&2 2>&3)
+
+    # Check if selection was cancelled
+    if [[ $? -ne 0 ]]; then
+        return 1
+    fi
+
+    echo "$selected_tag"
+}
+
+filter_notes_by_tag() {
+    local target_tag="$1"
+    local notes_file="${NOTES_DB}"
+    FILTERED_NOTES_BY_TAG=()
+
+    if [[ ! -f "$notes_file" ]]; then
+        echo "Error: Notes database file not found." >&2
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        IFS='|' read -ra fields <<< "$line"
+        [[ ${#fields[@]} -lt 3 ]] && continue  # Skip invalid lines
+
+        # Check if target tag exists in the comma-separated list
+        if [[ ",${fields[2]}," =~ ",${target_tag}," ]]; then
+            FILTERED_NOTES_BY_TAG+=("$line")
+        fi
+    done < "$notes_file"
+}
+
+list_notes_from_filtered() {
+    while true; do
+        # Reset arrays and index for fresh load each iteration
+        local -a menu_entries=()
+        local -a MENU_PATH_ENTRIES=()
+        local idx=1
+
+        # Populate arrays from arguments passed to the function
+        for entry in "$@"; do
+            IFS='|' read -r title path tags _ <<< "$entry"
+            # Truncate long title
+            title_tr="${title:0:50}"
+
+            local tag_display=""
+            [ -n "$tags" ] && tag_display=" [${tags}]"
+            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
+            MENU_PATH_ENTRIES+=("$path" "")
+            ((idx++))
+        done
+
+        [ ${#menu_entries[@]} -eq 0 ] && {
+            whiptail --msgbox "No notes found in database" 8 40
+            return 1
+        }
+
+        # Show interactive menu with pagination
+        CURRENT_PAGE=0
+        SELECTED_ITEM=""
+
+        ! paginate_get_notes "Edit Note" "${menu_entries[@]}" && break
+
+        local selected_idx="$SELECTED_ITEM"
+
+        # Exit if user cancels
+        [ -z "$selected_idx" ] && break
+
+        # Process selection
+        selected_idx="$(echo "$selected_idx" | cut -d':' -f1)"
+        local m=$((2 * selected_idx - 1))
+        local array_index=$((m - 1))
+        local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
+        
+        # Edit the selected note
+        edit_note "$selected_path"
+    done
+}
+
+get_notes_from_filtered() {
+    # Directly populate lines from arguments
+    local lines=("$@")
+
+    if [[ ${#lines[@]} -eq 0 ]]; then
+        whiptail --msgbox "No notes found in database" 20 80
+        echo ""
+        return 1
+    fi
+
+    local options=()
+    for i in "${!lines[@]}"; do
+        local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
+        local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
+
+        # Truncate note path
+        local dir_tr filename_tr note_path_tr
+        dir_tr="$(dirname "$note_path")"
+        dir_tr="$(truncate_dirname "$dir_tr" 50)"
+        filename_tr="$(basename "$note_path")"
+        filename_tr="$(truncate_filename "$filename_tr" 50)"
+        note_path_tr="${dir_tr}/${filename_tr}"
+
+        # Truncate tags
+        local tags_tr
+        tags_tr="$(truncate_tags "$tags")"
+
+        # Menu options (now, truncated)
+        options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+    done
+
+    # Paginate selection
+    CURRENT_PAGE=0
+    SELECTED_ITEM=""
+
+    ! paginate_get_notes "Open Associated eBook" "${options[@]}" && return 1
+    local selected_line_tag="$SELECTED_ITEM"
+
+    local selected_index=$((selected_line_tag - 1))
+    [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && return 1
+
+    echo "${lines[$selected_index]}"
+}
+
+open_note_ebook_page_from_filtered() {
+    local selected_line=$(get_notes_from_filtered "$@")
+    [[ -z "$selected_line" ]] && return 1
+
+    local selected_ebook=$(get_ebooks "$selected_line")
+    [[ -z "$selected_ebook" ]] && return 1
+
+    # Extract the chapters part from the selected_ebook
+    local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
+
+    if [[ -n "$chapters_part" ]]; then
+        # Chapters are present, prompt user to select one
+        local selected_chapter=$(get_chapters "$selected_ebook")
+        if [ -n "$selected_chapter" ]; then
+            local page=$(extract_page "$selected_chapter")
+            [[ -z "$page" ]] && return 1
+            open_evince "$selected_ebook" "$page"
+        #else
+        #    # User canceled chapter selection; open without page
+        #    open_evince "$selected_ebook"
+        fi
+    else
+        # No chapters available; ask to open the ebook directly
+        #open_evince "$selected_ebook"
+        handle_no_chapters "$selected_ebook"
+    fi
+}
+
+do_note_filter_by_tag() {
+    # Initial message
+    whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
+by their associated tag and do stuff with them. You can edit note or open associated ebooks." 10 60
+
+    local chosen_tag
+    chosen_tag=$(get_note_tag_from_global_list) || return 1
+    filter_notes_by_tag "$chosen_tag" || return 1
+    
+    # Check if any notes were actually filtered
+    if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
+        whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40
+        return 1
+    fi
+
+    local choice
+    choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
+        15 50 4 "Edit note" "" "Open associated ebook" "" \
+        3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
+
+    case "$choice" in
+        "Edit note")
+            list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+            ;;
+        "Open associated ebook")
+            open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+            ;;
+    esac
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --menu "Choose an option:" 15 50 3 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 15 50 6 \
             "1" "Add Note" \
             "2" "Edit Note" \
-            "3" "Open Associated eBook" 3>&1 1>&2 2>&3)
+            "3" "Open Associated eBook" \
+            "4" "Do Stuff by Tag" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -3927,6 +4129,7 @@ manage_notes() {
             1) add_note ;;
             2) list_notes ;;
             3) open_note_ebook_page ;;
+            4) do_note_filter_by_tag ;;
             *) return ;;
         esac
     done
