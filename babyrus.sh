@@ -3763,10 +3763,10 @@ get_ebooks() {
     [[ -z "$selected_line" ]] && { echo ""; return 1; }
 
     local ebooks_part=$(cut -d'|' -f4 <<< "$selected_line")
-    [[ -z "$ebooks_part" ]] && { whiptail --msgbox "No ebooks associated with the note." 20 80; echo ""; return 1; }
+    [[ -z "$ebooks_part" ]] && { whiptail --msgbox "No ebooks associated with the note." 8 50 >/dev/tty;  return 1; }
 
     IFS=';' read -ra ebooks <<< "$ebooks_part"
-    [[ ${#ebooks[@]} -eq 0 ]] && { whiptail --msgbox "No ebooks associated with the note." 20 80; echo ""; return 1; }
+    [[ ${#ebooks[@]} -eq 0 ]] && { whiptail --msgbox "No ebooks associated with the note." 8 50 >/dev/tty; return 1; }
 
     local ebook_options=()
     for i in "${!ebooks[@]}"; do
@@ -3786,7 +3786,7 @@ get_ebooks() {
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 100 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3)
+    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 100 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
