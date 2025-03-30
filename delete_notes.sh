@@ -202,7 +202,17 @@ delete_notes() {
     # Construct a confirmation message.
     local msg="The following notes will be deleted:\n"
     for idx in "${final_selection[@]}"; do
-        msg+="${lines[$idx]}\n"
+        # Truncate note path
+        note_path=$(cut -d'|' -f2 <<< "${lines[$idx]}")
+
+        local dir_tr filename_tr note_path_tr
+        dir_tr="$(dirname "$note_path")"
+        dir_tr="$(truncate_dirname "$dir_tr" 50)"
+        filename_tr="$(basename "$note_path")"
+        filename_tr="$(truncate_filename "$filename_tr" 50)"
+        note_path_tr="${dir_tr}/${filename_tr}" 
+
+        msg+="${note_path_tr}\n"
     done
 
     # Confirm deletion.
