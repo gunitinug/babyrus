@@ -2678,7 +2678,7 @@ add_ebooks_from_checklist() {
         msg+="  $f\n"
     done
 
-    if whiptail --yesno "$msg" 20 78 --title "Confirm Addition"; then
+    if whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Addition"; then
         for f in "${to_add[@]}"; do
             if ! grep -Fq "${f}|" "$EBOOKS_DB"; then
                 echo "${f}|" >> "$EBOOKS_DB"
