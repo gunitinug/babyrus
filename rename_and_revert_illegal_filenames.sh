@@ -3,6 +3,13 @@
 EBOOKS_DB="ebooks.db"
 
 rename_and_reregister_illegal_ebook_filenames() {
+    # Info msgbox about what this function does
+    whiptail --title "Info" --msgbox \
+"Files registered in ebooks database can't have |,#:; characters in their file names \
+because they are illegal in Manage Notes operations. \n\n\
+This function will rename the file names accordingly both in ebooks database \
+and physically on drive. You can also revert the changes later." 15 80
+
     local EBOOKS_DB_BACKUP="$EBOOKS_DB.backup"
     local LOG_FILE="$EBOOKS_DB.rename.log"
     local TEMP_DB
@@ -94,6 +101,11 @@ rename_and_reregister_illegal_ebook_filenames() {
 }
 
 revert_rename_illegal_ebook_filenames() {    
+    # Info msgbox about what this function does
+    whiptail --title "Info" --msgbox \
+"This function reverts changes made by Rename and Reregister Illegal Ebook Filenames function. \
+It reverts both ebooks database and physical file names on drive." 10 80
+
     local EBOOKS_DB_BACKUP="$EBOOKS_DB.backup"
     local LOG_FILE="$EBOOKS_DB.rename.log"
 
@@ -124,5 +136,5 @@ revert_rename_illegal_ebook_filenames() {
     whiptail --title "Success" --msgbox "Successfully reverted all changes!\n\nOriginal database restored from backup." 12 80
 }
 
-rename_and_reregister_illegal_ebook_filenames
-#revert_rename_illegal_ebook_filenames
+#rename_and_reregister_illegal_ebook_filenames
+revert_rename_illegal_ebook_filenames
