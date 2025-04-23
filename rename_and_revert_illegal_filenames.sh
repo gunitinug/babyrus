@@ -120,6 +120,9 @@ It reverts both ebooks database and physical file names on drive." 10 80
         return 1
     fi
 
+    # Working... infobox
+    TERM=ansi whiptail --title "Info" --infobox "Working..." 8 40
+
     cp -- "$EBOOKS_DB_BACKUP" "$EBOOKS_DB" || return 1
 
     while IFS= read -r line; do
