@@ -1,6 +1,6 @@
 # babyrus
 <img src="./babyrus.jpeg" height=110>
-Copyleft February, March 2025 by Logan Lee. Feel free to share and modify.
+Copyleft February, March, April 2025 by Logan Lee. Feel free to share and modify.
 
 <br><br>YOU NEED BASH VERSION AT LEAST 5.2.21!!!!<br><br>
 
