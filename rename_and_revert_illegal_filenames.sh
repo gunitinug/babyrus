@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EBOOKS_DB="./test/rename.db"
+EBOOKS_DB="./ebooks.db"
 
 rename_and_reregister_illegal_ebook_filenames() {
     # Info msgbox about what this function does
@@ -84,6 +84,10 @@ and physically on drive. You can also revert the changes later." 15 80
         return 0
     fi
 
+    # Display whiptail message telling user to wait
+    TERM=ansi whiptail --title "Processing" \
+         --infobox "Changes being applied.\n\nPlease wait..." 10 60
+
     # Second pass: execute changes
     : > "$LOG_FILE"
     for change in "${changes[@]}"; do
@@ -97,6 +101,7 @@ and physically on drive. You can also revert the changes later." 15 80
 
         if ! mv -- "$old" "$new"; then
             echo "Error: Failed to rename '$old' to '$new'" >&2
+            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 8 60
             rm -f "$TEMP_DB"
             return 1
         fi
