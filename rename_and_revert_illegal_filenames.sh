@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EBOOKS_DB="ebooks.db"
+EBOOKS_DB="./test/rename.db"
 
 rename_and_reregister_illegal_ebook_filenames() {
     # Info msgbox about what this function does
@@ -14,6 +14,7 @@ and physically on drive. You can also revert the changes later." 15 80
     local LOG_FILE="$EBOOKS_DB.rename.log"
     local TEMP_DB
     TEMP_DB=$(mktemp) || return 1
+    local -A used_paths=()
     local -a changes=()
     local -a new_lines=()
 
@@ -31,14 +32,15 @@ and physically on drive. You can also revert the changes later." 15 80
 
         dir=$(dirname -- "$path")
         old_basename=$(basename -- "$path")
-        new_basename=$(tr '|,#:;' '_' <<< "$old_basename")
+        new_basename=$(tr ',#:;' '_' <<< "$old_basename")
 
         if [[ "$new_basename" != "$old_basename" ]]; then
             # Generate unique filename
             new_path="$dir/$new_basename"
             local counter=1
             
-            while [[ -e "$new_path" ]]; do
+            # Check both existing files and planned changes
+            while [[ -e "$new_path" || -n "${used_paths[$new_path]}" ]]; do
                 local name_part="${new_basename%.*}"
                 local ext_part="${new_basename##*.}"
                 if [[ "$name_part" == "$ext_part" ]]; then
@@ -50,6 +52,7 @@ and physically on drive. You can also revert the changes later." 15 80
                 ((counter++))
             done
 
+            used_paths["$new_path"]=1
             changes+=("$path|$new_path")
             new_lines+=("$new_path|$tags")
         else
@@ -85,6 +88,13 @@ and physically on drive. You can also revert the changes later." 15 80
     : > "$LOG_FILE"
     for change in "${changes[@]}"; do
         IFS='|' read -r old new <<< "$change"
+
+        # Debug
+        #echo "Before mv:" >&2
+        #echo "old: $old" >&2
+        #echo "new: $new" >&2
+        #exit
+
         if ! mv -- "$old" "$new"; then
             echo "Error: Failed to rename '$old' to '$new'" >&2
             rm -f "$TEMP_DB"
