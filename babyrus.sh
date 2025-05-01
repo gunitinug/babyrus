@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.4'
+BABYRUS_VERSION='v.0.45'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="/my-projects/babyrus"
@@ -2842,6 +2842,189 @@ It reverts both ebooks database and physical file names on drive." 10 80
     whiptail --title "Success" --msgbox "Successfully reverted all changes!\n\nOriginal database restored from backup." 12 80
 }
 
+remove_ebooks_from_checklist() {
+    local ITEMS_PER_PAGE=100
+    local current_page=0
+    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
+
+    # Ask for search term first
+    local search_term
+    search_term=$(whiptail --inputbox "Enter a string to filter by filename (literal substring match; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
+        whiptail --msgbox "Cancelled." 8 40
+        return 1
+    }
+
+    # Prepare case-insensitive search
+    local search_term_lower=""
+    [[ -n "$search_term" ]] && search_term_lower="$(tr '[:upper:]' '[:lower:]' <<< "$search_term")"
+
+    # Waiting... info box
+    TERM=ansi whiptail --title "Building..." --infobox "Preparing menu, please wait" 8 40
+
+    # Read entries with filtering
+    local -a entries=()
+    while IFS='|' read -r path tags; do
+        # Filter logic
+        if [[ -z "$search_term" ]]; then  # No filter
+            entries+=("$path")
+        else
+            local filename="$(basename "$path")"
+            local filename_lower="$(tr '[:upper:]' '[:lower:]' <<< "$filename")"
+            [[ "$filename_lower" == *"$search_term_lower"* ]] && entries+=("$path")
+        fi
+    done < "$EBOOKS_DB"
+
+    # Empty state message
+    local total=${#entries[@]}
+    if (( total == 0 )); then
+        if [[ -n "$search_term" ]]; then
+            whiptail --msgbox "No eBooks found matching '$search_term'." 8 40
+        else
+            whiptail --msgbox "No eBooks in database." 8 40
+        fi
+        return 1
+    fi
+    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
+
+    # Pagination loop
+    while true; do
+	# Waiting... info box
+	TERM=ansi whiptail --title "Building..." --infobox "Preparing menu, please wait" 8 40
+
+        local start=$(( current_page * ITEMS_PER_PAGE ))
+        local end=$(( start + ITEMS_PER_PAGE ))
+        (( end > total )) && end=$total
+
+        # Build choices for the current page
+        local -a choices=()
+        for ((i = start; i < end; i++)); do
+            local path="${entries[$i]}"
+            
+            # Split path into directory and filename
+			local dir_part=$(dirname "$path")
+			local file_part=$(basename "$path")
+			# Truncate components
+			local trunc_dir=$(truncate_dirname "$dir_part")
+			local trunc_file=$(truncate_filename "$file_part" 50)
+			local truncated_path="${trunc_dir}/${trunc_file}"            
+
+            local state="OFF"
+            [[ -n "${selected_entries[$i]}" ]] && state="ON"
+            choices+=("entry_$i" "$truncated_path" "$state")
+        done
+
+        # Add navigation controls
+        if (( current_page > 0 )); then
+            choices+=("__prev__" "Previous page" "OFF")
+        fi
+        if (( current_page < pages - 1 )); then
+            choices+=("__next__" "Next page" "OFF")
+        fi
+        choices+=("__proceed__" "Proceed to remove selected entries" "OFF")
+
+        # Show checklist
+        local result
+        result=$(whiptail \
+            --title "Remove Registered eBooks From DB" \
+            --checklist "Page $((current_page+1))/$pages\nSelect entries to remove or navigation action:" \
+            20 150 10 \
+            "${choices[@]}" \
+            3>&1 1>&2 2>&3) \
+            || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+
+        # Process selections
+        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
+
+        # Update selected_entries for current page
+        for ((i = start; i < end; i++)); do
+            local tag="entry_$i"
+            if printf "%s\n" "${sel_tags[@]}" | grep -qx "$tag"; then
+                selected_entries["$i"]=1
+            else
+                unset selected_entries["$i"]
+            fi
+        done
+
+        # Count selection types
+        local nav_count=0 proceed_count=0 entry_count=0
+        for tag in "${sel_tags[@]}"; do
+            case "$tag" in
+                __prev__|__next__) ((nav_count++)) ;;
+                __proceed__) ((proceed_count++)) ;;
+                entry_*) ((entry_count++)) ;;
+            esac
+        done
+
+        # Validate selections
+        if (( nav_count > 1 || proceed_count > 1 )); then
+            whiptail --msgbox "Please select only one of navigation actions." 10 40
+            continue
+        fi
+        if (( nav_count + proceed_count > 1 )); then
+            whiptail --msgbox "Please select only one action (Previous, Next, or Proceed)." 10 40
+            continue
+        fi
+
+        # Handle navigation
+        if (( nav_count == 1 )); then
+            for tag in "${sel_tags[@]}"; do
+                case "$tag" in
+                    __prev__)
+                        ((current_page--))
+                        # Ensure current_page doesn't go below 0
+                        ((current_page < 0)) && current_page=0                        
+                        break
+                        ;;
+                    __next__)
+                        ((current_page++))
+                        # Ensure current_page doesn't exceed pages-1
+                        ((current_page >= pages)) && current_page=$((pages - 1))                        
+                        break
+                        ;;
+                esac
+            done
+            continue
+        fi
+
+        # Handle proceed
+        if (( proceed_count == 1 )); then
+            break
+        fi
+
+        # If no action, continue to next iteration (same page)
+    done
+
+    # Collect selected paths
+    local -a selected_paths=()
+    for index in "${!selected_entries[@]}"; do
+        selected_paths+=("${entries[$index]}")
+    done
+
+    if (( ${#selected_paths[@]} == 0 )); then
+        whiptail --msgbox "No entries selected." 8 40
+        return 1
+    fi
+
+    # Confirm removal
+    local msg="The following entries will be removed:\n"
+    for path in "${selected_paths[@]}"; do
+        msg+="  $path\n"
+    done
+    if whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Removal"; then
+        # Create a temporary file
+        local tmp_db
+        tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temporary file." 8 40; return 1; }
+        # Use grep to exclude selected paths
+        grep -vf <(printf '^%s|\n' "${selected_paths[@]}") "$EBOOKS_DB" > "$tmp_db"
+                
+        # Replace the original database
+        mv "$tmp_db" "$EBOOKS_DB"
+        whiptail --msgbox "Entries removed successfully." 8 40
+    else
+        whiptail --msgbox "Removal cancelled." 8 40
+    fi
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
@@ -2865,14 +3048,16 @@ show_ebooks_menu() {
                     "2" "Register eBook" \
                     "3" "Register eBooks From Checklist" \
                     "4" "Remove Registered eBook" \
-                    "5" "Remove Files In Bulk" 3>&1 1>&2 2>&3)
+                    "5" "Remove eBooks From Checklist" \
+                    "6" "Remove Files In Bulk" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$FILE_OPTION" in
                     "1") add_files_in_bulk ;;
                     "2") register_ebook ;;
                     "3") add_ebooks_from_checklist ;;
                     "4") remove_registered_ebook ;;
-                    "5") remove_files_in_bulk ;;
+                    "5") remove_ebooks_from_checklist ;;
+                    "6") remove_files_in_bulk ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
@@ -4717,7 +4902,7 @@ manage_notes() {
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
 
-Copyleft February, March 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
+Copyleft February, March, April 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
 
 # Main menu function
 show_main_menu() {
