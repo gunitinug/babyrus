@@ -55,14 +55,38 @@ remove_ebooks_from_checklist() {
     local current_page=0
     declare -A selected_entries  # Keys are entry indices, value is 1 if selected
 
-    # Read all entries from EBOOKS_DB
+    # Ask for search term first
+    local search_term
+    search_term=$(whiptail --inputbox "Enter a string to filter by filename (literal substring match; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
+        whiptail --msgbox "Cancelled." 8 40
+        return 1
+    }
+
+    # Prepare case-insensitive search
+    local search_term_lower=""
+    [[ -n "$search_term" ]] && search_term_lower=$(tr '[:upper:]' '[:lower:]' <<< "$search_term")
+
+    # Read entries with filtering
     local -a entries=()
     while IFS='|' read -r path tags; do
-        entries+=("$path")
+        # Filter logic
+        if [[ -z "$search_term" ]]; then  # No filter
+            entries+=("$path")
+        else
+            local filename=$(basename "$path")
+            local filename_lower=$(tr '[:upper:]' '[:lower:]' <<< "$filename")
+            [[ "$filename_lower" == *"$search_term_lower"* ]] && entries+=("$path")
+        fi
     done < "$EBOOKS_DB"
+
+    # Empty state message
     local total=${#entries[@]}
     if (( total == 0 )); then
-        whiptail --msgbox "No eBooks in database." 8 40
+        if [[ -n "$search_term" ]]; then
+            whiptail --msgbox "No eBooks found matching '$search_term'." 8 40
+        else
+            whiptail --msgbox "No eBooks in database." 8 40
+        fi
         return 1
     fi
     local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
