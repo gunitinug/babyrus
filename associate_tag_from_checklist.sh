@@ -1,5 +1,37 @@
+EBOOKS_DB="test.db"
+TAGS_DB="test-tags.db"
+
+# truncate logic for filenames (ie. basename)
+# the logic is:
+# "a very long truncated file.pdf" becomes "a very long truncated....pdf"
+# preserves the file extension.
+truncate_filename() {
+    local filename="$1"
+    local max_length="${2:-85}" # defaults to 85
+
+    # Extract filename and extension
+    local name="${filename%.*}"
+    local ext="${filename##*.}"
+
+    # If there's no extension, treat whole as name
+    [[ "$filename" == "$ext" ]] && ext=""
+
+    # Calculate max length for the name part (allow space for dots and extension)
+    local trunc_length=$(( max_length - ${#ext} - 4 ))  # 4 accounts for "...."
+
+    # If filename is within limit, return as-is
+    if [[ ${#filename} -le $max_length ]]; then
+        echo "$filename"
+        return
+    fi
+
+    # Truncate the name and append "...." + extension
+    local truncated_name="${name:0:trunc_length}"
+    echo "${truncated_name}....${ext}"
+}
+
 associate_tag_from_checklist() {
-    local ITEMS_PER_PAGE=100
+    local ITEMS_PER_PAGE=5
     local current_page=0
     declare -A selected_entries  # Keys are entry indices, value is 1 if selected
 
@@ -33,7 +65,7 @@ associate_tag_from_checklist() {
     # --- Step 2: Ask for filename filter ---
     local search_term
     search_term=$(whiptail --inputbox \
-        "Enter a substring to filter filenames (leave empty for all):" \
+        "Enter a substring to filter filenames (literal substring match; empty is wildcard):" \
         8 50 --title "Search Filter" \
         3>&1 1>&2 2>&3) || {
             whiptail --msgbox "Cancelled." 8 40
@@ -69,7 +101,7 @@ associate_tag_from_checklist() {
         for ((i = start; i < end; i++)); do
             local entry="${entries[$i]}"
             local path="${entry%%|*}"
-            local display="$(basename "$path")"
+            local display="$(truncate_filename "$(basename "$path")" 50)"
             local state="OFF"
             [[ -n "${selected_entries[$i]}" ]] && state="ON"
             choices+=("entry_$i" "$display" "$state")
@@ -145,7 +177,7 @@ associate_tag_from_checklist() {
         return 1
     fi
 
-    local msg="Tag '${selected_tag}' will be added to:\n"
+    local msg="Tag '${selected_tag}' will be added to (excluding duplicates):\n"
     for line in "${to_update[@]}"; do
         msg+="  ${line%%|*}\n"
     done
@@ -180,3 +212,5 @@ associate_tag_from_checklist() {
     mv "$tmp_db" "$EBOOKS_DB"
     whiptail --msgbox "Tag '$selected_tag' associated successfully." 8 40
 }
+
+associate_tag_from_checklist
