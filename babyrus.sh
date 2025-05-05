@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.45'
+BABYRUS_VERSION='v.0.48'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="/my-projects/babyrus"
@@ -3025,6 +3025,356 @@ remove_ebooks_from_checklist() {
     fi
 }
 
+dissociate_tag_from_checklist() {
+    touch "$EBOOKS_DB" "$TAGS_DB"
+
+    local ITEMS_PER_PAGE=100
+    local current_page=0
+    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
+
+    # Ask for tag to dissociate
+    local tag_to_remove
+    # build tag menu options (tag and empty description)
+    local -a tag_choices=()
+    while IFS= read -r tag; do
+        [[ -z "$tag" ]] && continue
+        tag_choices+=("$tag" "")
+    done < "$TAGS_DB"
+    if [[ ${#tag_choices[@]} -eq 0 ]]; then
+        whiptail --msgbox "No tags found in database." 8 40
+        return 1
+    fi
+    tag_to_remove=$(whiptail --title "Select Tag to Remove" --menu "Choose a tag to dissociate from eBooks:" \
+        20 60 10 \
+        "${tag_choices[@]}" \
+        3>&1 1>&2 2>&3) || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+
+    # Gather entries containing that tag
+    local -a entries=()
+    while IFS='|' read -r path tags; do
+        IFS=',' read -ra tag_array <<< "$tags"
+        for t in "${tag_array[@]}"; do
+            [[ "$t" == "$tag_to_remove" ]] && entries+=("$path|$tags") && break
+        done
+    done < "$EBOOKS_DB"
+
+    local total=${#entries[@]}
+    if (( total == 0 )); then
+        whiptail --msgbox "No eBooks found with tag '$tag_to_remove'." 8 50
+        return 1
+    fi
+    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
+
+    # Pagination loop
+    while true; do        
+        local start=$(( current_page * ITEMS_PER_PAGE ))
+        local end=$(( start + ITEMS_PER_PAGE ))
+        (( end > total )) && end=$total
+
+        local -a choices=()
+        for ((i = start; i < end; i++)); do
+            local entry="${entries[$i]}"
+            local path="${entry%%|*}"
+            # truncate display
+            local dir_part=$(dirname "$path")
+            local file_part=$(basename "$path")
+            local trunc_dir=$(truncate_dirname "$dir_part")
+            local trunc_file=$(truncate_filename "$file_part" 50)
+            local disp="${trunc_dir}/${trunc_file}"
+
+            local state="OFF"
+            [[ -n "${selected_entries[$i]}" ]] && state="ON"
+            choices+=("entry_$i" "$disp" "$state")
+        done
+        # nav
+        (( current_page > 0 )) && choices+=("__prev__" "Previous page" OFF)
+        (( current_page < pages-1 )) && choices+=("__next__" "Next page" OFF)
+        choices+=("__proceed__" "Proceed to dissociate tag" OFF)
+
+        local result
+        result=$(whiptail --title "Dissociate Tag: $tag_to_remove" \
+            --checklist "Page $((current_page+1))/$pages\nSelect eBooks to update or navigate:" \
+            20 150 10 "${choices[@]}" 3>&1 1>&2 2>&3) \
+            || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+
+        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
+        # update selection
+        for ((i = start; i < end; i++)); do
+            local tagkey="entry_$i"
+            if printf "%s\n" "${sel_tags[@]}" | grep -qx "$tagkey"; then
+                selected_entries[$i]=1
+            else
+                unset selected_entries[$i]
+            fi
+        done
+
+        # count actions
+        local nav_count=0 proceed_count=0
+        for tag in "${sel_tags[@]}"; do
+            [[ "$tag" == __prev__ || "$tag" == __next__ ]] && ((nav_count++))
+            [[ "$tag" == __proceed__ ]] && ((proceed_count++))
+        done
+        # validations
+        if (( nav_count > 1 || proceed_count > 1 )); then
+            whiptail --msgbox "Select only one navigation or proceed action." 10 40
+            continue
+        fi
+        if (( nav_count + proceed_action > 1 )); then
+            whiptail --msgbox "Do not select both navigation option and proceed at the same time." 10 40
+			continue
+        fi
+        
+        # navigation
+        if (( nav_count == 1 )); then
+            for tag in "${sel_tags[@]}"; do
+                case "$tag" in
+                    __prev__) ((current_page--)); ((current_page<0)) && current_page=0;;
+                    __next__) ((current_page++)); ((current_page>=pages)) && current_page=$((pages-1));;
+                esac
+            done
+            continue
+        fi
+        # proceed
+        (( proceed_count == 1 )) && break
+    done
+
+    # Build selected paths
+    local -a selected_paths=()
+    for idx in "${!selected_entries[@]}"; do
+        selected_paths+=("${entries[$idx]%%|*}")
+    done
+    if (( ${#selected_paths[@]} == 0 )); then
+        whiptail --msgbox "No entries selected." 8 40
+        return 1
+    fi
+
+    # Confirm
+    local msg="The tag '$tag_to_remove' will be removed from:\n"
+    for p in "${selected_paths[@]}"; do msg+="  $p\n"; done
+    if ! whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Dissociation"; then
+        whiptail --msgbox "Cancelled." 8 40
+        return 1
+    fi
+
+    # Process removal
+    local tmp_db
+    tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temp file." 8 40; return 1; }
+    declare -A tofix
+    for p in "${selected_paths[@]}"; do tofix["$p"]=1; done
+    while IFS='|' read -r path tags; do
+        if [[ -n "${tofix[$path]}" ]]; then
+            IFS=',' read -ra arr <<< "$tags"
+            local new_arr=()
+            for t in "${arr[@]}"; do
+                [[ "$t" != "$tag_to_remove" && -n "$t" ]] && new_arr+=("$t")
+            done
+            local new_tags
+            # only join if there are remaining tags
+            if (( ${#new_arr[@]} > 0 )); then
+                new_tags="$(IFS=','; echo "${new_arr[*]}")"
+            else
+                new_tags=""
+            fi
+            echo "$path|$new_tags" >> "$tmp_db"
+        else
+            echo "$path|$tags" >> "$tmp_db"
+        fi
+    done < "$EBOOKS_DB"
+    mv "$tmp_db" "$EBOOKS_DB"
+    whiptail --msgbox "Tag '$tag_to_remove' dissociated successfully." 8 50
+}
+
+associate_tag_from_checklist() {
+    touch "$EBOOKS_DB" "TAGS_DB"
+
+    local ITEMS_PER_PAGE=100
+    local current_page=0
+    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
+
+    # --- Step 1: Pick a tag from $TAGS_DB ---
+    local -a tags
+    while IFS= read -r tag; do
+        tags+=("$tag")
+    done < "$TAGS_DB"
+
+    if (( ${#tags[@]} == 0 )); then
+        whiptail --msgbox "No tags available in $TAGS_DB." 8 40
+        return 1
+    fi
+
+    # Build a numeric menu so we can handle spaces in tag names
+    local -a tag_choices=()
+    for i in "${!tags[@]}"; do
+        tag_choices+=("$i" "${tags[$i]}")
+    done
+
+    local selected_index
+    selected_index=$(whiptail --title "Select Tag to Associate" \
+        --menu "Choose one tag:" 20 60 10 \
+        "${tag_choices[@]}" \
+        3>&1 1>&2 2>&3) || {
+            whiptail --msgbox "Cancelled." 8 40
+            return 1
+        }
+    local selected_tag="${tags[$selected_index]}"
+
+    # --- Step 2: Ask for filename filter ---
+    local search_term
+    search_term=$(whiptail --inputbox \
+        "Enter a substring to filter filenames (literal substring match; empty is wildcard):" \
+        8 50 --title "Search Filter" \
+        3>&1 1>&2 2>&3) || {
+            whiptail --msgbox "Cancelled." 8 40
+            return 1
+        }
+    local search_lower=""
+    [[ -n "$search_term" ]] && search_lower="$(tr '[:upper:]' '[:lower:]' <<< "$search_term")"
+
+    # Bulding... infobox
+    TERM=ansi whiptail --title "Building.." --infobox "Building menu.\n\nPlease wait..." 10 40
+
+    # --- Step 3: Load & filter e-book entries ---
+    local -a entries=()
+    while IFS='|' read -r path tags_on_book; do
+        if [[ -z "$search_term" ]] || \
+           [[ "$(basename "$path" | tr '[:upper:]' '[:lower:]')" == *"$search_lower"* ]]; then
+            entries+=("$path|$tags_on_book")
+        fi
+    done < "$EBOOKS_DB"
+
+    if (( ${#entries[@]} == 0 )); then
+        whiptail --msgbox "No eBooks found matching '$search_term'." 8 40
+        return 1
+    fi
+
+    local total=${#entries[@]}
+    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
+
+    # --- Step 4: Paginated checklist of e-books ---
+    while true; do        
+        # Bulding... infobox
+        TERM=ansi whiptail --title "Building.." --infobox "Building menu.\n\nPlease wait..." 10 40
+
+        local start=$(( current_page * ITEMS_PER_PAGE ))
+        local end=$(( start + ITEMS_PER_PAGE ))
+        (( end > total )) && end=$total
+
+        local -a choices=()
+        for ((i = start; i < end; i++)); do
+            local entry="${entries[$i]}"
+            local path="${entry%%|*}"
+            local display="$(truncate_filename "$(basename "$path")" 50)"
+            local state="OFF"
+            [[ -n "${selected_entries[$i]}" ]] && state="ON"
+            choices+=("entry_$i" "$display" "$state")
+        done
+
+        # navigation
+        (( current_page > 0 )) && choices+=("__prev__" "< Previous page" OFF)
+        (( current_page < pages-1 )) && choices+=("__next__" "> Next page" OFF)
+        choices+=("__proceed__" "Proceed to tag association" OFF)
+
+        local result
+        result=$(whiptail --title "Associate Tag: Page $((current_page+1))/$pages" \
+            --checklist "Select e-Books to tag or navigate:" \
+            20 100 10 \
+            "${choices[@]}" \
+            3>&1 1>&2 2>&3) || {
+                whiptail --msgbox "Cancelled." 8 40
+                return 1
+            }
+
+        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
+
+        # update selected_entries
+        for ((i = start; i < end; i++)); do
+            tag="entry_$i"
+            if printf '%s\n' "${sel_tags[@]}" | grep -qx "$tag"; then
+                selected_entries[$i]=1
+            else
+                unset selected_entries[$i]
+            fi
+        done
+
+        # Count selection types
+        local nav=0 proc=0
+        for tag in "${sel_tags[@]}"; do
+            [[ $tag == __prev__ || $tag == __next__ ]] && ((nav++))
+            [[ $tag == __proceed__ ]] && ((proc++))
+        done
+
+		# Validate selections
+        if (( nav > 1 || proc > 1 )); then
+            whiptail --msgbox "Please select only one of navigation actions." 10 40
+            continue
+        fi
+        if (( nav + proc > 1 )); then
+            whiptail --msgbox "Please select only one action (Previous, Next, or Proceed)." 10 40
+            continue
+        fi        
+
+        # handle navigation
+        if (( nav == 1 )); then
+            for tag in "${sel_tags[@]}"; do
+                [[ $tag == __prev__ ]] && ((current_page--))
+                [[ $tag == __next__ ]] && ((current_page++))
+            done
+            (( current_page < 0 )) && current_page=0
+            (( current_page >= pages )) && current_page=$((pages-1))
+            continue
+        fi
+
+        # proceed
+        (( proc == 1 )) && break
+    done
+
+    # --- Step 5: Collect selected entries & update DB ---
+    local -a to_update=()
+    for idx in "${!selected_entries[@]}"; do
+        to_update+=("${entries[$idx]}")
+    done
+
+    if (( ${#to_update[@]} == 0 )); then
+        whiptail --msgbox "No eBooks selected." 8 40
+        return 1
+    fi
+
+    local msg="Tag '${selected_tag}' will be added to (excluding duplicates):\n"
+    for line in "${to_update[@]}"; do
+        msg+="  ${line%%|*}\n"
+    done
+
+    if ! whiptail --scrolltext --yesno "$msg" 20 70 --title "Confirm Association"; then
+        whiptail --msgbox "Operation cancelled." 8 40
+        return 1
+    fi
+
+    # perform in-place update without duplicating tags
+    local tmp_db
+    tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temp file." 8 40; return 1; }
+
+    while IFS='|' read -r path tags_on_book; do
+        local new_tags="$tags_on_book"
+        local line="$path|$tags_on_book"
+
+        # if this is one of the selected entries, append only if missing
+        if printf '%s\n' "${to_update[@]}" | grep -Fxq -- "$line"; then
+            if [[ ",$tags_on_book," != *",$selected_tag,"* ]]; then
+                if [[ -z "$new_tags" ]]; then
+                    new_tags="$selected_tag"
+                else
+                    new_tags="$new_tags,$selected_tag"
+                fi
+            fi
+        fi
+
+        printf '%s|%s\n' "$path" "$new_tags" >> "$tmp_db"
+    done < "$EBOOKS_DB"
+
+    mv "$tmp_db" "$EBOOKS_DB"
+    whiptail --msgbox "Tag '$selected_tag' associated successfully." 8 40
+}
+
 # Manage eBooks menu
 show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
@@ -3063,21 +3413,25 @@ show_ebooks_menu() {
                 ;;
             "2")
                 # Tag Management submenu: Items 4, 7, 11, and 12
-                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 15 50 6 \
+                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 15 50 8 \
                     "1" "Register Tag" \
                     "2" "Associate Tag with eBook" \
-                    "3" "Associate Tag to Bulk" \
-                    "4" "Dissociate Tag from Registered eBook" \
-                    "5" "Dissociate Tag from Bulk" \
-                    "6" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
+                    "3" "Associate Tag from Checklist" \
+                    "4" "Associate Tag to Bulk" \
+                    "5" "Dissociate Tag from Registered eBook" \
+                    "6" "Disociate Tag from Checklist" \
+                    "7" "Dissociate Tag from Bulk" \
+                    "8" "Delete Tag From Global List" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$TAG_OPTION" in
                     "1") register_tag ;;
                     "2") associate_tag ;;
-                    "3") assoc_tag_to_bulk ;;
-                    "4") dissociate_tag_from_registered_ebook ;;
-                    "5") dissoc_tag_to_bulk ;;
-                    "6") delete_tag_from_global_list ;;
+                    "3") associate_tag_from_checklist ;;
+                    "4") assoc_tag_to_bulk ;;                    
+                    "5") dissociate_tag_from_registered_ebook ;;
+                    "6") dissociate_tag_from_checklist ;;
+                    "7") dissoc_tag_to_bulk ;;
+                    "8") delete_tag_from_global_list ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
