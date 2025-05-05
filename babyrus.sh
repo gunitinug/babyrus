@@ -93,7 +93,7 @@ list_files() {
         entry="$(echo -n "$entry" | tr -s '/')"
 
         if [[ -d "$entry" && "$mode" == "D" ]]; then
-            entries+=("$entry" " ")
+            entries+=("$entry" "")
         elif [[ -f "$entry" && "$mode" == "F" ]]; then
             entries+=("$entry" "$(basename "$entry")")
         fi
@@ -440,10 +440,10 @@ paginate() {
 
         # Add navigation options if needed
         if (( CURRENT_PAGE > 0 )); then
-            menu_options+=("previous page" " ")
+            menu_options+=("previous page" "")
         fi
         if (( CURRENT_PAGE < total_pages - 1 )); then
-            menu_options+=("next page" " ")
+            menu_options+=("next page" "")
         fi
 
         # Append the current page items
@@ -931,7 +931,7 @@ dissociate_tag_from_registered_ebook() {
     # Create tag selection menu
     local tag_menu_items=()
     for tag in "${tags_array[@]}"; do
-        tag_menu_items+=("$tag" " ")
+        tag_menu_items+=("$tag" "")
     done
 
     # Second selection: Choose tag to remove
@@ -985,7 +985,7 @@ delete_tag_from_global_list() {
     # Create menu items
     local menu_items=()
     for tag in "${tags_list[@]}"; do
-        menu_items+=("$tag" " ")
+        menu_items+=("$tag" "")
     done
 
     # Tag selection
@@ -1168,7 +1168,7 @@ open_file_search_by_filename() {
             IFS='|' read -r path tags <<< "$line"
             filename=$(basename "$path")
             if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
-                matches+=("$path" " ")
+                matches+=("$path" "")
             fi
         fi
     done < "$EBOOKS_DB"
@@ -1218,7 +1218,7 @@ open_file_search_by_tag() {
     # Get matching tags from TAGS_DB
     local tags=()
     while IFS= read -r tag; do
-        [[ "$tag_search" == "*" || "${tag,,}" == *"${tag_search,,}"* ]] && tags+=("$tag" " ")
+        [[ "$tag_search" == "*" || "${tag,,}" == *"${tag_search,,}"* ]] && tags+=("$tag" "")
     done < "$TAGS_DB"
     
     [ ${#tags[@]} -eq 0 ] && {
@@ -1242,7 +1242,7 @@ open_file_search_by_tag() {
             IFS=',' read -ra tag_array <<< "$tags"
             for t in "${tag_array[@]}"; do
                 if [ "$t" = "$selected_tag" ]; then
-                    files+=("$path" " ")
+                    files+=("$path" "")
                     break
                 fi
             done
@@ -1823,7 +1823,7 @@ assoc_tag_to_bulk() {
     # Present tag selection menu using whiptail
     local tags=()
     while IFS= read -r tag; do
-        tags+=("$tag" " ")
+        tags+=("$tag" "")
     done < "$TAGS_DB"
     
     [[ ${#tags[@]} -eq 0 ]] && { 
@@ -1928,7 +1928,7 @@ dissoc_tag_to_bulk() {
     # Present tag selection menu using whiptail
     local tags=()
     while IFS= read -r tag; do
-        tags+=("$tag" " ")
+        tags+=("$tag" "")
     done < "$TAGS_DB"
     
     [[ ${#tags[@]} -eq 0 ]] && { 
@@ -2197,7 +2197,7 @@ After choosing a path from the list, you can further narrow the search by both f
     # Build menu items for whiptail (each item appears as "tag description")
     local menu_items=()
     while IFS= read -r dir; do
-        menu_items+=( "$dir" " " )
+        menu_items+=( "$dir" "" )
     done <<< "$dirs"
 
     # Prompt user to choose a directory with whiptail
@@ -2370,7 +2370,7 @@ Then, you can selected to open a file item." 20 80
     # Build menu items for whiptail (each item appears as "tag description")
     local menu_items=()
     while IFS= read -r dir; do
-        menu_items+=( "$dir" " " )
+        menu_items+=( "$dir" "" )
     done <<< "$dirs"
 
     # Prompt user to choose a directory with whiptail
@@ -3709,10 +3709,10 @@ paginate_n() {
 
         # Add navigation options if needed
         if (( CURRENT_PAGE > 0 )); then
-            menu_options+=("previous page" " ")
+            menu_options+=("previous page" "")
         fi
         if (( CURRENT_PAGE < total_pages - 1 )); then
-            menu_options+=("next page" " ")
+            menu_options+=("next page" "")
         fi
 
         # Append the current page items
