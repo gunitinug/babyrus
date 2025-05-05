@@ -24,4 +24,4 @@ Edit Note -> When adding new ebook, perhaps filter by ebook tag too.
 
 Feature suggest: maybe function to delete tag from global list (for manage notes).
 
-If file name contains |,#:; from within manage ebooks (main menu) offer to deregister, rename, reregister file (maybe, also in bulk).
+If file name contains |,#:; from within manage ebooks (main menu) offer to deregister, rename, reregister file (maybe, also in bulk). [fixed]
