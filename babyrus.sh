@@ -3231,7 +3231,7 @@ associate_tag_from_checklist() {
     [[ -n "$search_term" ]] && search_lower="$(tr '[:upper:]' '[:lower:]' <<< "$search_term")"
 
     # Bulding... infobox
-    TERM=ansi whiptail --title "Building.." --infobox "Building menu.\n\nPlease wait..." 10 40
+    TERM=ansi whiptail --title "Building" --infobox "Building menu.\n\nPlease wait..." 10 40
 
     # --- Step 3: Load & filter e-book entries ---
     local -a entries=()
@@ -3253,7 +3253,7 @@ associate_tag_from_checklist() {
     # --- Step 4: Paginated checklist of e-books ---
     while true; do        
         # Bulding... infobox
-        TERM=ansi whiptail --title "Building.." --infobox "Building menu.\n\nPlease wait..." 10 40
+        TERM=ansi whiptail --title "Processing" --infobox "Please wait..." 10 40
 
         local start=$(( current_page * ITEMS_PER_PAGE ))
         local end=$(( start + ITEMS_PER_PAGE ))
