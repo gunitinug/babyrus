@@ -2355,6 +2355,12 @@ open_file_by_filepath() {
 After choosing a path from the list, you can further narrow the search by both file name(boolean pattern) and tag(literal substring match).\n\
 Then, you can selected to open a file item." 20 80
 
+    # If EBOOKS_DB or TAGS_DB are empty
+    [[ ! -s "$EBOOKS_DB" || ! -s "$TAGS_DB" ]] && { 
+        whiptail --title "Alert" --msgbox "Ebook database or Tags database are empty." 8 50 
+        return 1 
+    } 
+
     # First, choose the path among registered files.
 
     # Extract unique directories (full path minus file name) from ebooks.db
