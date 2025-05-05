@@ -4583,8 +4583,7 @@ list_notes() {
 # with an external viewer like evince.
 get_notes() {
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "No notes found in $NOTES_DB" 20 80
-        echo ""
+        whiptail --msgbox "No notes found in $NOTES_DB" 8 50 >/dev/tty
         return 1
     fi
 
@@ -4594,7 +4593,7 @@ get_notes() {
     done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --msgbox "No notes found in $NOTES_DB" 20 80
+        whiptail --msgbox "No notes found in $NOTES_DB" 8 50 >/dev/tty
         echo ""
         return 1
     fi
@@ -4810,7 +4809,7 @@ get_note_tag_from_global_list() {
 
     # Use whiptail to display menu
     local selected_tag
-    selected_tag=$(whiptail --title "Do stuff by Tag" --menu "Choose a tag" 20 40 10 "${tags[@]}" 3>&1 1>&2 2>&3)
+    selected_tag=$(whiptail --title "Do stuff by Tag" --menu "Choose a tag" 20 40 10 "${tags[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
 
     # Check if selection was cancelled
     if [[ $? -ne 0 ]]; then
@@ -4966,12 +4965,12 @@ do_note_filter_by_tag() {
 by their associated tag and do stuff with them. You can edit note or open associated ebooks." 10 60
 
     local chosen_tag
-    chosen_tag=$(get_note_tag_from_global_list) || return 1
-    filter_notes_by_tag "$chosen_tag" || return 1
+    chosen_tag=$(get_note_tag_from_global_list) || { whiptail --msgbox "No registered tags found." 8 40 >/dev/tty; return 1; }
+    filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
     
     # Check if any notes were actually filtered
     if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
-        whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40
+        whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
         return 1
     fi
 
@@ -4997,8 +4996,8 @@ open_ebook_note_from_global_list() {
          --msgbox "This feature allows you to open an ebook file from global list." 8 78
 
     # Check if the database file exists
-    if [[ ! -f "$NOTES_EBOOKS_DB" ]]; then
-        echo "Error: Notes eBooks database file not found: $NOTES_EBOOKS_DB" >&2
+    if [[ ! -f "$NOTES_EBOOKS_DB" || ! -s "$NOTES_EBOOKS_DB" ]]; then
+	whiptail --msgbox "Error: Notes eBooks database file not found or empty:\n$NOTES_EBOOKS_DB" 8 80 >/dev/tty
         return 1
     fi
 
@@ -5008,7 +5007,7 @@ open_ebook_note_from_global_list() {
 
     # Check if there are any ebooks
     if [[ ${#ebook_paths[@]} -eq 0 ]]; then
-        echo "No eBooks found in the database." >&2
+	whiptail --msgbox "No eBooks found in the database." 8 40 >/dev/tty
         return 1
     fi
 
