@@ -4997,7 +4997,7 @@ open_ebook_note_from_global_list() {
 
     # Check if the database file exists
     if [[ ! -f "$NOTES_EBOOKS_DB" || ! -s "$NOTES_EBOOKS_DB" ]]; then
-	whiptail --msgbox "Error: Notes eBooks database file not found or empty:\n$NOTES_EBOOKS_DB" 8 80 >/dev/tty
+	whiptail --msgbox "Attention. Notes eBooks database file not found or empty:\n$NOTES_EBOOKS_DB\n\nAdd at least one note." 10 80 >/dev/tty
         return 1
     fi
 
@@ -5056,8 +5056,8 @@ open_ebook_note_from_global_list() {
 delete_notes() {
     local ITEMS_PER_PAGE=100
 
-    if [ ! -f "$NOTES_DB" ]; then
-        whiptail --title "Error" --msgbox "$NOTES_DB does not exist." 10 40
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --title "Attention" --msgbox "$NOTES_DB does not exist or empty. Add at least one note." 10 50 >/dev/tty
         return 1
     fi
 
