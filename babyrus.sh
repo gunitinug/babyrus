@@ -4540,7 +4540,7 @@ list_notes() {
         done < "$db_file"
 
         [ ${#menu_entries[@]} -eq 0 ] && {
-            whiptail --msgbox "No notes found in database" 8 40
+            whiptail --msgbox "No notes found in database." 8 40
             return 1
         }
 
