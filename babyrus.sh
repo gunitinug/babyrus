@@ -3194,7 +3194,7 @@ dissociate_tag_from_checklist() {
 }
 
 associate_tag_from_checklist() {
-    touch "$EBOOKS_DB" "TAGS_DB"
+    touch "$EBOOKS_DB" "$TAGS_DB"
 
     local ITEMS_PER_PAGE=100
     local current_page=0
