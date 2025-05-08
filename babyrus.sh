@@ -5225,17 +5225,81 @@ delete_notes() {
     fi
 }
 
+delete_global_tag_of_notes() {
+    # Check if tags database exists and isn't empty
+    if [[ ! -f "$NOTES_TAGS_DB" || ! -s "$NOTES_TAGS_DB" ]]; then
+        whiptail --msgbox "There are no registered tags." 10 50 >/dev/tty
+        return 1
+    fi
+
+    # Check if notes database exists and isn't empty
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+	whiptail --msgbox "There are no registered notes." 10 50 >/dev/tty
+	return 1
+    fi
+
+    # Read all tags into an array
+    mapfile -t tags < "$NOTES_TAGS_DB"
+
+    # Prepare whiptail menu options
+    local menu_options=()
+    for tag in "${tags[@]}"; do
+        menu_options+=("$tag" "")
+    done
+
+    # Show tag selection menu
+    local selected_tag
+    selected_tag=$(whiptail --menu "Choose a note tag to delete from global list." 20 50 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+    [[ $? -ne 0 ]] && return  # User canceled
+
+    # Check for conflicting notes
+    local conflicts=()
+    if [[ -f "$NOTES_DB" ]]; then
+        while IFS='|' read -r note_title _ note_tags _; do
+            IFS=',' read -ra tags_arr <<< "$note_tags"
+            for t in "${tags_arr[@]}"; do
+                if [[ "$t" == "$selected_tag" ]]; then
+                    conflicts+=("$note_title")
+                    break
+                fi
+            done
+        done < "$NOTES_DB"
+    fi
+
+    # Handle conflicts or delete tag
+    if [[ ${#conflicts[@]} -gt 0 ]]; then
+        local conflict_msg="Cannot delete tag '$selected_tag' due to conflicts in:\n"
+        for title in "${conflicts[@]}"; do
+            conflict_msg+="- $title\n"
+        done
+        conflict_msg+="\nPlease dissociate the tag from these notes first."
+        whiptail --msgbox "$conflict_msg" 20 50
+    else
+	# Confirm before deletion
+	whiptail --title "Confirm Deletion" \
+        --yesno "Are you sure you want to delete tag '$selected_tag' from the global list?" 10 60 \
+	|| return 1
+
+        # Remove tag from tags database
+        local temp_file=$(mktemp)
+        grep -vFx "$selected_tag" "$NOTES_TAGS_DB" > "$temp_file"
+        mv "$temp_file" "$NOTES_TAGS_DB"
+        whiptail --msgbox "Note tag '$selected_tag' has been successfully deleted from global list." 10 50
+    fi
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 15 50 6 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 15 50 7 \
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Open Associated eBook" \
             "4" "Do Stuff by Tag" \
             "5" "Open an eBook From Global List" \
-            "6" "Delete Notes" 3>&1 1>&2 2>&3)
+            "6" "Delete Notes" \
+	    "7" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -5249,6 +5313,7 @@ manage_notes() {
             4) do_note_filter_by_tag ;;
             5) open_ebook_note_from_global_list ;;
             6) delete_notes ;;
+	    7) delete_global_tag_of_notes ;;
             *) return ;;
         esac
     done
