@@ -112,7 +112,10 @@ navigate() {
     while true; do
         in_operation_msg # show 'in operation...' when directory changes
 
-	mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D" | sed 's/\x1E$//')
+	#mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D" | sed 's/\x1E$//')
+	# fix here because otherwise $choices array gets last empty element missing
+	# so they are no longer in pairs for whiptail menu.
+	mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D")
 
 	# debug - switched off because too vebose.
 	#echo choices: >&2
