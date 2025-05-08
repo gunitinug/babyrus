@@ -3751,20 +3751,50 @@ paginate_n() {
     return 1
 }
 
-# Filter by filename just before 
+# Modified: Filter by both tag and file name.
 filter_by_filename() {
-  # Prompt the user for a search term using whiptail.
-  local search_term
-  search_term=$(whiptail --inputbox "Enter search term for ebook file name (empty is wildcard; * is literal \*):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
+  [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+    whiptail --title "Ebook Database" --msgbox "Ebooks database not found or empty. Register at least one ebook." 10 60 >/dev/tty
+    return 1
+  }
+  
+  [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+    whiptail --title "Ebook Database" --msgbox "Tags database not found or empty. Register at least one ebook tag ." 10 60 >/dev/tty
+    return 1
+  }
+
+  # Read available tags from TAGS_DB
+  local tags=()
+  if [ -f "$TAGS_DB" ]; then
+    while IFS= read -r tag; do
+      tags+=("$tag")
+    done < "$TAGS_DB"
+  fi
+
+  # Prepare tag options for whiptail menu, starting with "ANY TAG"
+  local tag_options=("ANY TAG" "Any tag (no filter)")
+  for tag in "${tags[@]}"; do
+    tag_options+=("$tag" "")
+  done
+
+  # Present tag selection menu
+  local selected_tag
+  selected_tag=$(whiptail --title "Select Tag to Filter" --menu "Choose a tag to filter by (or select ANY TAG):" 0 0 0 "${tag_options[@]}" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
-    #echo "User cancelled the filter." >&2
     return 1
   fi
 
-  # Clear the global array.
+  # Prompt for search term
+  local search_term
+  search_term=$(whiptail --inputbox "Enter search term for ebook file name (empty is wildcard; * is literal \*):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+
+  # Clear the global array
   FILTERED_EBOOKS=()
 
-  # Check that the EBOOKS_DB file exists.
+  # Check EBOOKS_DB existence
   if [ ! -f "$EBOOKS_DB" ]; then
     echo "EBOOKS_DB file not found: $EBOOKS_DB" >&2
     return 1
@@ -3772,26 +3802,33 @@ filter_by_filename() {
 
   in_operation_msg
 
-  # Read the EBOOKS_DB file line by line.
+  # Process each line in EBOOKS_DB
   while IFS= read -r line; do
-    # Each line format: /path/to/ebook/some ebook.pdf|tag1,another tag
-    # Extract the file path (everything before the first '|').
     local filepath="${line%|*}"
-    # Extract the filename using basename.
     local filename
     filename=$(basename "$filepath")
+    local tags_part="${line#*|}"
 
-    # If the filename contains the search term, add filepath to FILTERED_EBOOKS.
-    if [[ "${filename,,}" == *"${search_term,,}"* ]]; then
-      FILTERED_EBOOKS+=("$filepath" "")
+    # Tag filter
+    if [ "$selected_tag" != "ANY TAG" ]; then
+      # Check if selected_tag is in the tags_part
+      if [[ ! ",${tags_part}," =~ ",${selected_tag}," ]]; then
+        continue
+      fi
     fi
+
+    # Filename filter
+    if [ -n "$search_term" ]; then
+      # Perform case-insensitive substring match
+      if [[ "${filename,,}" != *"${search_term,,}"* ]]; then
+        continue
+      fi
+    fi
+
+    FILTERED_EBOOKS+=("$filepath" "")
   done < "$EBOOKS_DB"
 
-  # DEBUG
-  #echo FILTERED_EBOOKS: >&2
-  #declare -p FILTERED_EBOOKS >&2
-
-  # Optionally, notify the user how many entries were found.
+  # Show result count
   whiptail --msgbox "Found $(( ${#FILTERED_EBOOKS[@]} / 2 )) matching entries." 8 60 --title "Filter Results" >/dev/tty
 }
 
