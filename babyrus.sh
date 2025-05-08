@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.48'
+BABYRUS_VERSION='v.0.6'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="/my-projects/babyrus"
