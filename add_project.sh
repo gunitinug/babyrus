@@ -121,8 +121,8 @@ add_project() {
 								fi
 
 								# Remove source element
-								headings=("${headings[@]:0:$original_source_pos}" "${headings[@]:$original_source_pos+1}")
-								indent_levels=("${indent_levels[@]:0:$original_source_pos}" "${indent_levels[@]:$original_source_pos+1}")
+								headings=("${headings[@]:0:$original_source_pos}" "${headings[@]:$((original_source_pos+1))}")
+								indent_levels=("${indent_levels[@]:0:$original_source_pos}" "${indent_levels[@]:$((original_source_pos+1))}")
 
 								# Adjust for "Move after"
 								if [[ "$heading_operation" == "Move after" ]]; then
