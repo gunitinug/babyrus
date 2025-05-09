@@ -148,11 +148,11 @@ add_project() {
                                 heading_menu+=("${headings[$i]}" "${indent_levels[$i]}")
                             done
                             ;;
-                        "Indent left")
+                        "Indent right")
                             (( indent_levels[$selected_index]++ ))
                             heading_menu[$((selected_index*2+1))]="${indent_levels[$selected_index]}"
                             ;;
-                        "Indent right")
+                        "Indent left")
                             (( indent_levels[$selected_index] = indent_levels[$selected_index] > 0 ? indent_levels[$selected_index]-1 : 0 ))
                             heading_menu[$((selected_index*2+1))]="${indent_levels[$selected_index]}"
                             ;;
