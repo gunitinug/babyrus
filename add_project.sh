@@ -106,35 +106,41 @@ add_project() {
 
 							# Move before/after operations - fixed version
 							if [[ "$heading_operation" == "Move before" || "$heading_operation" == "Move after" ]]; then
-								# Store the moving item
-								local moving_heading="${headings[$move_source]}"
-								local moving_indent="${indent_levels[$move_source]}"
-								
-								# Remove from original position
-								headings=(
-									"${headings[@]:0:$move_source}"
-									"${headings[@]:$move_source+1}"
-								)
-								indent_levels=(
-									"${indent_levels[@]:0:$move_source}"
-									"${indent_levels[@]:$move_source+1}"
-								)
-								
-								# Adjust target index for "Move after"
-								[[ "$heading_operation" == "Move after" ]] && ((target_index++))
-								
+								# Store original positions and values
+								local original_source_pos=$move_source
+								local original_target_pos=$target_index
+								local moving_heading="${headings[$original_source_pos]}"
+								local moving_indent="${indent_levels[$original_source_pos]}"
+
+								# Calculate adjusted target position after removal
+								local adjusted_target_pos
+								if (( original_source_pos < original_target_pos )); then
+									adjusted_target_pos=$(( original_target_pos - 1 ))  # Account for source removal
+								else
+									adjusted_target_pos=$original_target_pos
+								fi
+
+								# Remove source element
+								headings=("${headings[@]:0:$original_source_pos}" "${headings[@]:$original_source_pos+1}")
+								indent_levels=("${indent_levels[@]:0:$original_source_pos}" "${indent_levels[@]:$original_source_pos+1}")
+
+								# Adjust for "Move after"
+								if [[ "$heading_operation" == "Move after" ]]; then
+									((adjusted_target_pos++))
+								fi
+
 								# Insert at new position
 								headings=(
-									"${headings[@]:0:$target_index}"
+									"${headings[@]:0:$adjusted_target_pos}"
 									"$moving_heading"
-									"${headings[@]:$target_index}"
+									"${headings[@]:$adjusted_target_pos}"
 								)
 								indent_levels=(
-									"${indent_levels[@]:0:$target_index}"
+									"${indent_levels[@]:0:$adjusted_target_pos}"
 									"$moving_indent"
-									"${indent_levels[@]:$target_index}"
+									"${indent_levels[@]:$adjusted_target_pos}"
 								)
-							fi
+							fi							
 
                             # Rebuild menu (from scratch)                            
                             heading_menu=("Add new heading" "")
