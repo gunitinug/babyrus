@@ -8,7 +8,7 @@ add_project() {
     local move_source=""
     local metadata_dir="./projects/metadata"
     local projects_dir="./projects"
-    PROJECTS_DB="${metadata_dr}/projects.db"
+    PROJECTS_DB="${metadata_dir}/projects.db"
 
     mkdir -p "$metadata_dir" "$projects_dir"
 
@@ -28,11 +28,10 @@ add_project() {
 					continue
 				}
                 
-                project_path="${projects_dir}/${project_title}-$(date +%s).txt"
+                project_path="${projects_dir}/${project_title}-$(date "+%d%m%Y-%H%M%S").txt"
                 ;;
             "Proceed")
-                [[ -z "$project_title" ]] && 
-                {
+                [[ -z "$project_title" ]] && {
 					whiptail --title "Error" --msgbox "Project title is required." 8 45 >/dev/tty 
 					continue
 				}
@@ -176,7 +175,7 @@ add_project() {
     done
 
     # Save project file
-    local timestamp=$(date +%s)
+    #local timestamp=$(date +%s)
     #local project_file="${projects_dir}/${project_title}-${timestamp}.txt" # we already have $project_path from above!
     local project_file="$project_path"
     {
