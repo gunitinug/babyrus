@@ -1,6 +1,6 @@
 #!/bin/bash
 
-add_project() {
+add_project() {	
     local project_title="New Project"
     local project_path=""
     local headings=()
@@ -8,6 +8,7 @@ add_project() {
     local move_source=""
     local metadata_dir="./projects/metadata"
     local projects_dir="./projects"
+    PROJECTS_DB="${metadata_dr}/projects.db"
 
     mkdir -p "$metadata_dir" "$projects_dir"
 
@@ -176,14 +177,14 @@ add_project() {
 
     # Save project file
     local timestamp=$(date +%s)
-    local project_file="${projects_dir}/${project_title}-${timestamp}.txt"
+    #local project_file="${projects_dir}/${project_title}-${timestamp}.txt" # we already have $project_path from above!
+    local project_file="$project_path"
     {
         for i in "${!headings[@]}"; do
             printf "%${indent_levels[$i]}s%s\n" "" "${headings[$i]}"
         done
     } > "$project_file"
 
-    # Update projects database
-    local projects_db="${metadata_dir}/PROJECTS_DB"
-    echo "${project_title}|${project_file}|" >> "$projects_db"
+    # Update projects database    
+    echo "${project_title}|${project_file}|" >> "$PROJECTS_DB"
 }
