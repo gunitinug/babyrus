@@ -25,7 +25,7 @@ add_project() {
         project_action=$(whiptail --menu "Project Configuration" 15 150 3 \
             "Project title" "Current: ${project_title:-<not set>}" \
             "Project path" "Status: ${project_path:-(will be generated)}" \
-            "Proceed" "" 3>&1 1>&2 2>&3)
+            "Proceed" "" 3>&1 1>&2 2>&3) || return 1
 
         case $project_action in
             "Project title")
@@ -54,8 +54,8 @@ add_project() {
     while true; do
         rebuild_heading_menu
         local heading_action
-        heading_action=$(whiptail --menu "Project ${project_title}" 20 150 10 \
-            "${heading_menu[@]}" "Save and return" "" 3>&1 1>&2 2>&3)
+        heading_action=$(whiptail --menu "Project: ${project_title}" 20 150 10 \
+            "${heading_menu[@]}" "Save and return" "" 3>&1 1>&2 2>&3) || return 1
 
         case $heading_action in
             "Add new heading")
@@ -100,7 +100,7 @@ add_project() {
                             done
 
 							local target_index
-                            target_index=$(whiptail --menu "Select target heading:" 20 60 10 \
+                            target_index=$(whiptail --menu "Select target heading:" 20 150 10 \
                                 "${targets[@]}" 3>&1 1>&2 2>&3)
                             [[ -z "$target_index" ]] && continue
                             target_index=$((target_index))
