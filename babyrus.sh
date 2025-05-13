@@ -5814,7 +5814,7 @@ print_project() {
             return 1
         }
         cat "$path_" > "$tmpfile"
-        whiptail --scrolltext --textbox "$tmpfile" 20 150
+        whiptail --scrolltext --title "$title_" --textbox "$tmpfile" 20 150
         rm -f "$tmpfile"
     done
 }
