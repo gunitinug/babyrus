@@ -5572,6 +5572,9 @@ edit_project() {
         return 1
     }
 
+    # Dirty fix. $selected_index_file to point to the project file.
+    local selected_index_file="$selected_index"
+
     # Load existing headings and indentation
     local headings=()
     local indent_levels=()
@@ -5739,8 +5742,8 @@ edit_project() {
         done
     } > "$project_path"
 
-    # Update projects database
-    lines[$selected_index]="${project_title}|${project_path}|${old_notes}"
+    # Update projects database: Dirty fix here too.
+    lines[$selected_index_file]="${project_title}|${project_path}|${old_notes}"
     printf "%s\n" "${lines[@]}" > "$PROJECTS_DB"
 }
 
@@ -5811,7 +5814,7 @@ print_project() {
             return 1
         }
         cat "$path_" > "$tmpfile"
-        whiptail --scrolltext --textbox "$tmpfile" 20 80
+        whiptail --scrolltext --textbox "$tmpfile" 20 150
         rm -f "$tmpfile"
     done
 }
