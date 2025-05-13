@@ -5781,7 +5781,7 @@ print_project() {
     while true; do
         # Show project selection menu
         local selected_line
-        selected_line=$(whiptail --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+        selected_line=$(whiptail --cancel-button "Back" --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -ne 0 ] && return 1  # Exit loop on cancel
         
         # Rest of the original processing logic
