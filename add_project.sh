@@ -15,7 +15,7 @@ add_project() {
         for i in "${!headings[@]}"; do
             indent_spaces=$(( indent_levels[i] * 4 ))
             indented_heading=$(printf "%${indent_spaces}s%s" "" "${headings[$i]}")
-            heading_menu+=("$i" "$indented_heading")
+            heading_menu+=("$i" "${indented_heading:0:130}")
         done
     }
 
@@ -36,9 +36,9 @@ add_project() {
                 }
                 project_path="${projects_dir}/${project_title}-$(date "+%d%m%Y-%H%M%S").txt"
                 ;;
-	    "Project path")
-	 	continue
-		;;
+			"Project path")
+				continue
+				;;
             "Proceed")
                 [[ -z "$project_title" ]] && {
                     whiptail --msgbox "Project title is required." 8 45
