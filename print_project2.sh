@@ -42,13 +42,13 @@ print_project() {
         # Show project selection menu
         local selected_line
         selected_line=$(whiptail --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-        [ $? -ne 0 ] && break  # Exit loop on cancel
+        [ $? -ne 0 ] && return 1  # Exit loop on cancel
         
         # Rest of the original processing logic
         local line_=$(sed -n "${selected_line}p" "$PROJECTS_DB")
         if [ -z "$line_" ]; then
             whiptail --msgbox "Error: Selected project no longer exists." 10 50 >/dev/tty
-            continue  # Continue loop instead of returning
+            return 1
         fi
 
         local title_ path_
@@ -56,19 +56,19 @@ print_project() {
 
         if [ ! -e "$path_" ]; then
             whiptail --msgbox "Error: Project file '$path' not found." 10 50 >/dev/tty
-            continue
+            return 1
         elif [ -d "$path_" ]; then
             whiptail --msgbox "Error: '$path' is a directory, not a file." 10 50 >/dev/tty
-            continue
+            return 1
         elif [ ! -r "$path_" ]; then
             whiptail --msgbox "Error: Cannot read project file '$path'." 10 50 >/dev/tty
-            continue
+            return 1
         fi
 
         local tmpfile
         tmpfile=$(mktemp) || {
             whiptail --msgbox "Error: Failed to create temporary file." 10 50 >/dev/tty
-            continue
+            return 1
         }
         cat "$path_" > "$tmpfile"
         whiptail --scrolltext --textbox "$tmpfile" 20 80
