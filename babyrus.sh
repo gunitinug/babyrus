@@ -5858,10 +5858,16 @@ print_project() {
 
     # Continuous selection loop added here
     while true; do
+	# Paginate options
+        paginate_get_projects "View Project Content" "${options[@]}"
+	local selected_line
+	selected_line="$SELECTED_ITEM_PROJECT"
+	[[ -z "$selected_line" ]] && return 1
+
         # Show project selection menu
-        local selected_line
-        selected_line=$(whiptail --cancel-button "Back" --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-        [ $? -ne 0 ] && return 1  # Exit loop on cancel
+        #local selected_line
+        #selected_line=$(whiptail --cancel-button "Back" --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+        #[ $? -ne 0 ] && return 1  # Exit loop on cancel
         
         # Rest of the original processing logic
         local line_=$(sed -n "${selected_line}p" "$PROJECTS_DB")
