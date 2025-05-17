@@ -6022,8 +6022,8 @@ associate_note_to_project() {
     # Project selection
     local selected_project_path
     selected_project_path=$(whiptail --title "Select Project" \
-        --menu "Choose a project to associate a note:" \
-        25 50 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
+        --menu "Choose project to associate note:" \
+        25 150 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
     [[ -z "$selected_project_path" ]] && return 1  # User canceled
 
     # Read notes into menu
@@ -6040,7 +6040,7 @@ associate_note_to_project() {
     local selected_note_path
     selected_note_path=$(whiptail --title "Select Note" \
         --menu "Choose a note to associate:" \
-        25 50 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+        25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
     [[ -z "$selected_note_path" ]] && return 1  # User canceled
 
     # Process PROJECTS_DB
@@ -6281,7 +6281,7 @@ do_stuff_with_project_file() {
     done
 
     if [ ${#note_menu_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No notes found for selected project" 20 60
+        whiptail --msgbox "No notes found for selected project." 20 60
         return 1
     fi
 
