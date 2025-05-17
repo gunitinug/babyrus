@@ -27,8 +27,8 @@ open_note_ebook_page_from_project() {
 }
 
 do_stuff_with_project_file() {
-    local PROJECTS_DB="$PROJECTS_DB"
-    local NOTES_DB="$NOTES_DB"
+    #local PROJECTS_DB="$PROJECTS_DB"
+    #local NOTES_DB="$NOTES_DB"
     
     # Read all projects into array
     local projects=()
@@ -37,7 +37,7 @@ do_stuff_with_project_file() {
     done < "$PROJECTS_DB"
     
     if [ ${#projects[@]} -eq 0 ]; then
-        whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60
+        whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60 >/dev/tty
         return 1
     fi
 
@@ -55,12 +55,13 @@ do_stuff_with_project_file() {
 
     local selected_project_index=$((selected_project_tag - 1))
     local selected_project_line="${projects[$selected_project_index]}"
-    IFS='|' read -r _ _ associated_notes _ <<< "$selected_project_line"
+    IFS='|' read -r _ _ associated_notes <<< "$selected_project_line"
 
     # Process associated notes
     local note_paths=()
     IFS=',' read -ra note_paths <<< "$associated_notes"
-    local note_lines=() note_menu_options=()
+    local note_lines=() 
+    local note_menu_options=()
 
     for np in "${note_paths[@]}"; do
         while IFS= read -r line; do

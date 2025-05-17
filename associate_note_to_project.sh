@@ -1,26 +1,26 @@
 associate_note_to_project() {
-    local PROJECTS_DB="$PROJECTS_DB"
-    local NOTES_DB="$NOTES_DB"
+    #local PROJECTS_DB="$PROJECTS_DB"
+    #local NOTES_DB="$NOTES_DB"
     local temp_file line_updated duplicate_detected project_found
-    temp_file=$(mktemp)
+    temp_file=$(mktemp) || return 1
     line_updated=0
     duplicate_detected=0
     project_found=0
 
     # Check if databases exist
-    if [[ ! -f "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Error: Projects database file not found: $PROJECTS_DB" 20 50
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
         return 1
     fi
-    if [[ ! -f "$NOTES_DB" ]]; then
-        whiptail --msgbox "Error: Notes database file not found: $NOTES_DB" 20 50
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
         return 1
     fi
 
     # Read projects into menu
     local project_menu_options=()
     while IFS='|' read -r title path rest; do
-        project_menu_options+=("$path" "$title")
+        project_menu_options+=("$path" "")
     done < "$PROJECTS_DB"
     if [[ "${#project_menu_options[@]}" -eq 0 ]]; then
         whiptail --msgbox "No projects available in the database." 20 50
@@ -37,7 +37,7 @@ associate_note_to_project() {
     # Read notes into menu
     local note_menu_options=()
     while IFS='|' read -r note_title note_path rest; do
-        note_menu_options+=("$note_path" "$note_title")
+        note_menu_options+=("$note_path" "")
     done < "$NOTES_DB"
     if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
         whiptail --msgbox "No notes available in the database." 20 50
@@ -54,11 +54,12 @@ associate_note_to_project() {
     # Process PROJECTS_DB
     while IFS= read -r line; do
         if [[ -z "$line" ]]; then
-            echo >> "$temp_file"
+            #echo >> "$temp_file"
             continue
         fi
 
-        IFS='|' read -r title path notes rest <<< "$line"
+        IFS='|' read -r title path notes <<< "$line"
+        # If there is matched line...
         if [[ "$path" == "$selected_project_path" ]]; then
             project_found=1
             current_notes="$notes"
@@ -66,7 +67,8 @@ associate_note_to_project() {
 
             # Check for duplicates
             IFS=',' read -ra notes_array <<< "$current_notes"
-            local duplicate=0
+            local duplicate=0	# Reset for each iteration.
+            # If duplicate found then break out of for loop here.
             for note in "${notes_array[@]}"; do
                 [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
             done
@@ -76,21 +78,24 @@ associate_note_to_project() {
                 duplicate_detected=1
                 # Rebuild original line
                 new_line="$title|$path|$current_notes"
-                [[ -n "$rest" ]] && new_line+="|$rest"
-                echo "$new_line" >> "$temp_file"
+                # There is no fourth field!!!!
+                # [[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# No change.
             else
                 # Update notes
+                # If there is no previously associated note...
                 if [[ -z "$current_notes" ]]; then
                     new_notes="$selected_note_path"
                 else
                     new_notes="$current_notes,$selected_note_path"
                 fi
                 new_line="$title|$path|$new_notes"
-                [[ -n "$rest" ]] && new_line+="|$rest"
-                echo "$new_line" >> "$temp_file"
+                #[[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# Changes made.
                 line_updated=1
             fi
         else
+			# Just leave the line unchanged.
             echo "$line" >> "$temp_file"
         fi
     done < "$PROJECTS_DB"
@@ -102,9 +107,12 @@ associate_note_to_project() {
             whiptail --msgbox "Note successfully associated with the project." 10 50
         elif (( duplicate_detected )); then
             rm "$temp_file"
+            whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+            return 1
         else
             rm "$temp_file"
             whiptail --msgbox "No changes were made to the project entry." 10 50
+            return 1
         fi
     else
         rm "$temp_file"
