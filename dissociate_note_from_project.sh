@@ -1,9 +1,9 @@
 dissociate_note_from_project() {
-    local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
+    #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
     
     # Check if database exists
-    if [[ ! -f "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found" 10 60
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
         return 1
     fi
 
@@ -12,7 +12,7 @@ dissociate_note_from_project() {
     mapfile -t lines < "$PROJECTS_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --msgbox "No projects found in database" 10 60
+        whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
         return 1
     fi
 
@@ -26,8 +26,8 @@ dissociate_note_from_project() {
 
     # Show project selection menu
     local selected_project
-    selected_project=$(whiptail --title "Select Project" --menu "Choose a project:" \
-        20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3)
+    selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
+        20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
 
     # Get selected project details
@@ -36,7 +36,7 @@ dissociate_note_from_project() {
 
     # Check for existing notes
     if [[ -z "$notes" ]]; then
-        whiptail --msgbox "Selected project has no associated notes" 10 60
+        whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
         return 1
     fi
 
@@ -44,7 +44,7 @@ dissociate_note_from_project() {
     local -a notes_arr
     IFS=',' read -ra notes_arr <<< "$notes"
     if [[ ${#notes_arr[@]} -eq 0 ]]; then
-        whiptail --msgbox "Selected project has no associated notes" 10 60
+        whiptail --msgbox "Selected project has no associated notes" 10 60 >/dev/tty
         return 1
     fi
 
@@ -58,7 +58,7 @@ dissociate_note_from_project() {
     # Show note selection menu
     local selected_note
     selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
-        20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3)
+        20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
 
     # Remove selected note from array
@@ -71,6 +71,7 @@ dissociate_note_from_project() {
 
     # Update the database entry
     local new_notes_str
+    # If after removing selected note there is a note left over in entry...
     if [[ ${#new_notes[@]} -gt 0 ]]; then
         new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
     else
@@ -85,5 +86,5 @@ dissociate_note_from_project() {
     printf "%s\n" "${lines[@]}" > "$tmp_db"
     mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
 
-    whiptail --msgbox "Note successfully dissociated from project" 10 60
+    whiptail --msgbox "Note successfully dissociated from project." 10 60
 }
