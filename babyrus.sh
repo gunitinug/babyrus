@@ -5369,6 +5369,82 @@ PROJECTS_DB="${PROJECTS_METADATA_DIR}/projects.db"
 
 mkdir -p "$PROJECTS_METADATA_DIR" "$PROJECTS_DIR"
 
+paginate_get_projects() {
+    # Clear any previous selection
+    SELECTED_ITEM_PROJECT=""
+
+    local chunk_size=200
+
+    # If new items are passed in, update FILTERED_EBOOKS and reset CURRENT_PAGE.
+    # First arg is custom menu title.
+    local menu_title
+    if [ "$#" -gt 0 ]; then
+        menu_title="$1"  # First argument is the title
+        shift  # Shift to remove the title from the arguments
+        FILTERED_PROJECTS=("$@")  # Remaining arguments are the items
+        CURRENT_PAGE_PROJECTS=0
+    fi
+
+    # Set default title if menu_title is not provided.
+    # But if menu_title is not privided as $1 then FILTERED_EBOOKS will be errorneous.
+    : "${menu_title:=Paged Menu}"
+
+    [[ ${#FILTERED_PROJECTS[@]} -eq 0 ]] && return 1
+
+    local total_pages=$(( ( ${#FILTERED_PROJECTS[@]} + chunk_size - 1 ) / chunk_size ))
+    # Ensure CURRENT_PAGE_PROJECTS is within valid bounds
+    if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
+        CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
+    fi
+
+    local choice=""
+    while true; do
+        local start=$(( CURRENT_PAGE_PROJECTS * chunk_size ))
+        # Extract the current chunk
+        local current_chunk=("${FILTERED_PROJECTS[@]:$start:$chunk_size}")
+        local menu_options=()
+
+        # Add navigation options if needed
+        if (( CURRENT_PAGE_PROJECTS > 0 )); then
+            menu_options+=("previous page" "")
+        fi
+        if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
+            menu_options+=("next page" "")
+        fi
+
+        # Append the current page items
+        menu_options+=("${current_chunk[@]}")
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "Choose an item (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)" \
+            20 170 10 \
+            "${menu_options[@]}" \
+            3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+
+        # Exit with code 1 if user cancels. Make sure to reset SELECTED_ITEM.
+        if [ $? -ne 0 ]; then
+            SELECTED_ITEM_PROJECT=""
+            return 1
+        fi
+
+        case "$choice" in
+            "previous page")
+                (( CURRENT_PAGE_PROJECTS-- ))
+                ;;
+            "next page")
+                (( CURRENT_PAGE_PROJECTS++ ))
+                ;;
+            *)
+                # Return the index              
+                SELECTED_ITEM_PROJECT="$choice"                
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
 add_project() {
     local project_title=""
     local project_path=""
@@ -5852,10 +5928,15 @@ delete_project() {
         fi
     done
 
-    # Show selection menu
+    # Paginate options then get item to delete
+    paginate_get_projects "Delete Project" "${options[@]}"
     local selected
-    selected=$(whiptail --title "Delete Project" --menu "Choose a project to delete:" \
-        20 150 10 "${options[@]}" 3>&1 1>&2 2>&3) || return 1
+    selected="$SELECTED_ITEM_PROJECT"
+
+    # Show selection menu
+    #local selected
+    #selected=$(whiptail --title "Delete Project" --menu "Choose a project to delete:" \
+    #    20 150 10 "${options[@]}" 3>&1 1>&2 2>&3) || return 1
     
     [[ -z "$selected" ]] && return 1  # User canceled
 
