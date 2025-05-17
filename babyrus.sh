@@ -5990,14 +5990,338 @@ delete_project() {
     whiptail --title "Success" --msgbox "Project deleted successfully." 8 50
 }
 
+associate_note_to_project() {
+    #local PROJECTS_DB="$PROJECTS_DB"
+    #local NOTES_DB="$NOTES_DB"
+    local temp_file line_updated duplicate_detected project_found
+    temp_file=$(mktemp) || return 1
+    line_updated=0
+    duplicate_detected=0
+    project_found=0
+
+    # Check if databases exist
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+        return 1
+    fi
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+        return 1
+    fi
+
+    # Read projects into menu
+    local project_menu_options=()
+    while IFS='|' read -r title path rest; do
+        project_menu_options+=("$path" "")
+    done < "$PROJECTS_DB"
+    if [[ "${#project_menu_options[@]}" -eq 0 ]]; then
+        whiptail --msgbox "No projects available in the database." 20 50
+        return 1
+    fi
+
+    # Project selection
+    local selected_project_path
+    selected_project_path=$(whiptail --title "Select Project" \
+        --menu "Choose a project to associate a note:" \
+        25 50 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
+    [[ -z "$selected_project_path" ]] && return 1  # User canceled
+
+    # Read notes into menu
+    local note_menu_options=()
+    while IFS='|' read -r note_title note_path rest; do
+        note_menu_options+=("$note_path" "")
+    done < "$NOTES_DB"
+    if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
+        whiptail --msgbox "No notes available in the database." 20 50
+        return 1
+    fi
+
+    # Note selection
+    local selected_note_path
+    selected_note_path=$(whiptail --title "Select Note" \
+        --menu "Choose a note to associate:" \
+        25 50 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+    [[ -z "$selected_note_path" ]] && return 1  # User canceled
+
+    # Process PROJECTS_DB
+    while IFS= read -r line; do
+        if [[ -z "$line" ]]; then
+            #echo >> "$temp_file"
+            continue
+        fi
+
+        IFS='|' read -r title path notes <<< "$line"
+        # If there is matched line...
+        if [[ "$path" == "$selected_project_path" ]]; then
+            project_found=1
+            current_notes="$notes"
+            local notes_array=()
+
+            # Check for duplicates
+            IFS=',' read -ra notes_array <<< "$current_notes"
+            local duplicate=0	# Reset for each iteration.
+            # If duplicate found then break out of for loop here.
+            for note in "${notes_array[@]}"; do
+                [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+            done
+
+            if (( duplicate )); then
+                whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+                duplicate_detected=1
+                # Rebuild original line
+                new_line="$title|$path|$current_notes"
+                # There is no fourth field!!!!
+                # [[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# No change.
+            else
+                # Update notes
+                # If there is no previously associated note...
+                if [[ -z "$current_notes" ]]; then
+                    new_notes="$selected_note_path"
+                else
+                    new_notes="$current_notes,$selected_note_path"
+                fi
+                new_line="$title|$path|$new_notes"
+                #[[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# Changes made.
+                line_updated=1
+            fi
+        else
+			# Just leave the line unchanged.
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$PROJECTS_DB"
+
+    # Handle processing results
+    if (( project_found )); then
+        if (( line_updated )); then
+            mv "$temp_file" "$PROJECTS_DB"
+            whiptail --msgbox "Note successfully associated with the project." 10 50
+        elif (( duplicate_detected )); then
+            rm "$temp_file"
+            whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+            return 1
+        else
+            rm "$temp_file"
+            whiptail --msgbox "No changes were made to the project entry." 10 50
+            return 1
+        fi
+    else
+        rm "$temp_file"
+        whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+        return 1
+    fi
+}
+
+dissociate_note_from_project() {
+    #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
+    
+    # Check if database exists
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+        return 1
+    fi
+
+    # Read all lines from database
+    local -a lines
+    mapfile -t lines < "$PROJECTS_DB"
+
+    if [[ ${#lines[@]} -eq 0 ]]; then
+        whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
+        return 1
+    fi
+
+    # Generate project selection menu options
+    local -a project_options
+    local index title path notes
+    for index in "${!lines[@]}"; do
+        IFS='|' read -r title path notes <<< "${lines[index]}"
+        project_options+=("$index" "$path")
+    done
+
+    # Show project selection menu
+    local selected_project
+    selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
+        20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+
+    # Get selected project details
+    local line="${lines[selected_project]}"
+    IFS='|' read -r title path notes <<< "$line"
+
+    # Check for existing notes
+    if [[ -z "$notes" ]]; then
+        whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+        return 1
+    fi
+
+    # Split notes into array
+    local -a notes_arr
+    IFS=',' read -ra notes_arr <<< "$notes"
+    if [[ ${#notes_arr[@]} -eq 0 ]]; then
+        whiptail --msgbox "Selected project has no associated notes" 10 60 >/dev/tty
+        return 1
+    fi
+
+    # Generate note selection menu options
+    local -a note_options
+    local note_index
+    for note_index in "${!notes_arr[@]}"; do
+        note_options+=("$note_index" "${notes_arr[note_index]}")
+    done
+
+    # Show note selection menu
+    local selected_note
+    selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
+        20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+
+    # Remove selected note from array
+    local -a new_notes
+    for note_index in "${!notes_arr[@]}"; do
+        if [[ $note_index -ne $selected_note ]]; then
+            new_notes+=("${notes_arr[note_index]}")
+        fi
+    done
+
+    # Update the database entry
+    local new_notes_str
+    # If after removing selected note there is a note left over in entry...
+    if [[ ${#new_notes[@]} -gt 0 ]]; then
+        new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
+    else
+        new_notes_str=""
+    fi
+
+    lines[selected_project]="$title|$path|$new_notes_str"
+
+    # Write updated database
+    local tmp_db
+    tmp_db=$(mktemp) || return 1
+    printf "%s\n" "${lines[@]}" > "$tmp_db"
+    mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+
+    whiptail --msgbox "Note successfully dissociated from project." 10 60
+}
+
+open_note_ebook_page_from_project() {
+    local selected_line="$1"
+    [[ -z "$selected_line" ]] && return 1
+
+    local selected_ebook=$(get_ebooks "$selected_line")
+    [[ -z "$selected_ebook" ]] && return 1
+
+    # Extract the chapters part from the selected_ebook
+    local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
+
+    if [[ -n "$chapters_part" ]]; then
+        # Chapters are present, prompt user to select one
+        local selected_chapter=$(get_chapters "$selected_ebook")
+        if [ -n "$selected_chapter" ]; then
+            local page=$(extract_page "$selected_chapter")
+            [[ -z "$page" ]] && return 1
+            open_evince "$selected_ebook" "$page"
+        #else
+        #    # User canceled chapter selection; open without page
+        #    open_evince "$selected_ebook"
+        fi
+    else
+        # No chapters available; ask to open the ebook directly
+        #open_evince "$selected_ebook"
+        handle_no_chapters "$selected_ebook"
+    fi
+}
+
+do_stuff_with_project_file() {
+    #local PROJECTS_DB="$PROJECTS_DB"
+    #local NOTES_DB="$NOTES_DB"
+    
+    # Read all projects into array
+    local projects=()
+    while IFS= read -r line; do
+        projects+=("$line")
+    done < "$PROJECTS_DB"
+    
+    if [ ${#projects[@]} -eq 0 ]; then
+        whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60 >/dev/tty
+        return 1
+    fi
+
+    # Create project selection menu
+    local project_menu_options=()
+    for index in "${!projects[@]}"; do
+        IFS='|' read -r title _ _ <<< "${projects[$index]}"
+        project_menu_options+=("$((index + 1))" "$title")
+    done
+
+    # Show project selection
+    local selected_project_tag
+    selected_project_tag=$(whiptail --menu "Select Project" 20 78 12 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 1
+
+    local selected_project_index=$((selected_project_tag - 1))
+    local selected_project_line="${projects[$selected_project_index]}"
+    IFS='|' read -r _ _ associated_notes <<< "$selected_project_line"
+
+    # Process associated notes
+    local note_paths=()
+    IFS=',' read -ra note_paths <<< "$associated_notes"
+    local note_lines=() 
+    local note_menu_options=()
+
+    for np in "${note_paths[@]}"; do
+        while IFS= read -r line; do
+            IFS='|' read -r title path _ _ <<< "$line"
+            if [ "$path" = "$np" ]; then
+                note_lines+=("$line")
+                note_menu_options+=("${#note_lines[@]}" "$title")
+                break
+            fi
+        done < "$NOTES_DB"
+    done
+
+    if [ ${#note_menu_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No notes found for selected project" 20 60
+        return 1
+    fi
+
+    # Show note selection
+    local selected_note_tag
+    selected_note_tag=$(whiptail --menu "Select Note" 20 78 12 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 1
+
+    local selected_note_index=$((selected_note_tag - 1))
+    local selected_note_line="${note_lines[$selected_note_index]}"
+
+    # Action selection
+    local action
+    action=$(whiptail --menu "Note Action" 15 50 5 \
+        "1" "View Note" \
+        "2" "Open ebooks" 3>&1 1>&2 2>&3)
+    [ $? -ne 0 ] && return 1
+
+    case "$action" in
+        "1")
+            IFS='|' read -r _ note_path _ _ <<< "$selected_note_line"
+            whiptail --textbox "$note_path" 20 80
+            ;;
+        "2")
+            open_note_ebook_page_from_project "$selected_note_line"
+            ;;
+    esac
+}
+
 show_projects_menu() {
     while true; do
 	local choice
-        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 15 50 4 \
+        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 15 50 7 \
             "1" "Add New Project" \
             "2" "Edit Existing Project" \
 	    "3" "Print Project Content on Screen" \
-	    "4" "Delete Project" 3>&1 1>&2 2>&3) || return 1
+	    "4" "Associate Note with Project" \
+	    "5" "Dissociate Note with Project" \
+	    "6" "Do Stuff with Project File" \
+	    "7" "Delete Project" 3>&1 1>&2 2>&3) || return 1
 
         case $choice in
             1)
@@ -6010,6 +6334,15 @@ show_projects_menu() {
 		print_project
 		;;
 	    4)
+		associate_note_to_project
+		;;
+	    5)
+		dissociate_note_from_project
+		;;
+	    6)
+		do_stuff_with_project_file
+		;;
+	    7)
 		delete_project
 		;;
             *)
