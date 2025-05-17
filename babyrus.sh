@@ -5633,10 +5633,16 @@ edit_project() {
         menu_options+=("$index" "$title")
     done
 
-    # Let user select project
+    # Paginate menu options
+    paginate_get_projects "Edit Project" "${menu_options[@]}"
     local selected_index
-    selected_index=$(whiptail --menu "Select a project to edit:" 20 150 10 \
-        "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    selected_index="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_index" ]] && return 1
+
+    # Let user select project
+    #local selected_index
+    #selected_index=$(whiptail --menu "Select a project to edit:" 20 150 10 \
+    #    "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
 
     # Parse selected project
     local old_title old_path old_notes
