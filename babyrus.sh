@@ -6150,10 +6150,15 @@ dissociate_note_from_project() {
     done
 
     # Show project selection menu
+    paginate_get_projects "Select Project" "${project_options[@]}"
     local selected_project
-    selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
-        20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-    if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+    selected_project="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_project" ]] && return 1
+
+    #local selected_project
+    #selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
+    #    20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
 
     # Get selected project details
     local line="${lines[selected_project]}"
@@ -6181,10 +6186,15 @@ dissociate_note_from_project() {
     done
 
     # Show note selection menu
+    paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
     local selected_note
-    selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
-        20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-    if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+    selected_note="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_note" ]] && return 1
+
+    #local selected_note
+    #selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
+    #    20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
 
     # Remove selected note from array
     local -a new_notes
