@@ -6342,7 +6342,7 @@ do_stuff_with_project_file() {
     done
 
     if [ ${#note_menu_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No notes found for selected project." 20 60
+        whiptail --msgbox "No notes found for selected project." 8 50
         return 1
     fi
 
