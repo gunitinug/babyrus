@@ -3994,7 +3994,7 @@ add_chapters() {
         menu_options+=("Save and return" "")
 
         choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Choose an option:" \
-            15 50 $((num_chapters + 2)) "${menu_options[@]}" 3>&1 1>&2 2>&3)
+            15 150 $((num_chapters + 2)) "${menu_options[@]}" 3>&1 1>&2 2>&3)
         
         [[ $? -ne 0 ]] && choice="Save and return"  # Handle ESC/Cancel as Save
         
