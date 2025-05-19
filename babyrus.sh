@@ -6275,9 +6275,14 @@ do_stuff_with_project_file() {
     done
 
     # Show project selection
+    paginate_get_projects "Select Project" "${project_menu_options[@]}"
     local selected_project_tag
-    selected_project_tag=$(whiptail --menu "Select Project" 20 78 12 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 1
+    selected_project_tag="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_project_tag" ]] && return 1
+
+    #local selected_project_tag
+    #selected_project_tag=$(whiptail --menu "Select Project" 20 78 12 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
+    #[ $? -ne 0 ] && return 1
 
     local selected_project_index=$((selected_project_tag - 1))
     local selected_project_line="${projects[$selected_project_index]}"
