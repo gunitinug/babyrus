@@ -17,33 +17,49 @@ mkdir -p "${NOTES_METADATA_PATH}"
 # Create if not existent
 touch "$NOTES_DB" "$NOTES_TAGS_DB" "$NOTES_EBOOKS_DB"
 
-# CHECK MINIMUM BASH VERSION A.B.C
+# CHECK MINIMUM BASH VERSION 5.2.21
 check_bash_ver() {
-    # Minimum bash version A.B.C
-    local A B C bash_ver
-    A=5
-    B=2
-    C=21
+  # Required version components
+  local req_major=5 req_minor=2 req_patch=21
 
-    IFS=. read -ra bash_ver <<< "$(bash --version | grep -Po '(?<=GNU bash, version )[0-9.]+')"
+  # Extract current Bash version components
+  local cur_major=${BASH_VERSINFO[0]}
+  local cur_minor=${BASH_VERSINFO[1]}
+  local cur_patch=${BASH_VERSINFO[2]}
 
-    i=0
-    err_msg="Bash version at least $A.$B.$C required!"
+  local err_msg="Error: You need bash version at least ${req_major}.${req_minor}.${req_patch}."
 
-    while [ $i -lt 3 ]; do
-        part=${bash_ver[i]}
+  # Compare major version
+  if (( cur_major < req_major )); then
+    echo "$err_msg" >&2
+    return 1
+  elif (( cur_major > req_major )); then
+    # Any major > 5 is automatically OK
+    return 0
+  fi
 
-        if [[ $i -eq 0 && $part -ge $A ]] || [[ $i -eq 1 && $part -ge $B ]] || [[ $i -eq 2 && $part -ge $C ]]; then
-            # Continue only if the condition is met for each part
-            ((i++))
-        else
-            # Print error message and exit if bash is too old.
-            echo "$err_msg" >&2
-            exit 1
-        fi
-    done
+  # At this point cur_major == req_major
+  # Compare minor version
+  if (( cur_minor < req_minor )); then
+    echo "$err_msg" >&2
+    return 1
+  elif (( cur_minor > req_minor )); then
+    # 5.x where x > 2 is OK
+    return 0
+  fi
+
+  # At this point cur_major == 5 && cur_minor == 2
+  # Compare patch version
+  if (( cur_patch < req_patch )); then
+    echo "$err_msg" >&2
+    return 1
+  fi
+
+  # If we reach here, version is >= 5.2.21
+  return 0
 }
-check_bash_ver
+
+check_bash_ver || exit
 
 # Check dependencies
 if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
