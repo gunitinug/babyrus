@@ -6020,11 +6020,16 @@ associate_note_to_project() {
     fi
 
     # Project selection
+    paginate_get_projects "Select Project" "${project_menu_options[@]}"
     local selected_project_path
-    selected_project_path=$(whiptail --title "Select Project" \
-        --menu "Choose project to associate note:" \
-        25 150 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
-    [[ -z "$selected_project_path" ]] && return 1  # User canceled
+    selected_project_path="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_project_path" ]] && return 1
+
+    #local selected_project_path
+    #selected_project_path=$(whiptail --title "Select Project" \
+    #    --menu "Choose project to associate note:" \
+    #    25 150 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
+    #[[ -z "$selected_project_path" ]] && return 1  # User canceled
 
     # Read notes into menu
     local note_menu_options=()
@@ -6037,11 +6042,16 @@ associate_note_to_project() {
     fi
 
     # Note selection
+    paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
     local selected_note_path
-    selected_note_path=$(whiptail --title "Select Note" \
-        --menu "Choose a note to associate:" \
-        25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-    [[ -z "$selected_note_path" ]] && return 1  # User canceled
+    selected_note_path="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_note_path" ]] && return 1
+
+    #local selected_note_path
+    #selected_note_path=$(whiptail --title "Select Note" \
+    #    --menu "Choose a note to associate:" \
+    #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+    #[[ -z "$selected_note_path" ]] && return 1  # User canceled
 
     # Process PROJECTS_DB
     while IFS= read -r line; do
@@ -6303,7 +6313,7 @@ do_stuff_with_project_file() {
     case "$action" in
         "1")
             IFS='|' read -r _ note_path _ _ <<< "$selected_note_line"
-            whiptail --textbox "$note_path" 20 80
+            whiptail --scrolltext --textbox "$note_path" 20 80
             ;;
         "2")
             open_note_ebook_page_from_project "$selected_note_line"
