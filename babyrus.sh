@@ -1,9 +1,9 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.85'
+BABYRUS_VERSION='v.0.9'
 BABYRUS_AUTHOR='Logan Lee'
 
-BABYRUS_PATH="/my-projects/babyrus"
+BABYRUS_PATH="$(pwd)"
 NOTES_PATH="${BABYRUS_PATH}/notes"
 NOTES_METADATA_PATH="${NOTES_PATH}/metadata"
 NOTES_DB="${NOTES_METADATA_PATH}/notes.db"
@@ -5363,8 +5363,8 @@ manage_notes() {
 # Manage Goals(Projects) code starts here
 #########################################
 
-PROJECTS_METADATA_DIR="./projects/metadata"
-PROJECTS_DIR="./projects"
+PROJECTS_METADATA_DIR="$(pwd)/projects/metadata"
+PROJECTS_DIR="$(pwd)/projects"
 PROJECTS_DB="${PROJECTS_METADATA_DIR}/projects.db"
 
 mkdir -p "$PROJECTS_METADATA_DIR" "$PROJECTS_DIR"
