@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.96'
+BABYRUS_VERSION='v.0.965'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -6381,7 +6381,7 @@ show_projects_menu() {
 	    "3" "Print Project Content on Screen" \
 	    "4" "Associate Note with Project" \
 	    "5" "Dissociate Note with Project" \
-	    "6" "Do Stuff with Project File" \
+	    "6" "Do Stuff with Linked Notes in Project File" \
 	    "7" "Delete Project" 3>&1 1>&2 2>&3) || return 1
 
         case $choice in
