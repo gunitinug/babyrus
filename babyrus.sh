@@ -59,7 +59,7 @@ check_bash_ver() {
   return 0
 }
 
-check_bash_ver || exit
+check_bash_ver || exit 1
 
 # Check dependencies
 if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
@@ -3516,6 +3516,26 @@ show_ebooks_menu() {
 ################################ 
 # Manage Notes code starts here
 ################################
+
+#MANAGE NOTES - files and formats
+#================================
+#
+#~/notes/:
+#note_title-timestamp.txt
+#
+#~/notes/metadata/:
+#notes.db:
+#note_title|note_path|tag1,tag2|ebook_path1#chapter1:5,chapter3:10-15;ebook_path2#chapter1:2
+#
+#notes-tags.db:
+#tag1
+#tag2
+#...
+#
+#notes-ebooks.db:
+#ebook_path1
+#ebook_path2
+#...
 
 # This script is not able to deal with file names containing: | , # : ;
 # So, if that's the case then stop right there.
