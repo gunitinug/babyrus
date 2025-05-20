@@ -832,13 +832,13 @@ view_ebooks() {
     local tmpfile
     tmpfile=$(mktemp)
     generate_ebooks_list > "$tmpfile"
-    whiptail --scrolltext --textbox "$tmpfile" 20 80
+    whiptail --scrolltext --textbox --title "All Registered eBooks" "$tmpfile" 20 80
     rm -f "$tmpfile"
 }
 
 view_tags() {
     [[ $(wc -l < "$TAGS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No tags registered." 10 40 && return
-    whiptail --scrolltext --textbox "$TAGS_DB" 20 60
+    whiptail --scrolltext --title "Tags" --textbox "$TAGS_DB" 20 60
 }
 
 search_tags() {
