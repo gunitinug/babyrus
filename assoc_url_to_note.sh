@@ -16,7 +16,7 @@ assoc_url_to_note() {
 
     # Extract note paths from NOTES_DB
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "Error: Notes database not found or empty!" 20 60 >/dev/tty
+        whiptail --msgbox "Error: Notes database not found or empty!" 8 50 >/dev/tty
         return 1
     fi
 
@@ -27,7 +27,7 @@ assoc_url_to_note() {
     done < "$NOTES_DB"
 
     if [[ ${#note_paths[@]} -eq 0 ]]; then
-        whiptail --msgbox "No notes found in database!" 20 60 >/dev/tty
+        whiptail --msgbox "No notes found in database!" 8 50 >/dev/tty
         return 1
     fi
 
@@ -62,7 +62,7 @@ assoc_url_to_note() {
     while true; do
         local menu_options=("Register URL" "" "Save and return" "")
         for i in "${!urls[@]}"; do
-            menu_options+=("$i" "${urls[i]} - ${titles[i]}")
+            menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
         done
 
         local choice
@@ -72,13 +72,13 @@ assoc_url_to_note() {
         case "$choice" in
             "Register URL")
                 local new_url new_title
-                new_url=$(whiptail --inputbox "Enter URL:" 20 60 3>&1 1>&2 2>&3)
+                new_url=$(whiptail --inputbox "Enter URL:" 8 50 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && continue
-                new_title=$(whiptail --inputbox "Enter URL title:" 20 60 3>&1 1>&2 2>&3)
+                new_title=$(whiptail --inputbox "Enter URL title:" 8 50 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && continue
 
                 if [[ -z "$new_url" || -z "$new_title" ]]; then
-                    whiptail --msgbox "URL and title cannot be empty!" 20 60
+                    whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
                     continue
                 fi
 
@@ -108,7 +108,7 @@ assoc_url_to_note() {
 
                 # Replace original file
                 mv "$temp_file" "$URLS_DB"
-                whiptail --msgbox "URL associations saved successfully!" 20 60 >/dev/tty
+                whiptail --msgbox "URL associations saved successfully!" 8 50 >/dev/tty
                 return 0
                 ;;
 
@@ -116,7 +116,7 @@ assoc_url_to_note() {
                 # Handle existing URL selection
                 local index="$choice"
                 if [[ ! -v urls[index] ]]; then
-                    whiptail --msgbox "Invalid selection!" 20 60 >/dev/tty
+                    whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
                     continue
                 fi
 
@@ -131,13 +131,13 @@ assoc_url_to_note() {
                     "Change values")
                         local current_url="${urls[index]}"
                         local current_title="${titles[index]}"
-                        new_url=$(whiptail --inputbox "Edit URL:" 20 60 "$current_url" 3>&1 1>&2 2>&3)
+                        new_url=$(whiptail --inputbox "Edit URL:" 8 50 "$current_url" 3>&1 1>&2 2>&3)
                         [[ $? -ne 0 ]] && continue
-                        new_title=$(whiptail --inputbox "Edit URL title:" 20 60 "$current_title" 3>&1 1>&2 2>&3)
+                        new_title=$(whiptail --inputbox "Edit URL title:" 8 50 "$current_title" 3>&1 1>&2 2>&3)
                         [[ $? -ne 0 ]] && continue
 
                         if [[ -z "$new_url" || -z "$new_title" ]]; then
-                            whiptail --msgbox "URL and title cannot be empty!" 20 60
+                            whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
                             continue
                         fi
 
