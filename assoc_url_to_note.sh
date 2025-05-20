@@ -124,7 +124,7 @@ assoc_url_to_note() {
                 local sub_choice
                 sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
                     "Change values" "" \
-                    "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+                    "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                 [[ -z "$sub_choice" ]] && continue
 
                 case "$sub_choice" in
