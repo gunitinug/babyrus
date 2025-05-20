@@ -6429,6 +6429,7 @@ readonly BACKUP_ENTRIES=(
   "notes/metadata/notes-tags.db"
   "projects/*.txt"
   "projects/metadata/projects.db"
+  "urls/urls.db"
 )
 
 # backup_db [output_file]
