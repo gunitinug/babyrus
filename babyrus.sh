@@ -832,7 +832,7 @@ view_ebooks() {
     local tmpfile
     tmpfile=$(mktemp)
     generate_ebooks_list > "$tmpfile"
-    whiptail --scrolltext --textbox --title "All Registered eBooks" "$tmpfile" 20 80
+    whiptail --scrolltext --title "All Registered eBooks" --textbox "$tmpfile" 20 80
     rm -f "$tmpfile"
 }
 
