@@ -29,6 +29,10 @@ The script requires the following programs:
 - whiptail
 - wmctrl
 
+Script will exit if any one of them are not installed. In ubuntu you can do this to install them:
+
+`$ sudo apt install whiptail wmctrl`
+
 In addition, tweak this code block:
 
 ```bash
