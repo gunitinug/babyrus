@@ -4,8 +4,6 @@
 > Associate ebooks with tags, store notes and associate them with ebooks and urls, manage goals in tree form
 
 # What is babyrus?
-Babyrus is a terminal-based productivity tool designed to help you organise projects, manage e-books and notes, and turn your plans into actionable goals.
-
 Babyrus is a terminal-based productivity program designed to help you organise your projects, manage notes, and keep track of your digital resources—especially e-books and web links. It provides a structured workflow made up of three core layers: Manage eBooks, Manage Notes, and Manage Goals. You can start by creating a project and setting goals, then write related notes, and finally associate those notes with useful resources like e-books or URLs. Each component is tightly integrated to support your planning and execution process, making Babyrus a practical tool for turning ideas into organised action.
 
 One of Babyrus’s standout features is the ability to register e-books and store chapter:page pairs. This means you can open a specific book directly to a relevant section using an external viewer like Evince, allowing for precise and efficient reading. Notes can also store a list of associated URLs, making it easy to open YouTube videos, websites, or online articles directly in your web browser. With support for tagging, filtering, and bulk e-book management, Babyrus scales well—from managing a few files to handling thousands—while staying focused on helping you stay organised and make progress on your goals.
