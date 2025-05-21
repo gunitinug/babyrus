@@ -48,3 +48,5 @@ declare -A EXTENSION_COMMANDS=(
 
 These define external app to use for each extension. Make sure you have all of the apps installed. The script will exit if they are not found.
 
+# Manual
+The manual file is available in the repo (but at this time it is being written).
