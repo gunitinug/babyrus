@@ -55,3 +55,8 @@ These define external app to use for each extension. Make sure you have all of t
 
 # Manual
 The manual file is available in the repo (but at this time it is being written).
+
+## Author
+Logan Lee
+
+Feel free to contact me at [logan.wonki.lee@gmail.com](mailto:logan.wonki.lee@gmail.com) if you have any questions or suggestions.
