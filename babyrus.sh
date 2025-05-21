@@ -76,8 +76,8 @@ fi
 sleep 0.5
 
 # Database files
-EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
-TAGS_DB="tags.db"      # Format: "tag"
+#EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
+TAGS_DB="${BABYRUS_PATH}/tags.db"      # Format: "tag"
 
 # Ensure databases exist
 touch "$EBOOKS_DB" "$TAGS_DB"
@@ -90,6 +90,15 @@ declare -A EXTENSION_COMMANDS=(
     ["mobi"]="xdg-open"
     ["azw3"]="xdg-open"
 )
+
+# Check all specified external apps are found.
+for ext in "${!EXTENSION_COMMANDS[@]}"; do
+    cmd="${EXTENSION_COMMANDS[$ext]}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Command for .$ext ($cmd) is not found. Modify EXTENSION_COMMANDS accordingly." >&2
+        exit 1
+    fi
+done
 
 # Function to display the "In operation..." infobox
 in_operation_msg() {
