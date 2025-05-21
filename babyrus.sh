@@ -5423,6 +5423,8 @@ assoc_url_to_note() {
         done < "$URLS_DB"
     fi
 
+    local url_regex='^(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.)+[A-Za-z]{2,}(:[0-9]+)?(\/\S*)?$'
+
     # URL management loop
     while true; do
         local menu_options=("Register URL" "" "Save and return" "")
@@ -5439,6 +5441,13 @@ assoc_url_to_note() {
                 local new_url new_title
                 new_url=$(whiptail --inputbox "Enter URL:" 8 50 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && continue
+
+		# validate URL
+		if [[ ! $new_url =~ $url_regex ]]; then
+		    whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
+		    continue
+		fi
+
                 new_title=$(whiptail --inputbox "Enter URL title:" 8 50 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && continue
 
@@ -5498,6 +5507,13 @@ assoc_url_to_note() {
                         local current_title="${titles[index]}"
                         new_url=$(whiptail --inputbox "Edit URL:" 8 50 "$current_url" 3>&1 1>&2 2>&3)
                         [[ $? -ne 0 ]] && continue
+
+			# validate URL
+                        if [[ ! $new_url =~ $url_regex ]]; then
+                            whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
+                            continue
+                        fi
+
                         new_title=$(whiptail --inputbox "Edit URL title:" 8 50 "$current_title" 3>&1 1>&2 2>&3)
                         [[ $? -ne 0 ]] && continue
 
