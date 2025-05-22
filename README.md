@@ -64,7 +64,7 @@ These define external app to use for each extension. Make sure you have all of t
 The manual file is available in the repo (but at this time it is being written).
 
 ## All files created and managed by babyrus
-Here are all the directories and files created and managed by babyrus. If you delete these files, blank files will be generated for you next time you run babyrus again.
+Here are all the directories and files created and managed by babyrus. If you delete these files, blank files will be generated for you next time you run babyrus again. Back up files are generated and placed on the babyrus folder as `backup_*.tar.gz`. You can restore from these back up files from main menu.
 
 ```bash
 # Files and globs to include in the backup
