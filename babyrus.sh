@@ -83,6 +83,7 @@ TAGS_DB="${BABYRUS_PATH}/tags.db"      # Format: "tag"
 touch "$EBOOKS_DB" "$TAGS_DB"
 
 # Tweak this to set external apps.
+# These apps are used in 'Manage eBooks' section only!
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
     ["pdf"]="evince"
@@ -91,7 +92,13 @@ declare -A EXTENSION_COMMANDS=(
     ["azw3"]="xdg-open"
 )
 
-# Check all specified external apps are found.
+# Tweak these to set external apps for other sections.
+# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
+DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
+URL_BROWSER="google-chrome"
+DEFAULT_VIEWER="evince"
+
+# Check all specified external apps are found for 'Manage eBooks' section.
 for ext in "${!EXTENSION_COMMANDS[@]}"; do
     cmd="${EXTENSION_COMMANDS[$ext]}"
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -99,6 +106,14 @@ for ext in "${!EXTENSION_COMMANDS[@]}"; do
         exit 1
     fi
 done
+
+# Check if all commands exist for other sections too.
+if ! command -v "$DEFAULT_EDITOR" >/dev/null || \
+   ! command -v "$URL_BROWSER" >/dev/null || \
+   ! command -v "$DEFAULT_VIEWER" >/dev/null; then
+    echo "This script requires '${DEFAULT_EDITOR}', '${URL_BROWSER}', and '${DEFAULT_VIEWER}' in order to run correctly." >&2
+    exit 1
+fi
 
 # Function to display the "In operation..." infobox
 in_operation_msg() {
@@ -4366,7 +4381,8 @@ add_note() {
                 ;;
             "Save and Edit")
                 save_note || return 1
-                nano "$note_path"
+                #nano "$note_path"
+		"$DEFAULT_EDITOR" "$note_path"
                 break
                 ;;
             "Save and Return")
@@ -4511,7 +4527,8 @@ edit_note() {
                 ;;
             "Save and Edit")
                 if update_note_in_db; then
-                    nano "$note_path"
+                    #nano "$note_path"
+		    "$DEFAULT_EDITOR" "$note_path"
                     break
                 fi
                 ;;
@@ -4807,9 +4824,11 @@ open_evince() {
     #evince -p "$page" "$ebook_path" &> /dev/null & disown
 
     if [ -z "$page" ]; then
-        evince "$ebook_path" &> /dev/null & disown
+        #evince "$ebook_path" &> /dev/null & disown
+	"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
     else
-        evince -p "$page" "$ebook_path" &> /dev/null & disown
+        #evince -p "$page" "$ebook_path" &> /dev/null & disown
+	"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown
     fi
 }
 
@@ -5673,7 +5692,7 @@ dissoc_url_from_note() {
     done
 }
 
-URL_BROWSER='google-chrome'
+#URL_BROWSER='google-chrome'
 
 open_url_assoc_to_note() {
 	touch "$URLS_DB"
