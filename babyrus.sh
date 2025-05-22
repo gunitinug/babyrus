@@ -2875,7 +2875,7 @@ It reverts both ebooks database and physical file names on drive." 10 80
 
     # Show confirmation dialog
     if ! whiptail --title "Confirmation" --yesno "This will restore original filenames and database. Proceed?" 10 80; then
-        echo "Revert cancelled by user" >&2
+        #echo "Revert cancelled by user" >&2
         return 1
     fi
 
