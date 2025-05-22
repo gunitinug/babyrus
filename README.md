@@ -42,6 +42,7 @@ In addition, tweak this code block:
 
 ```bash
 # Tweak this to set external apps.
+# These apps are used in 'Manage eBooks' section only!
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
     ["pdf"]="evince"
@@ -49,6 +50,12 @@ declare -A EXTENSION_COMMANDS=(
     ["mobi"]="xdg-open"
     ["azw3"]="xdg-open"
 )
+
+# Tweak these to set external apps for other sections.
+# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
+DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
+URL_BROWSER="google-chrome"
+DEFAULT_VIEWER="evince"
 ```
 
 These define external app to use for each extension. Make sure you have all of the apps installed. The script will exit if they are not found.
