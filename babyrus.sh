@@ -3821,11 +3821,12 @@ filter_by_filename() {
     whiptail --title "Ebook Database" --msgbox "Ebooks database not found or empty. Register at least one ebook." 10 60 >/dev/tty
     return 1
   }
-  
-  [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
-    whiptail --title "Ebook Database" --msgbox "Tags database not found or empty. Register at least one ebook tag ." 10 60 >/dev/tty
-    return 1
-  }
+ 
+# When filtering by file name, we don't strictly need a tag associated with. 
+#  [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+#    whiptail --title "Ebook Database" --msgbox "Tags database not found or empty. Register at least one ebook tag ." 10 60 >/dev/tty
+#    return 1
+#  }
 
   # Read available tags from TAGS_DB
   local tags=()
