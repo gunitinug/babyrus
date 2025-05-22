@@ -26,7 +26,7 @@ To start program:
 
 `$ ./babyrus.sh`
 
-### Requirements
+## Requirements
 
 The script will check for `bash version >=5.2.21`. Script will exit if you fail this requirement.
 
