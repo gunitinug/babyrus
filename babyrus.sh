@@ -1942,8 +1942,7 @@ assoc_tag_to_bulk() {
     # Before updating database, ask user to confirm.
     whiptail --title "Confirm Update" --yesno \
 "We have maximum of ${#updated_entries[@]} entries that could potentially be overwritten. \
-If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" \
-0 0
+If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" 10 70
 
     [[ $? -ne 0 ]] && {
         whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 0 0
