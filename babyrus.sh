@@ -740,6 +740,12 @@ filter_menu_items() {
 }
 
 associate_tag() {
+    # No point continuing if there's no tag registered!
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+	whiptail --title "Alert" --msgbox "No tags db found or is empty! Register at least one tag!" 8 40 >/dev/tty
+	return 1
+    }
+
     # Get list of ebooks
     mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
     if [[ ${#ebooks[@]} -eq 0 ]]; then
