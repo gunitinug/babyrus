@@ -901,8 +901,9 @@ search_tags() {
 }
 
 dissociate_tag_from_registered_ebook() {
-    # Check if ebooks database exists
-    [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found!" 8 40 && return 1
+    # Check if ebooks database exists. Also check tags db -- no point continuing if no tag registered!
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found or empty!" 8 40 && return 1
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found or empty!" 8 40 && return 1
 
     # Read ebooks database into array
     local ebooks_list=()
