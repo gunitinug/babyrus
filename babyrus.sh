@@ -1877,19 +1877,19 @@ assoc_tag_to_bulk() {
     done < "$TAGS_DB"
     
     [[ ${#tags[@]} -eq 0 ]] && { 
-        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 0 0
+        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
         return 1
     }
     
     local selected_tag
-    selected_tag=$(whiptail --menu "Choose a tag to associate to bulk" 0 0 0 "${tags[@]}" 3>&1 1>&2 2>&3)
+    selected_tag=$(whiptail --menu "Choose a tag to associate to bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
     [[ -z "$selected_tag" ]] && return 1  # User canceled
     
     # Read bulk entries
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -1945,7 +1945,7 @@ assoc_tag_to_bulk() {
 If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" 10 70
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 0 0
+        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
         return 1
     }
 
@@ -1967,7 +1967,7 @@ If you proceed, all of the matching entries will be associated with the tag '${s
 
     # Display final message.
     whiptail --title "Bulk Update Finished" --msgbox \
-"Bulk files have been associated with the tag '${selected_tag}'." 0 0
+"Bulk files have been associated with the tag '${selected_tag}'." 10 70
 }
 
 dissoc_tag_to_bulk() {
@@ -1981,12 +1981,12 @@ dissoc_tag_to_bulk() {
     done < "$TAGS_DB"
     
     [[ ${#tags[@]} -eq 0 ]] && { 
-        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 0 0
+        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
         return 1
     }
     
     local selected_tag
-    selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 0 0 0 "${tags[@]}" 3>&1 1>&2 2>&3)
+    selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
     [[ -z "$selected_tag" ]] && return 1  # User canceled
     
     # In operation msg because building bulk takes time.
@@ -1996,7 +1996,7 @@ dissoc_tag_to_bulk() {
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -2038,7 +2038,7 @@ dissoc_tag_to_bulk() {
 
     # Skip if no changes
     [[ ${#updated_entries[@]} -eq 0 ]] && {
-        whiptail --title "No Changes" --msgbox "No files were found with the tag '${selected_tag}'. Database remains unchanged." 0 0
+        whiptail --title "No Changes" --msgbox "No files were found with the tag '${selected_tag}'. Database remains unchanged." 10 70
         return 0
     }
 
@@ -2064,7 +2064,7 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 0 0
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 0 0
+        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
         return 1
     }
 
@@ -2086,7 +2086,7 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 
     # Final message
     whiptail --title "Bulk Update Finished" --msgbox \
-"Bulk files have been dissociated from the tag '${selected_tag}'." 0 0
+"Bulk files have been dissociated from the tag '${selected_tag}'." 10 70
 }
 
 # Remove files in bulk.
@@ -2099,7 +2099,7 @@ remove_files_in_bulk() {
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 0 0
+        whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -2116,7 +2116,7 @@ remove_files_in_bulk() {
 
     # Check if any paths were selected
     [[ ${#paths_to_remove[@]} -eq 0 ]] && {
-        whiptail --title "Error" --msgbox "No files selected for removal." 0 0
+        whiptail --title "Error" --msgbox "No files selected for removal." 10 70
         return 1
     }
 
@@ -2126,7 +2126,7 @@ remove_files_in_bulk() {
 0 0
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 0 0
+        whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 10 70
         return 1
     }
 
@@ -2149,11 +2149,11 @@ remove_files_in_bulk() {
     if (( removed_count > 0 )); then
         mv -- "$tmpfile" "$EBOOKS_DB"
         whiptail --title "Removal Complete" --msgbox \
-"Successfully removed $removed_count entries from the database." 0 0
+"Successfully removed $removed_count entries from the database." 10 70
     else
         rm -f "$tmpfile"
         whiptail --title "No Changes" --msgbox \
-"No matching entries found in the database. No files were removed." 0 0
+"No matching entries found in the database. No files were removed." 10 70
     fi
 }
 
@@ -3850,7 +3850,7 @@ filter_by_filename() {
 
   # Present tag selection menu
   local selected_tag
-  selected_tag=$(whiptail --title "Select Tag to Filter" --menu "Choose a tag to filter by (or select ANY TAG):" 0 0 0 "${tag_options[@]}" 3>&1 1>&2 2>&3 </dev/tty)
+  selected_tag=$(whiptail --title "Select Tag to Filter" --menu "Choose a tag to filter by (or select ANY TAG):" 20 150 10 "${tag_options[@]}" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
     return 1
   fi
