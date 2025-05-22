@@ -63,6 +63,26 @@ These define external app to use for each extension. Make sure you have all of t
 ## Manual
 The manual file is available in the repo (but at this time it is being written).
 
+## All files created and managed by babyrus
+Here are all the directories and files created and managed by babyrus. If you delete these files, blank files will be generated for you next time you run babyrus again.
+
+```bash
+# Files and globs to include in the backup
+readonly BACKUP_ENTRIES=(
+  "ebooks.db"
+  "ebooks.db.backup"
+  "ebooks.db.rename.log"
+  "tags.db"
+  "notes/*.txt"
+  "notes/metadata/notes.db"
+  "notes/metadata/notes-ebooks.db"
+  "notes/metadata/notes-tags.db"
+  "projects/*.txt"
+  "projects/metadata/projects.db"
+  "urls/urls.db"
+)
+```
+
 ## Author
 Logan Lee
 
