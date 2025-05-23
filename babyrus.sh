@@ -5438,9 +5438,15 @@ assoc_url_to_note() {
         menu_items+=("$path" "")
     done
 
+    # Paginate instead
+    ! paginate_get_notes "Select Note to Associate URL to" "${menu_items[@]}" && return 1
     local selected_path
-    selected_path=$(whiptail --menu "Select a note" 20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    selected_path="$SELECTED_ITEM"
     [[ -z "$selected_path" ]] && return 1
+
+    #local selected_path
+    #selected_path=$(whiptail --menu "Select a note" 20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    #[[ -z "$selected_path" ]] && return 1
 
     # Load existing URLs
     local urls=()
@@ -5606,10 +5612,16 @@ dissoc_url_from_note() {
         menu_items+=("$path" "")
     done
 
+    # Paginate instead!
+    ! paginate_get_notes "Select Note to Dissociate URL" "${menu_items[@]}" && return 1
     local selected_path
-    selected_path=$(whiptail --menu "Select a note to dissociate URLs" 20 150 10 \
-        "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    selected_path="$SELECTED_ITEM"
     [[ -z "$selected_path" ]] && return 1
+
+    #local selected_path
+    #selected_path=$(whiptail --menu "Select a note to dissociate URLs" 20 150 10 \
+    #    "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    #[[ -z "$selected_path" ]] && return 1
 
     # Load existing URLs
     local urls=()
@@ -5703,7 +5715,7 @@ dissoc_url_from_note() {
 #URL_BROWSER='google-chrome'
 
 open_url_assoc_to_note() {
-	touch "$URLS_DB"
+    touch "$URLS_DB"
 	
     #local URLS_DB="$URLS_DB"
     local GS=$'\x1D'  # separates note path and rest
@@ -5735,10 +5747,16 @@ open_url_assoc_to_note() {
             menu_items+=("$path" "")
         done
 
-        local selected_path
-        selected_path=$(whiptail --title "Select Note" --menu "Choose a note to open URLs:" \
-            20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
-        [[ -z "$selected_path" ]] && return 1
+	# Paginate instead!
+	! paginate_get_notes "Select Note to Open URL" "${menu_items[@]}" && return 1
+	local selected_path
+	selected_path="$SELECTED_ITEM"
+	[[ -z "$selected_path" ]] && return 1
+
+        #local selected_path
+        #selected_path=$(whiptail --title "Select Note" --menu "Choose a note to open URLs:" \
+        #    20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
+        #[[ -z "$selected_path" ]] && return 1
         
         # Handle return option
         if [[ "$selected_path" == "<< Return" ]]; then
