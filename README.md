@@ -114,6 +114,18 @@ readonly BACKUP_ENTRIES=(
   "urls/urls.db"
 )
 ```
+## 🧪 Call for Testers
+
+We’re looking for testers to help improve this project! Your feedback is essential for making it better.
+
+### How You Can Help
+- **Try it out** — Follow the [How to start program](#how-to-start-program), [Requirements](#requirements), [Attention](attention) instructions and use the project as you normally would.
+- **Report issues** — If you run into bugs, crashes, or unexpected behavior, please open an issue in the [Issues tab](https://github.com/gunitinug/babyrus/issues).
+- **Suggest improvements** — Have an idea to make it better? Let us know!
+
+You don’t need to be a developer to contribute — real-world testing and user feedback are just as important.
+
+Thanks for helping make this project better! 🙌
 
 ## Author
 Logan Lee
