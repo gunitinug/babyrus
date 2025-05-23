@@ -61,7 +61,7 @@ DEFAULT_VIEWER="evince"
 These define external app to use for each extension. Make sure you have all of the apps installed. The script will exit if they are not found.
 
 ## Attention
-If you change `DEFAULT_VIEWER` variable to soemthing other than evince then you need to tweak this code block:
+If you change `DEFAULT_VIEWER` variable to soemthing other than evince then you may need to tweak this code block:
 
 ```bash
 open_evince() {
