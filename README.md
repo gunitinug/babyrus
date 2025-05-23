@@ -60,6 +60,38 @@ DEFAULT_VIEWER="evince"
 
 These define external app to use for each extension. Make sure you have all of the apps installed. The script will exit if they are not found.
 
+## Attention
+If you change `DEFAULT_VIEWER` variable to soemthing other than evince then you need to tweak this code block:
+
+```bash
+open_evince() {
+    local selected_ebook="$1"
+    local page="$2"
+    [[ -z "$selected_ebook" ]] && return 1   # Allow empty pages to just open the document.
+
+    local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
+    [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
+
+    #evince -p "$page" "$ebook_path" &> /dev/null & disown
+
+    if [ -z "$page" ]; then
+        #evince "$ebook_path" &> /dev/null & disown
+	"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
+    else
+        #evince -p "$page" "$ebook_path" &> /dev/null & disown
+	"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown   # Might need to tweak this line.
+    fi
+}
+```
+
+The line you need to tweak is:
+
+```bash
+"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown   # Might need to tweak this line.
+```
+
+The reason is that `evince -p $page` works but other viewer may have different command for opening file at `$page`.
+
 ## Manual
 The manual file is available in the repo (but at this time it is being written).
 
