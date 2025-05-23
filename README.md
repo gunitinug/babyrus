@@ -90,7 +90,7 @@ The line you need to tweak is:
 "$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown   # Might need to tweak this line.
 ```
 
-The reason is that `evince -p $page` works but other viewer may have different command for opening file at `$page`.
+The reason is that `evince -p $page` works but other viewer may have different command for opening file at `$page` so replace it with the command that works.
 
 ## Manual
 The manual file is available in the repo (but at this time it is being written).
