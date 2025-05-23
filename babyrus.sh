@@ -6853,10 +6853,16 @@ open_url_assoc_to_note_from_project() {
 		#echo projects_menu_items:
 		#echo "${projects_menu_items[@]}"
 		
-		# Menu for choosing project path
+		# Paginate instead!
+		! paginate_get_projects "Choose Project to Open URL from Associated Note" "${projects_menu_items[@]}" && return 1
 		local chosen_project
-		chosen_project=$(whiptail --title "Open URL from Note Associated to Project" --menu "Choose project" 20 150 10 \
-		"${projects_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+		chosen_project="$SELECTED_ITEM_PROJECT"
+		[[ -z "$chosen_project" ]] && return 1
+
+		# Menu for choosing project path
+		#local chosen_project
+		#chosen_project=$(whiptail --title "Open URL from Note Associated to Project" --menu "Choose project" 20 150 10 \
+		#"${projects_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     
 		# Matched line in PROJECTS_DB
 		local project_line="$(grep -F "|${chosen_project}|" "$PROJECTS_DB")"
