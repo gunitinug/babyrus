@@ -1,4 +1,12 @@
+EBOOKS_DB='ebooks.db'
+TAGS_DB='tags.db'
+
 assoc_tag_by_filepath() {
+    # Help message
+    whiptail --title "Help" \
+         --msgbox "This function will associate your chosen tag to every file in a directory that you choose. \
+You may choose from a list of directories registered in the ebooks db." 12 80 >/dev/tty
+
     # Check if databases exist
     if [[ ! -s "$TAGS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --msgbox "Error: Tags db or Ebooks db are empty. Register at least one ebook and tag." 10 60 >/dev/tty
@@ -88,7 +96,7 @@ assoc_tag_by_filepath() {
     [[ $file_count -gt 5 ]] && message+="\n...and $((file_count - 5)) more"
 
     # Confirm action
-    whiptail --yesno --title "Confirm Association" \
+    whiptail --scrolltext --yesno --title "Confirm Association" \
         "Add tag to ALL files in directory?\n\n$message" \
         20 60 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
@@ -135,3 +143,6 @@ assoc_tag_by_filepath() {
     # Show results
     whiptail --msgbox "Successfully updated ${updated} files with '${selected_tag}' tag." 10 60
 }
+
+# Test
+assoc_tag_by_filepath
