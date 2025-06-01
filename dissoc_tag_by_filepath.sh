@@ -81,7 +81,7 @@ You may choose from a list of directories registered in the ebooks db. It is inv
     # Confirm action
     whiptail --scrolltext --yesno --title "Confirm Removal" \
         "Remove tag from ALL files in directory?\n\n$message" \
-        20 60 --yes-button "Remove" --no-button "Cancel" || return
+        20 60 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     # Process updates
     local temp_db
