@@ -1,20 +1,25 @@
 dissoc_tag_by_filepath() {
+    # Help message
+    whiptail --title "Help" \
+         --msgbox "This function will dissociate your chosen tag to every file in a directory that you choose. \
+You may choose from a list of directories registered in the ebooks db. It is inverse of associate tag by filepath function." 12 80 >/dev/tty	
+	
     # Check if databases exist
-    if [[ ! -f "$TAGS_DB" || ! -f "$EBOOKS_DB" ]]; then
-        whiptail --msgbox "Error: Databases missing. Verify TAGS_DB and EBOOKS_DB exist." 10 60
+    if [[ ! -s "$TAGS_DB" || ! -s "$EBOOKS_DB" ]]; then
+        whiptail --msgbox "Error: Tags db or Ebooks db are empty. Register at least one ebook and tag." 10 60 >/dev/tty
         return 1
     fi
 
     # Read tags into array
     local tags=()
     if ! mapfile -t tags < "$TAGS_DB"; then
-        whiptail --msgbox "Error: Failed to read tags database." 10 60
+        whiptail --msgbox "Error: Failed to read tags database." 10 60 >/dev/tty
         return 1
     fi
 
     # Check if tags exist
     if [[ ${#tags[@]} -eq 0 ]]; then
-        whiptail --msgbox "No tags found in database. Add tags first." 10 60
+        whiptail --msgbox "No tags found in database. Add tags first." 10 60 >/dev/tty
         return 1
     fi
 
@@ -27,9 +32,9 @@ dissoc_tag_by_filepath() {
     # Select tag
     local selected_tag
     selected_tag=$(whiptail --title "Remove Tag" --menu "Choose a tag to remove:" \
-        15 $(( ${#tag_menu_items[@]} * 2 + 7 )) "${tag_menu_items[@]}" 3>&1 1>&2 2>&3)
+        20 150 10 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     
-    [[ -z "$selected_tag" ]] && return  # User canceled
+    [[ -z "$selected_tag" ]] && return 1 # User canceled
 
     # Get unique directories
     local dirs
@@ -37,7 +42,7 @@ dissoc_tag_by_filepath() {
     
     # Check if directories exist
     if [[ -z "$dirs" ]]; then
-        whiptail --msgbox "No directories found in ebooks database." 10 60
+        whiptail --msgbox "No directories found in ebooks database." 10 60 >/dev/tty
         return 1
     fi
 
@@ -50,17 +55,18 @@ dissoc_tag_by_filepath() {
     # Select directory
     local selected_dir
     selected_dir=$(whiptail --title "Select Directory" --menu "Choose directory to remove tag from:" \
-        15 $(( ${#dir_menu_items[@]} * 2 + 7 )) "${dir_menu_items[@]}" 3>&1 1>&2 2>&3)
+        20 150 10 "${dir_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     
-    [[ -z "$selected_dir" ]] && return  # User canceled
+    [[ -z "$selected_dir" ]] && return 1 # User canceled
 
     # Get matching lines
     local matching_lines
-    matching_lines=$(grep -F "$selected_dir/" "$EBOOKS_DB")
+    matching_lines=$(grep -E "^${selected_dir}/[^/]+\|" "$EBOOKS_DB")
+    #matching_lines=$(grep -F "$selected_dir/" "$EBOOKS_DB")
     
     # Check for matches
     if [[ -z "$matching_lines" ]]; then
-        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 60
+        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 60 >/dev/tty
         return 1
     fi
 
@@ -73,13 +79,13 @@ dissoc_tag_by_filepath() {
     [[ $file_count -gt 5 ]] && message+="\n...and $((file_count - 5)) more"
 
     # Confirm action
-    whiptail --yesno --title "Confirm Removal" \
+    whiptail --scrolltext --yesno --title "Confirm Removal" \
         "Remove tag from ALL files in directory?\n\n$message" \
         20 60 --yes-button "Remove" --no-button "Cancel" || return
 
     # Process updates
     local temp_db
-    temp_db=$(mktemp)
+    temp_db=$(mktemp) || return 1
     local removed=0
 
     while IFS= read -r line; do
@@ -120,13 +126,13 @@ dissoc_tag_by_filepath() {
 
     # Replace original database
     if ! mv "$temp_db" "$EBOOKS_DB"; then
-        whiptail --msgbox "Error: Failed to update database." 10 60
+        whiptail --msgbox "Error: Failed to update database." 10 60 >/dev/tty
         return 1
     fi
 
     # Show results
     if ((removed > 0)); then
-        whiptail --msgbox "Successfully removed '$selected_tag' from $removed files." 10 60
+        whiptail --msgbox "Successfully removed '${selected_tag}' from $removed files." 10 60
     else
         whiptail --msgbox "No changes made. The tag was not found in any files." 10 60
     fi
