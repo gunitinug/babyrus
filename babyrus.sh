@@ -1204,7 +1204,7 @@ open_file() {
 # Open file by search by filename workflow
 open_file_search_by_filename() {
     local search_term
-    search_term=$(whiptail --inputbox "Enter filename search term (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    search_term=$(whiptail --inputbox "Enter filename search term (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
@@ -1217,9 +1217,22 @@ open_file_search_by_filename() {
         if [[ "$line" == *"|"* ]]; then
             IFS='|' read -r path tags <<< "$line"
             filename=$(basename "$path")
-            if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
+
+            # Lower‑case filename and pattern
+            local filename_lc="${filename,,}"
+            local pattern_lc="${search_term,,}"
+
+            # Ensure a default wildcard
+            pattern_lc="${pattern_lc:-*}"
+
+            # Now do a glob on the lower‑cased filename
+            if [[ "$filename_lc" == $pattern_lc ]]; then
                 matches+=("$path" "")
             fi
+
+            #if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
+            #    matches+=("$path" "")
+            #fi
         fi
     done < "$EBOOKS_DB"
     
