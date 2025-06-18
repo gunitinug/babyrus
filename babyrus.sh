@@ -2189,13 +2189,29 @@ remove_broken_entries() {
   fi
 
   # Prepare a message listing all broken entries.
-  local message="${#conflicting_entries[@]} broken entries found:\n"
-  for entry in "${conflicting_entries[@]}"; do
-    message+="$entry\n"
-  done
+  #local message="${#conflicting_entries[@]} broken entries found:\n"
+  #for entry in "${conflicting_entries[@]}"; do
+  #  message+="$entry\n"
+  #done
 
   # Inform the user about the conflicting lines.
-  whiptail --msgbox "$message" 20 78
+  #whiptail --msgbox "$message" 20 78
+
+  # Prepare a message listing the first 20 broken entries.
+  local message="${#conflicting_entries[@]} broken entries found:\n"
+  local count=0
+  for entry in "${conflicting_entries[@]}"; do
+    if (( count < 20 )); then
+      message+="$entry\n"
+      ((count++))
+    else
+      message+="...\n"
+      break
+    fi
+  done
+  
+  # Inform the user about the conflicting lines.
+  whiptail --scrolltext --msgbox "$message" 20 78
 
   # Confirm deletion with the user.
   if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 78; then
