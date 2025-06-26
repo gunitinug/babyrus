@@ -7128,7 +7128,7 @@ do_stuff_with_project_file() {
     case "$action" in
         "1")
             IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-            whiptail --scrolltext --title "$note_title" --textbox "$note_path" 20 150
+            whiptail --scrolltext --title "$note_title" --textbox "$note_path" 40 150
             ;;
         "2")
             open_note_ebook_page_from_project "$selected_note_line"
