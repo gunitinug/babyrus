@@ -868,7 +868,15 @@ view_ebooks() {
 
 view_tags() {
     [[ $(wc -l < "$TAGS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No tags registered." 10 40 && return
-    whiptail --scrolltext --title "Tags" --textbox "$TAGS_DB" 20 60
+
+    local tmp
+    tmp=$(mktemp) || { echo "mktemp failed" >&2; return 1; }
+
+    sort "$TAGS_DB" >"$tmp"
+    whiptail --scrolltext --title "Tags" --textbox "$tmp" 20 60
+    rm -f "$tmp"
+
+    #whiptail --scrolltext --title "Tags" --textbox "$TAGS_DB" 20 60	# now tags are sorted alphabetically for viewing.
 }
 
 search_tags() {
