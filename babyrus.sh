@@ -3930,7 +3930,7 @@ show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
 
     while true; do
-        SUBCHOICE=$(whiptail --title "BABYRUS ${BABYRUS_VERSION}" --cancel-button "Back" --menu "Categories: Manage eBooks" 15 50 6 \
+        SUBCHOICE=$(whiptail --title "Manage eBooks" --cancel-button "Back" --menu "Choose an option:" 15 50 6 \
             "1" "File Management" \
             "2" "Tag Management" \
             "3" "Search & Lookup" \
@@ -7314,7 +7314,7 @@ do_stuff_with_project_file() {
     case "$action" in
         "1")
             IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-            whiptail --scrolltext --title "$note_title" --textbox "$note_path" 40 150
+            whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
             ;;
         "2")
             open_note_ebook_page_from_project "$selected_note_line"
