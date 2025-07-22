@@ -7019,8 +7019,8 @@ associate_note_to_project() {
 
     # Read notes into menu
     local note_menu_options=()
-    while IFS='|' read -r note_title note_path rest; do
-        note_menu_options+=("$note_path" "")
+    while IFS='|' read -r note_title note_path note_tags rest; do
+        note_menu_options+=("$note_path" "[${note_tags}]")
     done < "$NOTES_DB"
     if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
         whiptail --msgbox "No notes available in the database." 20 50
