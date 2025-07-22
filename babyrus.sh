@@ -5923,22 +5923,34 @@ assoc_url_to_note() {
         return 1
     fi
 
+#    # Read note paths
+#    local note_paths=()
+#    while IFS='|' read -r _ path _ _; do
+#        note_paths+=("$path")
+#    done < "$NOTES_DB"
+#
+#    if [[ ${#note_paths[@]} -eq 0 ]]; then
+#        whiptail --msgbox "No notes found in database!" 8 50 >/dev/tty
+#        return 1
+#    fi
+#
+#    # Select note path
+#    local menu_items=()
+#    for path in "${note_paths[@]}"; do
+#        menu_items+=("$path" "")
+#    done
+
+    # FIX TO ADD TAGS TO MENU_ITEMS
     # Read note paths
-    local note_paths=()
-    while IFS='|' read -r _ path _ _; do
-        note_paths+=("$path")
+    local menu_items=()
+    while IFS='|' read -r _ path tags _; do
+        menu_items+=("$path" "[${tags}]")
     done < "$NOTES_DB"
 
-    if [[ ${#note_paths[@]} -eq 0 ]]; then
+    if [[ ${#menu_items[@]} -eq 0 ]]; then
         whiptail --msgbox "No notes found in database!" 8 50 >/dev/tty
         return 1
     fi
-
-    # Select note path
-    local menu_items=()
-    for path in "${note_paths[@]}"; do
-        menu_items+=("$path" "")
-    done
 
     # Paginate instead
     ! paginate_get_notes "Select Note to Associate URL to" "${menu_items[@]}" && return 1
