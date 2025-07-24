@@ -4436,8 +4436,14 @@ manage_tags() {
         
         # Add tags for current page
         for tag in "${page_tags[@]}"; do
-            if [[ " ${current_tags[@]} " =~ " ${tag} " ]]; then
-                menu_options+=("$tag" "[X]")
+	    # LOGIC ERROR: matches subword too.
+            #if [[ " ${current_tags[@]} " =~ " ${tag} " ]]; then
+            #    menu_options+=("$tag" "[X]")
+
+	    local sep=$'\x1F'  # ASCII Unit Separator, unlikely to appear in real tags
+	    local joined="$sep$(IFS="$sep"; echo "${current_tags[*]}")$sep"
+	    if [[ "$joined" == *"${sep}${tag}${sep}"* ]]; then
+		menu_options+=("$tag" "[X]")
             else
                 menu_options+=("$tag" "[ ]")
             fi
@@ -4491,7 +4497,12 @@ manage_tags() {
                 ;;
             *)
                 # Toggle tag selection
-                if [[ " ${current_tags[@]} " =~ " ${selection} " ]]; then
+		# LOGIC ERROR: matches subword too.
+                #if [[ " ${current_tags[@]} " =~ " ${selection} " ]]; then
+		
+		local sep=$'\x1F'  # ASCII Unit Separator, unlikely to appear in real tags
+		local joined="$sep$(IFS="$sep"; echo "${current_tags[*]}")$sep"
+		if [[ "$joined" == *"${sep}${selection}${sep}"* ]]; then
                     if whiptail --yesno "Remove tag '${selection}'?" 8 40 </dev/tty >/dev/tty; then
                         local new_tags=()
                         for tag in "${current_tags[@]}"; do
