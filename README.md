@@ -1,48 +1,72 @@
 # babyrus
-<img src="./babyrus.jpeg" height=110>
 
-> Associate ebooks with tags, store notes and associate them with ebooks and urls, manage goals in tree form
+<img src="./babyrus.jpeg" height="110">
 
-## What is babyrus?
-**Babyrus** is a terminal-based productivity program designed to help you organise your projects, manage notes, and keep track of your digital resources—especially **e-books and web links**. It provides a structured workflow made up of three core layers: **Manage eBooks**, **Manage Notes**, and **Manage Goals**. You can start by creating a project and setting goals, then write related notes, and finally associate those notes with useful resources like e-books or URLs. Each component is tightly integrated to support your planning and execution process, making Babyrus a practical tool for turning ideas into organised action.
+> A terminal-based productivity tool to manage eBooks, notes, and goals—structured and streamlined.
 
-One of *Babyrus*’s standout features is the ability to register e-books and store **chapter:page pairs**. This means you can open a specific book directly to a relevant section using an external viewer like *Evince*, allowing for precise and efficient reading. Notes can also store a list of associated **URLs**, making it easy to open *YouTube* videos, websites, or online articles directly from *Babyrus*. With support for **tagging**, **filtering**, and **bulk e-book management**, *Babyrus* scales well—from managing a few files to handling thousands—while staying focused on helping you stay organised and make progress on your goals.
+---
 
-## How to start program
-First, `git clone` the repo:
+## 🚀 What is Babyrus?
 
-`$ git clone https://github.com/gunitinug/babyrus.git`
+**Babyrus** is a terminal-based productivity application that helps you manage projects, take notes, and organize digital resources—especially **eBooks** and **URLs**. It provides a structured workflow across three core layers:
 
-Wait until you have the repo downloaded to your computer, `cd` to directory `babyrus`:
+* **Manage eBooks**
+* **Manage Notes**
+* **Manage Goals**
 
-```
-$ cd babyrus/
-$ chmod +x babyrus.sh
-```
+You start by setting up a project and defining your goals, then write notes, and finally link those notes to relevant resources like eBooks or websites. Each layer works seamlessly together to support your planning, learning, and execution process.
 
-to make `babyrus.sh` executable.
+### 📖 Key Features
 
-To start program:
+* Associate eBooks with notes and tags
+* Register `chapter:page` pairs to jump to specific eBook sections (using external viewers like *Evince*)
+* Link notes with URLs (e.g., YouTube, online articles)
+* Organize and filter by **tags**
+* Handle large libraries with bulk eBook management
+* Designed to scale—from a few notes to thousands of files
 
-`$ ./babyrus.sh`
+---
 
-## Requirements
+## 🛠️ Getting Started
 
-The script will check for `bash version >=5.2.21`. Script will exit if you fail this requirement.
-
-The script requires the following programs:
-- whiptail
-- wmctrl
-
-Script will exit if any one of them are not installed. In ubuntu you can do this to install them:
-
-`$ sudo apt install whiptail wmctrl`
-
-In addition, tweak this code block:
+Clone the repository:
 
 ```bash
-# Tweak this to set external apps.
-# These apps are used in 'Manage eBooks' section only!
+git clone https://github.com/gunitinug/babyrus.git
+cd babyrus/
+chmod +x babyrus.sh
+```
+
+Run the program:
+
+```bash
+./babyrus.sh
+```
+
+---
+
+## ✅ Requirements
+
+Babyrus requires:
+
+* `bash >= 5.2.21`
+* `whiptail`
+* `wmctrl`
+
+To install the dependencies on Ubuntu:
+
+```bash
+sudo apt install whiptail wmctrl
+```
+
+---
+
+## ⚙️ Configuration
+
+Update the following section in the script to define which external apps to use:
+
+```bash
+# External apps for eBook handling
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
     ["pdf"]="evince"
@@ -51,55 +75,56 @@ declare -A EXTENSION_COMMANDS=(
     ["azw3"]="xdg-open"
 )
 
-# Tweak these to set external apps for other sections.
-# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
-DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
-DEFAULT_VIEWER="evince"
+# Editors/viewers for other sections
+DEFAULT_EDITOR="nano"         # Used inside the terminal
+URL_BROWSER="google-chrome"   # Used to open URLs
+DEFAULT_VIEWER="evince"       # Used to view eBooks
 ```
 
-These define external app to use for each extension. Make sure you have all of the apps installed. The script will exit if they are not found.
+Ensure all specified programs are installed. The script will exit if any are missing.
 
-## Attention
-If you have changed `DEFAULT_VIEWER` variable to something other than evince then you may need to tweak this code block:
+---
+
+## ⚠️ Note on Changing Default Viewer
+
+If you change `DEFAULT_VIEWER` from `evince` to another app, update this function accordingly:
 
 ```bash
 open_evince() {
     local selected_ebook="$1"
     local page="$2"
-    [[ -z "$selected_ebook" ]] && return 1   # Allow empty pages to just open the document.
+    [[ -z "$selected_ebook" ]] && return 1
 
     local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
-    [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
-
-    #evince -p "$page" "$ebook_path" &> /dev/null & disown
+    [[ -f "$ebook_path" ]] || {
+        whiptail --msgbox "Ebook not found: $ebook_path" 20 80
+        return 1
+    }
 
     if [ -z "$page" ]; then
-        #evince "$ebook_path" &> /dev/null & disown
-	"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
+        "$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
     else
-        #evince -p "$page" "$ebook_path" &> /dev/null & disown
-	"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown   # Might need to tweak this line.
+        "$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown
+        # ⚠️ Adjust this line if your viewer does not support the -p option
     fi
 }
 ```
 
-The line you need to tweak is:
+Replace the `-p "$page"` argument as needed for compatibility with your chosen viewer.
+
+---
+
+## 📚 Manual
+
+A user manual is included in the repository, but is currently in progress. Stay tuned!
+
+---
+
+## 📁 Files Managed by Babyrus
+
+Babyrus creates and manages the following files and directories. If deleted, blank versions will be regenerated when you run the script again. Backups are saved as `backup_*.tar.gz` in the `babyrus/` folder. You can back up or restore files via the main menu.
 
 ```bash
-"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown   # Might need to tweak this line.
-```
-
-The reason is that `evince -p $page` works but other viewer may have different command for opening file at `$page` so replace it with the command that works.
-
-## Manual
-The manual file is available in the repo (but at this time it is being written).
-
-## All files created and managed by babyrus
-Here are all the directories and files created and managed by babyrus. If you delete these files, blank files will be generated for you next time you run babyrus again. Back up files are generated and placed on the babyrus folder as `backup_*.tar.gz`. You can choose to back up and restore files from main menu.
-
-```bash
-# Files and globs to include in the backup
 readonly BACKUP_ENTRIES=(
   "ebooks.db"
   "ebooks.db.backup"
@@ -114,20 +139,24 @@ readonly BACKUP_ENTRIES=(
   "urls/urls.db"
 )
 ```
+
+---
+
 ## 🧪 Call for Testers
 
-We’re looking for testers to help improve this project! Your feedback is essential for making it better.
+Your feedback helps make Babyrus better! Here’s how you can contribute:
 
-### How You Can Help
-- **Try it out** — Follow the [How to start program](#how-to-start-program), [Requirements](#requirements), [Attention](#attention) instructions and use the project as you normally would.
-- **Report issues** — If you run into bugs, crashes, or unexpected behavior, please open an issue in the [Issues tab](https://github.com/gunitinug/babyrus/issues).
-- **Suggest improvements** — Have an idea to make it better? Let us know!
+* **Try it out** — Follow the setup instructions and use Babyrus normally.
+* **Report bugs** — Found a bug or unexpected behavior? Report it via the [Issues tab](https://github.com/gunitinug/babyrus/issues).
+* **Suggest improvements** — Got ideas to make Babyrus more powerful or user-friendly? Let me know!
 
-You don’t need to be a developer to contribute — real-world testing and user feedback are just as important.
+No coding skills required—your real-world experience and input are just as valuable.
 
-Thanks for helping make this project better! 🙌
+---
 
-## Author
-Logan Lee
+## 👤 Author
 
-Feel free to contact me at [logan.wonki.lee@gmail.com](mailto:logan.wonki.lee@gmail.com) if you have any questions or suggestions.
+**Logan Lee**
+📧 [logan.wonki.lee@gmail.com](mailto:logan.wonki.lee@gmail.com)
+
+Feel free to reach out with questions, ideas, or just to say hi!
