@@ -4414,7 +4414,7 @@ ebook_entries=()
 # FIX: implemented pagination.
 manage_tags() {
     local current_page=0
-    local tags_per_page=8  # Showing 8 tags per page to leave space for navigation items
+    local tags_per_page=20  # Showing 8 tags per page to leave space for navigation items
 
     while true; do
         # Read existing tags
