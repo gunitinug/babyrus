@@ -6305,8 +6305,12 @@ dissoc_url_from_note() {
 
     # Select note path
     local menu_items=()
+    local tags__		# FIX: display tags too!
     for path in "${note_paths[@]}"; do
-        menu_items+=("$path" "")
+        #menu_items+=("$path" "")
+
+        tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
+        menu_items+=("$path" "[${tags__}]")
     done
 
     # Paginate instead!
