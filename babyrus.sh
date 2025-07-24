@@ -4411,7 +4411,106 @@ note_path=""
 current_tags=()
 ebook_entries=()
 
+# FIX: implemented pagination.
 manage_tags() {
+    local current_page=0
+    local tags_per_page=8  # Showing 8 tags per page to leave space for navigation items
+
+    while true; do
+        # Read existing tags
+        local -a tags=()
+        if [ -f "$NOTES_TAGS_DB" ]; then
+            mapfile -t tags < "$NOTES_TAGS_DB"
+        fi
+
+        # Calculate total pages
+        local total_pages=$(( (${#tags[@]} + tags_per_page - 1) / tags_per_page ))
+        
+        # Get tags for current page
+        local start_index=$((current_page * tags_per_page))
+        local end_index=$((start_index + tags_per_page - 1))
+        local -a page_tags=("${tags[@]:$start_index:$tags_per_page}")
+
+        # Prepare menu options
+        local menu_options=()
+        
+        # Add tags for current page
+        for tag in "${page_tags[@]}"; do
+            if [[ " ${current_tags[@]} " =~ " ${tag} " ]]; then
+                menu_options+=("$tag" "[X]")
+            else
+                menu_options+=("$tag" "[ ]")
+            fi
+        done
+
+        # Add navigation items if needed
+        if [ $total_pages -gt 1 ]; then
+            if [ $current_page -gt 0 ]; then
+                menu_options+=("<< Previous Page" "")
+            fi
+            
+            #menu_options+=("Add new tag" "")
+            
+            if [ $current_page -lt $((total_pages - 1)) ]; then
+                menu_options+=(">> Next Page" "")
+            fi
+
+	    # changed order.
+	    menu_options+=("Add new tag" "")
+        else
+            menu_options+=("Add new tag" "")
+        fi
+
+        local selection
+        selection=$(whiptail --title "Manage Tags (Page $((current_page + 1))/$total_pages)" \
+            --cancel-button "Back" --menu "Current tags: ${current_tags[*]}" 20 60 10 \
+            "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+        [ $? -eq 0 ] || return
+
+        case "$selection" in
+            "Add new tag")
+                local new_tag
+                new_tag=$(whiptail --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty)
+                [ $? -eq 0 ] || continue
+                new_tag=$(echo "$new_tag" | tr -d '|,')
+                if [ -n "$new_tag" ]; then
+                    # Add to global tags list
+                    echo "$new_tag" >> "$NOTES_TAGS_DB"
+                    current_tags+=("$new_tag")
+                    # Reset to first page after adding a new tag
+                    current_page=0
+                fi
+                ;;
+            "<< Previous Page")
+                ((current_page--))
+                continue
+                ;;
+            ">> Next Page")
+                ((current_page++))
+                continue
+                ;;
+            *)
+                # Toggle tag selection
+                if [[ " ${current_tags[@]} " =~ " ${selection} " ]]; then
+                    if whiptail --yesno "Remove tag '${selection}'?" 8 40 </dev/tty >/dev/tty; then
+                        local new_tags=()
+                        for tag in "${current_tags[@]}"; do
+                            [[ "$tag" != "$selection" ]] && new_tags+=("$tag")
+                        done
+                        current_tags=("${new_tags[@]}")
+                    fi
+                else
+                    if whiptail --yesno "Add tag '${selection}'?" 8 40 </dev/tty >/dev/tty; then
+                        current_tags+=("$selection")
+                    fi
+                fi
+                ;;
+        esac
+    done
+}
+
+# DEPRECATED.
+manage_tags_old() {
     while true; do
         # Read existing tags
         local -a tags=()
