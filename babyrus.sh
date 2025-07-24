@@ -5513,7 +5513,8 @@ open_note_ebook_page() {
 }
 
 # Following code section is about doing operations with note filtered by tag.
-get_note_tag_from_global_list() {
+# DEPRECATED.
+get_note_tag_from_global_list_old() {
     local tags_file="${NOTES_TAGS_DB}"
     if [[ ! -f "$tags_file" ]]; then
         echo "Error: Tags database file not found." >&2
@@ -5541,6 +5542,78 @@ get_note_tag_from_global_list() {
     fi
 
     echo "$selected_tag"
+}
+
+# FIX: Paginated.
+get_note_tag_from_global_list() {
+    local tags_file="${NOTES_TAGS_DB}"
+    if [[ ! -f "$tags_file" ]]; then
+        echo "Error: Tags database file not found." >&2
+        return 1
+    fi
+
+    # Read all tags into array
+    local all_tags=()
+    while IFS= read -r tag; do
+        all_tags+=("$tag")
+    done < "$tags_file"
+
+    if [[ ${#all_tags[@]} -eq 0 ]]; then
+        echo "No tags available in the database." >&2
+        return 1
+    fi
+
+    # Pagination variables
+    local current_page=0
+    local tags_per_page=20
+    local total_pages=$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page ))
+
+    while true; do
+        # Calculate start and end indices for current page
+        local start=$((current_page * tags_per_page))
+        local end=$((start + tags_per_page))
+        
+        # Prepare menu items for current page
+        local menu_items=()
+        for ((i=start; i<end && i<${#all_tags[@]}; i++)); do
+            menu_items+=("${all_tags[i]}" "")
+        done
+
+        # Add navigation buttons if needed
+        if [[ $current_page -gt 0 ]]; then
+            menu_items+=("<< Previous Page" "")
+        fi
+        if [[ $current_page -lt $((total_pages - 1)) ]]; then
+            menu_items+=(">> Next Page" "")
+        fi
+
+        # Use whiptail to display menu
+        local selected_tag
+        selected_tag=$(whiptail --title "Do stuff by Tag (Page $((current_page + 1))/$total_pages)" \
+                               --menu "Choose a tag" 20 40 10 "${menu_items[@]}" \
+                               3>&1 1>&2 2>&3 >/dev/tty)
+
+        # Check if selection was cancelled
+        if [[ $? -ne 0 ]]; then
+            return 1
+        fi
+
+        # Handle pagination navigation
+        case "$selected_tag" in
+            "<< Previous Page")
+                current_page=$((current_page - 1))
+                continue
+                ;;
+            ">> Next Page")
+                current_page=$((current_page + 1))
+                continue
+                ;;
+            *)
+                echo "$selected_tag"
+                return 0
+                ;;
+        esac
+    done
 }
 
 filter_notes_by_tag() {
