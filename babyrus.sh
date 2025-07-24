@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.965'
+BABYRUS_VERSION='v.0.98'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -6035,19 +6035,70 @@ delete_global_tag_of_notes() {
 	return 1
     fi
 
+    # FIX: PAGINATE SELECTED_TAG.
     # Read all tags into an array
-    mapfile -t tags < "$NOTES_TAGS_DB"
+    mapfile -t all_tags < "$NOTES_TAGS_DB"
+    local current_page=0
+    local tags_per_page=20
 
-    # Prepare whiptail menu options
-    local menu_options=()
-    for tag in "${tags[@]}"; do
-        menu_options+=("$tag" "")
+    while true; do
+        # Calculate start and end indices for current page
+        local start=$((current_page * tags_per_page))
+        local end=$((start + tags_per_page - 1))
+        
+        # Get tags for current page
+        local page_tags=("${all_tags[@]:$start:$tags_per_page}")
+
+        # Prepare whiptail menu options
+        local menu_options=()
+        for tag in "${page_tags[@]}"; do
+            menu_options+=("$tag" "")
+        done
+
+        # Add navigation options if needed
+        if [[ $start -gt 0 ]]; then
+            menu_options+=("< Previous Page" "")
+        fi
+        if [[ $end -lt $((${#all_tags[@]} - 1)) ]]; then
+            menu_options+=("> Next Page" "")
+        fi
+
+        # Show tag selection menu
+        local selected_tag
+        selected_tag=$(whiptail --menu "Choose a tag to delete (Page $((current_page + 1))/$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page )))" \
+            25 50 15 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+        
+        [[ $? -ne 0 ]] && return 1  # User canceled
+
+        # Handle navigation
+        if [[ "$selected_tag" == "< Previous Page" ]]; then
+            ((current_page--))
+            continue
+        elif [[ "$selected_tag" == "> Next Page" ]]; then
+            ((current_page++))
+            continue
+        else
+            # User selected a tag to delete
+            # Add your tag deletion logic here
+            #whiptail --msgbox "Selected tag for deletion: $selected_tag" 10 50 >/dev/tty
+            break
+        fi
     done
+    # END FIX.
 
-    # Show tag selection menu
-    local selected_tag
-    selected_tag=$(whiptail --menu "Choose a note tag to delete from global list." 20 50 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
-    [[ $? -ne 0 ]] && return  # User canceled
+#    # Read all tags into an array
+#    mapfile -t tags < "$NOTES_TAGS_DB"
+#
+#    # Prepare whiptail menu options
+#    local menu_options=()
+#    for tag in "${tags[@]}"; do
+#        menu_options+=("$tag" "")
+#    done
+#
+#    # Show tag selection menu
+#    local selected_tag
+#    selected_tag=$(whiptail --menu "Choose a note tag to delete from global list." 20 50 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+#    [[ $? -ne 0 ]] && return  # User canceled
 
     # Check for conflicting notes
     local conflicts=()
@@ -7807,7 +7858,7 @@ restore_db() {
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
 
-Copyleft February, March, April, May 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
+Copyleft 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
 
 # Main menu function
 show_main_menu() {
