@@ -6610,6 +6610,33 @@ mkdir -p "$PROJECTS_METADATA_DIR" "$PROJECTS_DIR"
 # FIX: start with empty projects db.
 touch "$PROJECTS_DB"
 
+# USAGE:
+# mapfile -d '' -t filtered_lines < <(filter_projects_by_name)
+filter_projects_by_name() {
+    # Read the project database into an array
+    local projects_lines
+    readarray -t projects_lines <<< "$PROJECTS_DB"
+
+    # Prompt user for a glob pattern
+    local pattern
+    pattern=$(whiptail --inputbox "Enter a glob pattern to filter projects:" 8 40 "*" \
+              --title "Project Filter" 3>&1 1>&2 2>&3) || return 1  # Exit if canceled
+
+    # Set default pattern if empty
+    : "${pattern:=*}"
+
+    # Filter matching lines
+    local filtered_lines=()
+    local line title
+    for line in "${projects_lines[@]}"; do
+        title="${line%%|*}"
+        [[ "$title" == $pattern ]] && filtered_lines+=("$line")
+    done
+
+    # Output null-delimited results
+    (( ${#filtered_lines[@]} )) && printf "%s\0" "${filtered_lines[@]}"
+}
+
 paginate_get_projects() {
     # Clear any previous selection
     SELECTED_ITEM_PROJECT=""
