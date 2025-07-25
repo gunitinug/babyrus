@@ -6607,6 +6607,8 @@ PROJECTS_DIR="$(pwd)/projects"
 PROJECTS_DB="${PROJECTS_METADATA_DIR}/projects.db"
 
 mkdir -p "$PROJECTS_METADATA_DIR" "$PROJECTS_DIR"
+# FIX: start with empty projects db.
+touch "$PROJECTS_DB"
 
 paginate_get_projects() {
     # Clear any previous selection
