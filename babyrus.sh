@@ -6615,12 +6615,12 @@ touch "$PROJECTS_DB"
 filter_projects_by_name() {
     # Read the project database into an array
     local projects_lines
-    readarray -t projects_lines <<< "$PROJECTS_DB"
+    readarray -t projects_lines < "$PROJECTS_DB"
 
     # Prompt user for a glob pattern
     local pattern
-    pattern=$(whiptail --inputbox "Enter a glob pattern to filter projects:" 8 40 "*" \
-              --title "Project Filter" 3>&1 1>&2 2>&3) || return 1  # Exit if canceled
+    pattern=$(whiptail --inputbox "Enter a glob pattern to filter projects (empty for wildcard):" 8 40 \
+              --title "Project Filter" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1  # Exit if canceled
 
     # Set default pattern if empty
     : "${pattern:=*}"
@@ -6628,14 +6628,29 @@ filter_projects_by_name() {
     # Filter matching lines
     local filtered_lines=()
     local line title
+    shopt -s nocasematch  # Enable case-insensitive matching
     for line in "${projects_lines[@]}"; do
         title="${line%%|*}"
         [[ "$title" == $pattern ]] && filtered_lines+=("$line")
     done
+    shopt -u nocasematch  # Disable case-insensitive matching (restore default)
+
+    # DEBUG
+    #echo "pattern:" >&2
+    #echo "$pattern" >&2
+    #echo "filtered_lines:" >&2
+    #printf "%s\n" "${filtered_lines[@]}" >&2
 
     # Output null-delimited results
-    (( ${#filtered_lines[@]} )) && printf "%s\0" "${filtered_lines[@]}"
+    (( ${#filtered_lines[@]} )) && printf "%s\0" "${filtered_lines[@]}" || {
+        whiptail --title "Alert" --msgbox "No matches found for pattern: '${pattern}'" 8 40 >/dev/tty
+        return 1
+    }
 }
+
+# DEBUG
+#filter_projects_by_name
+#exit 1
 
 paginate_get_projects() {
     # Clear any previous selection
@@ -6890,9 +6905,22 @@ edit_project() {
         return 1
     }
 
+#    # Read all projects into array
+#    local lines=()
+#    mapfile -t lines < "$PROJECTS_DB"
+#
+#    # Create selection menu
+#    local menu_options=()
+#    for index in "${!lines[@]}"; do
+#        IFS='|' read -r title _ _ <<< "${lines[$index]}"
+#        menu_options+=("$index" "$title")
+#    done
+
+    # FIX: ADD FILTERING
     # Read all projects into array
     local lines=()
-    mapfile -t lines < "$PROJECTS_DB"
+    #mapfile -t lines < "$PROJECTS_DB"
+    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
     # Create selection menu
     local menu_options=()
@@ -6900,6 +6928,7 @@ edit_project() {
         IFS='|' read -r title _ _ <<< "${lines[$index]}"
         menu_options+=("$index" "$title")
     done
+    # END FIX.
 
     # Paginate menu options
     paginate_get_projects "Edit Project" "${menu_options[@]}"
