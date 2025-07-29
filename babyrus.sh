@@ -6922,11 +6922,22 @@ edit_project() {
     #mapfile -t lines < "$PROJECTS_DB"
     mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
+    # CRITICAL ERROR!!!
+    # Instead of $index store matching index from $PROJECTS_DB file.
     # Create selection menu
-    local menu_options=()
-    for index in "${!lines[@]}"; do
-        IFS='|' read -r title _ _ <<< "${lines[$index]}"
-        menu_options+=("$index" "$title")
+    #local menu_options=()
+    #for index in "${!lines[@]}"; do
+    #    IFS='|' read -r title _ _ <<< "${lines[$index]}"
+    #    menu_options+=("$index" "$title")
+    #done
+
+    local title line lineno
+    for line in "${lines[@]}"; do
+        IFS='|' read -r title _ _ <<< "$line"
+        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
+	# Store matching index from PROJECTS_DB file.
+        [[ -n "$lineno" ]] && menu_options+=($((lineno-1)) "$title")
     done
     # END FIX.
 
@@ -6940,6 +6951,9 @@ edit_project() {
     #local selected_index
     #selected_index=$(whiptail --menu "Select a project to edit:" 20 150 10 \
     #    "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+
+    # DIRTY FIX: OVERWRITE LINES TO CONTAIN ALL LINES FROM PROJECTS_DB.
+    mapfile -t lines < "$PROJECTS_DB"
 
     # Parse selected project
     local old_title old_path old_notes
@@ -7127,7 +7141,7 @@ edit_project() {
 }
 
 print_project() {
-    local line_num=0
+    #local line_num=0		# can't use this any more.
     local options=()
 
     # Check if database file exists and is valid
@@ -7139,11 +7153,15 @@ print_project() {
         return 1
     fi
 
+    # FIX: ADD FILTER BY GLOBBING
     local line title path
 
-    # Parse project entries (unchanged)
-    while IFS= read -r line || [ -n "$line" ]; do
-        ((line_num++))
+    # Parse project entries
+    local lineno
+    while IFS= read -r -d '' line; do
+        #((line_num++))
+	lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1) || echo "No exact match for '$match' found." >&2 # use this instead!
+
         [ -z "$line" ] && continue
 
         IFS='|' read -r title path _ <<< "$line"
@@ -7151,8 +7169,9 @@ print_project() {
             whiptail --msgbox "Skipping invalid entry (line $line_num): Missing field(s)" 10 50 >/dev/tty
             continue
         fi
-        options+=("$line_num" "$title")
-    done < "$PROJECTS_DB"
+        options+=("$lineno" "$title")
+    done < <(filter_projects_by_name)
+    # END FIX.
 
     if [ ${#options[@]} -eq 0 ]; then
         whiptail --msgbox "Error: No valid projects found in database." 10 50 >/dev/tty
