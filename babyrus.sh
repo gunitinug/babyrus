@@ -6931,6 +6931,7 @@ edit_project() {
     #    menu_options+=("$index" "$title")
     #done
 
+    local menu_options=()
     local title line lineno
     for line in "${lines[@]}"; do
         IFS='|' read -r title _ _ <<< "$line"
