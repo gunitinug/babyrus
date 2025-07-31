@@ -4480,11 +4480,23 @@ manage_tags() {
                 [ $? -eq 0 ] || continue
                 new_tag=$(echo "$new_tag" | tr -d '|,')
                 if [ -n "$new_tag" ]; then
-                    # Add to global tags list
-                    echo "$new_tag" >> "$NOTES_TAGS_DB"
-                    current_tags+=("$new_tag")
-                    # Reset to first page after adding a new tag
-                    current_page=0
+#                    # Add to global tags list
+#                    echo "$new_tag" >> "$NOTES_TAGS_DB"
+#                    current_tags+=("$new_tag")
+#                    # Reset to first page after adding a new tag
+#                    current_page=0
+
+    		    # FIX: CHECK FOR DUPLICATE BEFORE ADDING TAG.
+                    # Check if tag already exists
+                    if grep -qFx "$new_tag" "$NOTES_TAGS_DB"; then
+                        whiptail --msgbox "Tag '${new_tag}' already exists!" 8 40
+                    else
+                        # Add to global tags list
+                        echo "$new_tag" >> "$NOTES_TAGS_DB"
+                        current_tags+=("$new_tag")
+                        # Reset to first page after adding a new tag
+                        current_page=0
+                    fi
                 fi
                 ;;
             "<< Previous Page")
