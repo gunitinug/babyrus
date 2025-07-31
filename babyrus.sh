@@ -7339,7 +7339,7 @@ associate_note_to_project() {
     # FIX: ALLOW FILTERING BY GLOB.
     # Get pattern from user using whiptail
     local pattern
-    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 8 40 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     : "${pattern:=*}"	# default to * if unset.
 
     # Enable case-insensitive glob matching
