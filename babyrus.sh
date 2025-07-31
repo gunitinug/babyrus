@@ -7326,15 +7326,46 @@ associate_note_to_project() {
         return 1
     fi
 
-    # Read projects into menu
+#    # Read projects into menu
+#    local project_menu_options=()
+#    while IFS='|' read -r title path rest; do
+#        project_menu_options+=("$path" "")
+#    done < "$PROJECTS_DB"
+#    if [[ "${#project_menu_options[@]}" -eq 0 ]]; then
+#        whiptail --msgbox "No projects available in the database." 20 50
+#        return 1
+#    fi
+
+    # FIX: ALLOW FILTERING BY GLOB.
+    # Get pattern from user using whiptail
+    local pattern
+    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 8 40 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    : "${pattern:=*}"	# default to * if unset.
+
+    # Enable case-insensitive glob matching
+    shopt -s nocasematch
+    
     local project_menu_options=()
+    local filename title path rest
     while IFS='|' read -r title path rest; do
-        project_menu_options+=("$path" "")
+        # Extract filename from path
+        filename=$(basename "$path")
+        
+        # Check if filename matches the pattern (now case-insensitive)
+        if [[ "$filename" == $pattern ]]; then
+            project_menu_options+=("$path" "")
+        fi
     done < "$PROJECTS_DB"
-    if [[ "${#project_menu_options[@]}" -eq 0 ]]; then
-        whiptail --msgbox "No projects available in the database." 20 50
+    
+    # Restore default case sensitivity
+    shopt -u nocasematch
+
+    # If no matches found, show message and exit
+    if [ ${#project_menu_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
         return 1
     fi
+    # END FIX.
 
     # Project selection
     paginate_get_projects "Select Project" "${project_menu_options[@]}"
