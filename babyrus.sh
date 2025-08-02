@@ -7631,11 +7631,15 @@ do_stuff_with_project_file() {
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
+    # FIX: FILTER BY PROJECT NAME.
     # Read all projects into array
+#    local projects=()
+#    while IFS= read -r line; do
+#        projects+=("$line")
+#    done < "$PROJECTS_DB"
+
     local projects=()
-    while IFS= read -r line; do
-        projects+=("$line")
-    done < "$PROJECTS_DB"
+    mapfile -d '' -t projects < <(filter_projects_by_name)	
     
     if [ ${#projects[@]} -eq 0 ]; then
         whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60 >/dev/tty
@@ -7643,11 +7647,24 @@ do_stuff_with_project_file() {
     fi
 
     # Create project selection menu
+#    local project_menu_options=()
+#    for index in "${!projects[@]}"; do
+#        IFS='|' read -r title _ _ <<< "${projects[$index]}"
+#        project_menu_options+=("$((index + 1))" "$title")
+#    done
+
     local project_menu_options=()
-    for index in "${!projects[@]}"; do
-        IFS='|' read -r title _ _ <<< "${projects[$index]}"
-        project_menu_options+=("$((index + 1))" "$title")
+    local title line lineno
+    for line in "${projects[@]}"; do
+        IFS='|' read -r title _ _ <<< "$line"
+        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
+	# Store matching index from PROJECTS_DB file.
+        [[ -n "$lineno" ]] && project_menu_options+=("$lineno" "$title")
     done
+
+    mapfile -t projects < "$PROJECTS_DB"	# DIRTY FIX.
+    # END FIX.
 
     # Show project selection
     paginate_get_projects "Select Project" "${project_menu_options[@]}"
