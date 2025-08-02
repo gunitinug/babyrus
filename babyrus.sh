@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.98'
+BABYRUS_VERSION='v.0.99a'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -7243,11 +7243,15 @@ delete_project() {
         return 1
     fi
 
-    # Read all project entries into an array
+    # FIX: FILTER BY PROJECT FILE NAME.
+#    # Read all project entries into an array
+#    local lines=()
+#    while IFS= read -r line; do
+#        lines+=("$line")
+#    done < "$PROJECTS_DB"
+
     local lines=()
-    while IFS= read -r line; do
-        lines+=("$line")
-    done < "$PROJECTS_DB"
+    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
     # Check for empty database
     if [[ ${#lines[@]} -eq 0 ]]; then
@@ -7255,19 +7259,38 @@ delete_project() {
         return 1
     fi
 
-    # Extract project paths and build menu options
+#    # Extract project paths and build menu options
+#    local paths=()
+#    local options=()
+#    for i in "${!lines[@]}"; do
+#        IFS='|' read -ra parts <<< "${lines[i]}"
+#        if [[ ${#parts[@]} -ge 2 ]]; then
+#            paths+=("${parts[1]}")
+#            options+=("$((i+1))" "${parts[1]}")
+#        else
+#            paths+=("Invalid entry")
+#            options+=("$((i+1))" "Invalid project entry")
+#        fi
+#    done
+
     local paths=()
     local options=()
-    for i in "${!lines[@]}"; do
-        IFS='|' read -ra parts <<< "${lines[i]}"
+    local line i
+    for line in "${lines[@]}"; do
+        IFS='|' read -ra parts <<< "$line"
+	i=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
         if [[ ${#parts[@]} -ge 2 ]]; then
             paths+=("${parts[1]}")
-            options+=("$((i+1))" "${parts[1]}")
+            options+=("$i" "${parts[1]}")
         else
             paths+=("Invalid entry")
-            options+=("$((i+1))" "Invalid project entry")
+            options+=("$i" "Invalid project entry")
         fi
     done
+
+    mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
+    # FIX END.
 
     # Paginate options then get item to delete
     paginate_get_projects "Delete Project" "${options[@]}"
