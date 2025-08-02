@@ -7748,14 +7748,46 @@ open_url_assoc_to_note_from_project() {
         return 1
     fi
 
+    # FIX: FILTER BY PROJECT NAME.
+    # Get pattern from user using whiptail
+    local pattern
+    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    : "${pattern:=*}"	# default to * if unset.
+
     while true; do
-		# Build menu for choosing project path from PROJECTS_DB
-		local projects_menu_items=()
-		while IFS='|' read -r title proj_path notes; do
-			# skip blank lines or malformed ones
-			[[ -z "$proj_path" ]] && continue
-			projects_menu_items+=("$proj_path" "")
-		done < "$PROJECTS_DB"		
+		# FIX: FILTER CONTINUES HERE.
+                # Enable case-insensitive glob matching
+                shopt -s nocasematch
+    
+                local projects_menu_items=()
+                local filename title proj_path notes
+                while IFS='|' read -r title proj_path notes; do
+                    # Extract filename from path
+                    filename=$(basename "$proj_path")
+        
+                    # Check if filename matches the pattern (now case-insensitive)
+                    if [[ "$filename" == $pattern ]]; then
+                        projects_menu_items+=("$proj_path" "")
+                    fi
+                done < "$PROJECTS_DB"
+    
+                # Restore default case sensitivity
+                shopt -u nocasematch
+
+		# If $projects_menu_items is empty then inform user and return from function.
+		[[ ${#projects_menu_items} -eq 0 ]] && {
+			whiptail --title "Attention" --msgbox "There are no matches with pattern '${pattern}'." 10 70
+			return 1
+		}
+
+#		# Build menu for choosing project path from PROJECTS_DB
+#		local projects_menu_items=()
+#		while IFS='|' read -r title proj_path notes; do
+#			# skip blank lines or malformed ones
+#			[[ -z "$proj_path" ]] && continue
+#			projects_menu_items+=("$proj_path" "")
+#		done < "$PROJECTS_DB"		
+		# FIX END.
 		
 		# debug
 		#echo projects_menu_items:
