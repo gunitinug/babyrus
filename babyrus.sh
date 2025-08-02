@@ -7492,9 +7492,12 @@ dissociate_note_from_project() {
         return 1
     fi
 
+    # FIX: FILTER BY PROJECT NAME.
     # Read all lines from database
-    local -a lines
-    mapfile -t lines < "$PROJECTS_DB"
+#    local -a lines
+#    mapfile -t lines < "$PROJECTS_DB"
+    local lines=()
+    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
     if [[ ${#lines[@]} -eq 0 ]]; then
         whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
@@ -7502,12 +7505,24 @@ dissociate_note_from_project() {
     fi
 
     # Generate project selection menu options
-    local -a project_options
-    local index title path notes
-    for index in "${!lines[@]}"; do
-        IFS='|' read -r title path notes <<< "${lines[index]}"
-        project_options+=("$index" "$path")
+#    local -a project_options
+#    local index title path notes
+#    for index in "${!lines[@]}"; do
+#        IFS='|' read -r title path notes <<< "${lines[index]}"
+#        project_options+=("$index" "$path")
+#    done
+    local project_options=()
+    local title path notes line lineno
+    for line in "${lines[@]}"; do
+        IFS='|' read -r title path notes <<< "$line"
+        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
+	# Store matching index from PROJECTS_DB file.
+        [[ -n "$lineno" ]] && project_options+=($((lineno-1)) "$path")
     done
+
+    mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
+    # END FIX.
 
     # Show project selection menu
     paginate_get_projects "Select Project" "${project_options[@]}"
