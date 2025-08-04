@@ -4070,6 +4070,30 @@ show_ebooks_menu() {
 #ebook_path2
 #...
 
+# Utility function for delete_note().
+# Checks if selected note due to be deleted is safe to delete by comparing
+# lines in PROJECTS_DB file.
+# It is not safe for deletion if match is found in PROJECTS_DB.
+note_safe_to_delete() {
+    local note_path="$1"
+    
+    if [[ ! -f "$PROJECTS_DB" ]]; then
+        echo "Projects database not found: $projects_db" >&2
+        return 1
+    fi
+    
+    while IFS='|' read -r _ _ notes; do
+        IFS=',' read -ra note_array <<< "$notes"
+        for project_note in "${note_array[@]}"; do
+            if [[ "$project_note" == "$note_path" ]]; then
+                return 1  # Note is referenced in a project - not safe to delete
+            fi
+        done
+    done < "$PROJECTS_DB"
+    
+    return 0  # Note is not referenced in any project - safe to delete
+}
+
 # This script is not able to deal with file names containing: | , # : ;
 # So, if that's the case then stop right there.
 illegal_filename() {
