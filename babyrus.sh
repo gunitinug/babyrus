@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BABYRUS_VERSION='v.0.99a'
+BABYRUS_VERSION='v.0.99b'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -4078,14 +4078,15 @@ note_safe_to_delete() {
     local note_path="$1"
     
     if [[ ! -f "$PROJECTS_DB" ]]; then
-        echo "Projects database not found: $projects_db" >&2
+        echo "Projects database not found: $PROJECTS_DB" >&2
         return 1
     fi
     
-    while IFS='|' read -r _ _ notes; do
+    while IFS='|' read -r _ proj_path notes; do
         IFS=',' read -ra note_array <<< "$notes"
         for project_note in "${note_array[@]}"; do
             if [[ "$project_note" == "$note_path" ]]; then
+		echo "$proj_path"
                 return 1  # Note is referenced in a project - not safe to delete
             fi
         done
@@ -6029,9 +6030,24 @@ delete_notes() {
 
     # Construct a confirmation message.
     local msg="The following notes will be deleted:\n"
+    local c_msg="There are following conflicts for project "
+    local conflicted=0 proj_found=0
     for idx in "${final_selection[@]}"; do
         # Truncate note path
         note_path=$(cut -d'|' -f2 <<< "${lines[$idx]}")
+
+	# FIX. IF CONFLICT THEN BUILD ERROR MSG.
+	local proj_path 
+	if ! proj_path="$(note_safe_to_delete "$note_path")"; then
+		if [[ -n "$proj_path" ]]; then
+			((proj_found == 0)) && c_msg+="'${proj_path}':\n\n"
+
+			conflicted=1
+			proj_found=1
+			c_msg+="Has associated note $note_path.\n"
+			continue
+		fi
+	fi
 
         local dir_tr filename_tr note_path_tr
         dir_tr="$(dirname "$note_path")"
@@ -6042,6 +6058,13 @@ delete_notes() {
 
         msg+="${note_path_tr}\n"
     done
+
+    # If conflicts, alert user then return from function.
+    c_msg+="\nPlease dissociate these notes from project first!"
+    ((conflicted == 1)) && {
+	whiptail --scrolltext --title "Attention" --msgbox "$c_msg" 20 80
+	return 1
+    }
 
     # Confirm deletion.
     if whiptail --title "Confirm Deletion" --yesno "$msg" 20 78; then
