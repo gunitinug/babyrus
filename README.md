@@ -8,6 +8,10 @@
 
 ## 🚀 What is Babyrus?
 
+[![Watch the demo on YouTube](https://github.com/gunitinug/babyrus/blob/main/babyrus.png)](https://www.youtube.com/watch?v=i6dbxa1750M)
+
+*A short demo video of Babyrus in action.*
+
 **Babyrus** is a terminal-based productivity application that helps you manage projects, take notes, and organize digital resources—especially **eBooks** and **URLs**. It provides a structured workflow across three core layers:
 
 * **Manage eBooks**
