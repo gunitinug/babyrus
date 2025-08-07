@@ -3585,6 +3585,15 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
         return 1
     fi
 
+    # FIX: SORT TAG AND REBUILD TAGS ARRAY
+    # Sort the array
+    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
+    unset IFS
+    
+    # Rebuild the original array
+    tags=("${sorted[@]}")
+    # END FIX.
+
     # Build tag selection menu
     local tag_menu_items=()
     for tag in "${tags[@]}"; do
