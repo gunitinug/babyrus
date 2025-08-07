@@ -3367,6 +3367,17 @@ associate_tag_from_checklist() {
         return 1
     fi
 
+    # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
+    # Sort the array
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
+    unset IFS
+    
+    # Rebuild the original array
+    tags=("${sorted[@]}")
+    # END FIX.
+
+
     # Build a numeric menu so we can handle spaces in tag names
     local -a tag_choices=()
     for i in "${!tags[@]}"; do
