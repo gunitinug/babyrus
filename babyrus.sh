@@ -3935,7 +3935,7 @@ show_ebooks_menu() {
             "2" "Tag Management" \
             "3" "Search & Lookup" \
             "4" "Open & Read" \
-            "5" "Maintenance & Backup" 3>&1 1>&2 2>&3)
+            "5" "Maintenance" 3>&1 1>&2 2>&3)
 
         # Exit if user presses Cancel or Esc
         [ $? -ne 0 ] && break
@@ -4027,7 +4027,7 @@ show_ebooks_menu() {
                 ;;
             "5")
                 # Open & Read submenu: Items 5 and 6
-                MAINTENANCE_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                MAINTENANCE_OPTION=$(whiptail --title "Maintenance" --cancel-button "Back" --menu "Select an option" 15 50 3 \
                     "1" "Find Remove Broken Entries" \
                     "2" "Rename and Reregister Illegal Filenames" \
                     "3" "Revert Renaming Illegal Filenames" 3>&1 1>&2 2>&3)
