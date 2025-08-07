@@ -1296,6 +1296,25 @@ open_file_search_by_tag() {
         whiptail --msgbox "No tags found matching: $tag_search" 10 60
         return
     }
+
+    # FIX: SORT TAGS ALPHABETICALLY.
+    # Step 1: Flatten.
+    local pairs=()
+    for ((i=0; i<${#tags[@]}; i+=2)); do
+        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
+    done
+    
+    # Step 2: Sort tags
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
+    unset IFS
+    
+    # Step 3: Rebuild tags array
+    tags=()
+    for tag in "${sorted[@]}"; do
+        tags+=("$tag" "")
+    done
+    # END FIX.
     
     local selected_tag
     selected_tag=$(whiptail --menu "Select tag" 20 170 10 "${tags[@]}" 3>&1 1>&2 2>&3)  # tweak dimensions
