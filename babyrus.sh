@@ -894,6 +894,25 @@ search_tags() {
     # convert matching_tags array into whiptail friendly format.
     mapfile -d $'\x1e' -t matching_tags_whip < <(make_into_pairs "${matching_tags[@]}")
 
+    # FIX: SORT TAGS ALPHABETICALLY.
+    # Step 1: Flatten.
+    local pairs=()
+    for ((i=0; i<${#matching_tags_whip[@]}; i+=2)); do
+        pairs+=("${matching_tags_whip[i]}")  # Only the tag matters since values are empty
+    done
+    
+    # Step 2: Sort tags
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
+    unset IFS
+    
+    # Step 3: Rebuild tags array
+    matching_tags_whip=()
+    for tag in "${sorted[@]}"; do
+        matching_tags_whip+=("$tag" "")
+    done
+    # END FIX.
+
     # Select tag
     tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
         "${matching_tags_whip[@]}" 3>&1 1>&2 2>&3)		# menu items must come in pairs!!!!
@@ -1920,6 +1939,25 @@ assoc_tag_to_bulk() {
         whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
         return 1
     }
+
+    # FIX: SORT TAGS ALPHABETICALLY.
+    # Step 1: Flatten.
+    local pairs=()
+    for ((i=0; i<${#tags[@]}; i+=2)); do
+        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
+    done
+    
+    # Step 2: Sort tags
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
+    unset IFS
+    
+    # Step 3: Rebuild tags array
+    tags=()
+    for tag in "${sorted[@]}"; do
+        tags+=("$tag" "")
+    done
+    # END FIX.
     
     local selected_tag
     selected_tag=$(whiptail --menu "Choose a tag to associate to bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
