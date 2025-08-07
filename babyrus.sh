@@ -1,4 +1,19 @@
 #!/bin/bash
+# babyrus - A terminal productivity tool.
+# Copyright (C) 2025 Logan Lee
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 BABYRUS_VERSION='v.0.99b'
 BABYRUS_AUTHOR='Logan Lee'
@@ -8170,7 +8185,7 @@ restore_db() {
 
 MAIN_MENU_STR="'Taking a first step towards achievement.'
 
-Copyleft 2025 by ${BABYRUS_AUTHOR}. Feel free to share and modify."
+Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3"
 
 # Main menu function
 show_main_menu() {
