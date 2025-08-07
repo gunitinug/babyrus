@@ -819,6 +819,15 @@ associate_tag() {
         whiptail --msgbox "No tags registered!" 8 40
         return
     fi
+
+    # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
+    # Sort the array
+    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
+    unset IFS
+    
+    # Rebuild the original array
+    tags=("${sorted[@]}")
+    # END FIX.
     
     # convert tags array into whiptail friendly format.
     mapfile -d $'\x1e' -t tags_whip < <(make_into_pairs "${tags[@]}")
