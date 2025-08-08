@@ -2086,6 +2086,25 @@ dissoc_tag_to_bulk() {
         whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
         return 1
     }
+
+    # FIX: FLATTEN TAGS ARRAY, SORT, THEN REBUILD.
+    # Step 1: Flatten.
+    local pairs=()
+    for ((i=0; i<${#tags[@]}; i+=2)); do
+        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
+    done
+    
+    # Step 2: Sort tags
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
+    unset IFS
+    
+    # Step 3: Rebuild tags array
+    tags=()
+    for tag in "${sorted[@]}"; do
+        tags+=("$tag" "")
+    done
+    # END FIX.
     
     local selected_tag
     selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
