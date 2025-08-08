@@ -3218,6 +3218,26 @@ dissociate_tag_from_checklist() {
         whiptail --msgbox "No tags found in database." 8 40
         return 1
     fi
+
+    # FIX: FLATTEN TAG_CHOICES, SORT, THEN REBUILD
+    # Step 1: Flatten.
+    local pairs=()
+    for ((i=0; i<${#tag_choices[@]}; i+=2)); do
+        pairs+=("${tag_choices[i]}")  # Only the tag matters since values are empty
+    done
+    
+    # Step 2: Sort tags
+    local sorted=()
+    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
+    unset IFS
+    
+    # Step 3: Rebuild tag_choices array
+    tag_choices=()
+    for tag in "${sorted[@]}"; do
+        tag_choices+=("$tag" "")
+    done
+    # END FIX.
+
     tag_to_remove=$(whiptail --title "Select Tag to Remove" --menu "Choose a tag to dissociate from eBooks:" \
         20 60 10 \
         "${tag_choices[@]}" \
