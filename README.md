@@ -20,6 +20,10 @@
 
 You start by setting up a project and defining your goals, then write notes, and finally link those notes to relevant resources like eBooks or websites. Each layer works seamlessly together to support your planning, learning, and execution process.
 
+### ⚠️ Stay Up to Date
+
+Babyrus is under active development and regularly refined. **To ensure the best experience, always use the latest commit** from the `main` branch, as new features and improvements are frequently added.
+
 ### 📖 Key Features
 
 * Associate eBooks with notes and tags
