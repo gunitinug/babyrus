@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99c'
+BABYRUS_VERSION='v.0.99d'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -674,18 +674,24 @@ register_ebook() {
 # Need to register a tag in order to associate to ebook.
 register_tag() {
     while true; do
-        tag=$(whiptail --inputbox "Enter new tag name (no commas):" 8 40 3>&1 1>&2 2>&3)
+        tag=$(whiptail --inputbox "Enter new tag name (no commas , or pipes |):" 8 40 3>&1 1>&2 2>&3)
         if [[ $? -ne 0 ]]; then return; fi
 
         if [[ -z "$tag" ]]; then
             whiptail --msgbox "Tag name cannot be empty!" 8 40
             continue
         fi
-        
-        if [[ "$tag" == *","* ]]; then
-            whiptail --msgbox "Tag name cannot contain commas!" 8 40
+
+	# Make sure new tag name doesn't contain banned characters: , or |.
+        if [[ "$tag" == *","* || "$tag" == *"|"* ]]; then
+            whiptail --msgbox "Tag name cannot contain commas (,) or pipes (|)!" 8 50
             continue
         fi
+        
+#        if [[ "$tag" == *","* ]]; then
+#            whiptail --msgbox "Tag name cannot contain commas!" 8 40
+#            continue
+#        fi
         
 	# try to match each line exactly.
         if grep -Fxqi "$tag" "$TAGS_DB"; then
