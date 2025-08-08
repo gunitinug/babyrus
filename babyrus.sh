@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99b'
+BABYRUS_VERSION='v.0.99c'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -1083,6 +1083,15 @@ delete_tag_from_global_list() {
     mapfile -t tags_list < "$TAGS_DB"
     [[ ${#tags_list[@]} -eq 0 ]] && whiptail --msgbox "No tags available!" 8 40 && return 0
 
+    # FIX: SORT TAGS IN TAGS_LIST AND REBUILD TAGS_LIST ARRAY.
+    # Sort the array
+    IFS=$'\n' sorted=($(sort <<<"${tags_list[*]}"))
+    unset IFS
+    
+    # Rebuild the original array
+    tags_list=("${sorted[@]}")
+    # END FIX.
+
     # Create menu items
     local menu_items=()
     for tag in "${tags_list[@]}"; do
@@ -1092,7 +1101,7 @@ delete_tag_from_global_list() {
     # Tag selection
     local selected_tag
     selected_tag=$(whiptail --title "Delete Global Tag" --menu "Choose tag to delete:" \
-        15 60 0 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+        20 60 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && return 0  # User canceled
 
     # Check for tag usage in ebooks
