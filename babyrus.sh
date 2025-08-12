@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99e'
+BABYRUS_VERSION='v.0.99f'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -7013,16 +7013,29 @@ add_project() {
 
         case $project_action in
             "Project title")
+		# FIX: FILTER BANNED CHAR |.
+		local old_project_title
+		old_project_title="$project_title" # save project title
+
                 project_title=$(whiptail --inputbox "Enter project title" 8 78 "$project_title" 3>&1 1>&2 2>&3)
+
+		# FIX: FILTER BANNED CHAR |.
+		if [[ "$project_title" =~ \| ]]; then
+			project_title="$old_project_title"	# Revert
+			whiptail --title "Attention" --msgbox "Project title cannot contain | character." 8 40
+			continue
+		fi
+		# END FIX.
+
                 [[ -z "$project_title" ]] && {
                     whiptail --msgbox "Project title can't be empty." 8 45
                     continue
                 }
                 project_path="${PROJECTS_DIR}/${project_title}-$(date "+%d%m%Y-%H%M%S").txt"
                 ;;
-			"Project path")
-				continue
-				;;
+	    "Project path")
+		continue
+		;;
             "Proceed")
                 [[ -z "$project_title" ]] && {
                     whiptail --msgbox "Project title is required." 8 45
@@ -7255,8 +7268,21 @@ edit_project() {
 
         case "$project_action" in
             "Project title")
+		# FIX: FILTER BANNED CHAR |.
+		local old_project_title
+		old_project_title="$project_title" # save project title
+
                 new_title=$(whiptail --inputbox "Enter project title:" 8 78 \
                     "$project_title" 3>&1 1>&2 2>&3)
+
+		# FIX: FILTER BANNED CHAR |.
+		if [[ "$new_title" =~ \| ]]; then
+			project_title="$old_project_title"	# Revert
+			whiptail --title "Attention" --msgbox "Project title cannot contain | character." 8 40
+			continue
+		fi
+		# END FIX.
+
                 if [[ -z "$new_title" ]]; then
                     whiptail --msgbox "Project title can't be empty." 8 45
                     continue
