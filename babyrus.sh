@@ -4668,7 +4668,12 @@ manage_tags() {
                 local new_tag
                 new_tag=$(whiptail --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty)
                 [ $? -eq 0 ] || continue
-                new_tag=$(echo "$new_tag" | tr -d '|,')
+
+		# FIX: DELETE BANNED CHARS - MORE EFFICIENT.
+		new_tag=${new_tag//[|,#]/}
+                #new_tag=$(echo "$new_tag" | tr -d '|,')
+		# END FIX.
+
                 if [ -n "$new_tag" ]; then
 #                    # Add to global tags list
 #                    echo "$new_tag" >> "$NOTES_TAGS_DB"
@@ -4849,6 +4854,14 @@ add_chapters() {
             while true; do
                 chapter_name=$(whiptail --inputbox "Enter chapter name:" 8 40 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && break
+
+		# FIX
+		# Check for illegal chapter name
+		if [[ "$chapter_name" =~ [\;\|#,:] ]]; then
+			whiptail --title "Attention" --msgbox "Chapter name cannot contain illegal characters (|#,:;)." 8 60
+    			continue
+		fi
+		# END FIX.
                 
                 chapter_pages=$(whiptail --inputbox "Enter pages for '$chapter_name' (eg. 1 or 1-10):" \
                     8 40 3>&1 1>&2 2>&3)
@@ -5192,7 +5205,18 @@ add_note() {
 
         case "$choice" in
             "Note Title")
+		local old_note_title		# FIX: CHECK FOR ILLEGAL CHARS.
+		old_note_title="$note_title"
+
                 note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
+		# FIX: CHECK FOR ILLEGAL CHARS.
+                if [[ "$note_title" =~ [\|#] ]]; then
+			note_title="$old_note_title"	# Revert
+                        whiptail --title "Attention" --msgbox "Note title cannot contain illegal characters (|#)." 8 60
+                        continue
+                fi
+		# END FIX.
+
                 [ -z "$note_title" ] && note_title_tr=""
                 ;;
             "Tags")
@@ -5336,7 +5360,18 @@ edit_note() {
 
         case "$choice" in
             "Note Title")
+		local old_note_title
+		old_note_title="$note_title"	# FIX: CHECK ILLEGAL CHARS.
+
                 note_title=$(whiptail --inputbox "Enter note title:" 8 40 "$note_title" 3>&1 1>&2 2>&3)
+
+                # FIX: CHECK FOR ILLEGAL CHARS.
+                if [[ "$note_title" =~ [\|#] ]]; then
+                        note_title="$old_note_title"    # Revert
+                        whiptail --title "Attention" --msgbox "Note title cannot contain illegal characters (|#)." 8 60
+                        continue
+                fi
+                # END FIX.
                 ;;
             "Note Path")
                 whiptail --msgbox "Note path is: $note_path" 10 80
