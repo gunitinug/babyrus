@@ -4844,8 +4844,9 @@ add_chapters() {
         menu_options+=("Add chapter" "")
         menu_options+=("Save and return" "")
 
+	# If added lot of chapters menu gets broken so increase dimensions!
         choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Choose an option:" \
-            15 150 $((num_chapters + 2)) "${menu_options[@]}" 3>&1 1>&2 2>&3)
+            22 150 15 "${menu_options[@]}" 3>&1 1>&2 2>&3)
         
         [[ $? -ne 0 ]] && choice="Save and return"  # Handle ESC/Cancel as Save
         
@@ -6074,7 +6075,7 @@ open_ebook_note_from_global_list() {
     selected_idx=$(whiptail --title "Open eBook File From Global List" \
         --cancel-button "Back" \
         --menu "Choose an eBook to open:" \
-        20 100 10 \
+        20 170 10 \
         "${options[@]}" \
         3>&1 1>&2 2>&3) || return 1
 
@@ -6151,7 +6152,7 @@ delete_notes() {
 
         # Show the whiptail checklist.
         local result
-        result=$(whiptail --title "Delete Notes" --checklist "Select notes to delete (page $((current_page + 1))/$pages)" 20 100 10 "${choices[@]}" 3>&1 1>&2 2>&3)
+        result=$(whiptail --title "Delete Notes" --checklist "Select notes to delete (page $((current_page + 1))/$pages)" 20 170 10 "${choices[@]}" 3>&1 1>&2 2>&3)
         local exit_status=$?
         if [ $exit_status -ne 0 ]; then
             whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
@@ -6482,7 +6483,7 @@ assoc_url_to_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 150 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && return 1
 
         case "$choice" in
@@ -6657,7 +6658,7 @@ dissoc_url_from_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 150 10 \
+        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && continue
 
@@ -6675,7 +6676,7 @@ dissoc_url_from_note() {
                 done
 
                 local remove_index
-                remove_index=$(whiptail --menu "Select URL to remove" 20 150 10 \
+                remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
                     "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                 [[ -z "$remove_index" ]] && continue
 
@@ -6807,7 +6808,7 @@ open_url_assoc_to_note() {
 
             local choice
             choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                20 150 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
             if [[ "$choice" == "<< Back" ]]; then
