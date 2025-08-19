@@ -1320,6 +1320,7 @@ open_file_search_by_filename() {
     exec 3> "$fifo"
 
     TRUNC=()
+    local idx=1
 
     # writer loop runs in the foreground so matches[] stays visible to caller
     while IFS= read -r line; do
@@ -1341,8 +1342,9 @@ open_file_search_by_filename() {
                 local truncated_dir="$(truncate_dirname "$dir" 35)"
                 local truncated_file="$(truncate_filename "$file" 65)"
 
-                TRUNC+=("${processed}:${truncated_dir}/${truncated_file}" "")
+                TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
                 matches+=("$path" "")
+                ((idx++))
             fi
         fi
 
