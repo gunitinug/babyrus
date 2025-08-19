@@ -1832,21 +1832,69 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 
     in_operation_msg # show 'in operation...' while building menu items...
 
-    local menu_items=()
+    #local menu_items=()
     local idx=1
-    declare -A line_map
+    declare -A line_map=()
+    
     # Build the menu items array. Each menu entry is a pair:
     # the index number and a description (file path with tags)
+    # FIX: CONSTRUCT TRUNC HERE TO POTENTIALLY SPEED UP BOTTLENECK.
+    # Count total lines once
+    local total_lines
+    total_lines=$(wc -l <<< "$final_list")
+
+    TRUNC=()
+    # Make a temporary FIFO and ensure cleanup on exit
+    local fifo
+    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
+    mkfifo "$fifo"
+    trap 'rm -f "$fifo"' EXIT
+    
+    # Start whiptail reading from the FIFO in background
+    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
+    local gauge_pid=$!
+    
+    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
+    exec 3> "$fifo"
+    
+    # Build TRUNC in main shell; send gauge updates to fd 3
     while IFS= read -r line; do
-        # Replace the | separator with a more readable format for display.
-        menu_items+=("$idx" "$(echo "$line")")
+        [[ -z $line ]] && continue
+    
+        local path=${line%|*}
+        local tags=${line##*|}
+    
+        local dir="$(dirname "$path")"
+        local file="$(basename "$path")"
+    
+        local truncated_dir="$(truncate_dirname "$dir" 35)"
+        local truncated_file="$(truncate_filename "$file" 65)"
+        local truncated_tags="$(truncate_tags "$tags")"
+    
+        TRUNC+=("$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}")
         line_map["$idx"]="$line"
-        idx=$((idx + 1))
-    done <<< "$final_list"
+    
+        if (( idx % 100 == 0 || idx == total_lines )); then
+            local progress=$(( idx * 100 / total_lines ))
+            # Must send the XXX blocks exactly as below
+            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
+                "$progress" "$idx" "$total_lines" >&3
+        fi
+    
+        ((idx++))
+    done < <(printf "%s\n" "$final_list")
+    
+    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
+    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
+    exec 3>&-
+    
+    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
+    wait "$gauge_pid"
+    # --- end gauge-via-fifo pattern ---
 
     # menu_items need truncating. the format is "idx#" "full path including tags"
     # Build the large list once:
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
+    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
 
     # Reset CURRENT_PAGE for this new TRUNC array.
     CURRENT_PAGE=0
