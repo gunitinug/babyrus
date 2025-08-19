@@ -1830,7 +1830,7 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
         return 1
     fi
 
-    in_operation_msg # show 'in operation...' while building menu items...
+    #in_operation_msg # show 'in operation...' while building menu items...
 
     #local menu_items=()
     local idx=1
