@@ -1279,36 +1279,106 @@ open_file_search_by_filename() {
     search_term="${search_term:-*}"
     
     local matches=()
+#    while IFS= read -r line; do
+#        if [[ "$line" == *"|"* ]]; then
+#            IFS='|' read -r path tags <<< "$line"
+#            filename=$(basename "$path")
+#
+#            # Lower‑case filename and pattern
+#            local filename_lc="${filename,,}"
+#            local pattern_lc="${search_term,,}"
+#
+#            # Ensure a default wildcard
+#            pattern_lc="${pattern_lc:-*}"
+#
+#            # Now do a glob on the lower‑cased filename
+#            if [[ "$filename_lc" == $pattern_lc ]]; then
+#                matches+=("$path" "")
+#            fi
+#
+#            #if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
+#            #    matches+=("$path" "")
+#            #fi
+#        fi
+#    done < "$EBOOKS_DB"
+
+    # SHOW WHIPTAIL GAUGE.
+    # count lines (protect against empty file)
+    local total_lines
+    total_lines=$(wc -l < "$EBOOKS_DB" 2>/dev/null) || total_lines=0
+    (( total_lines == 0 )) && total_lines=1
+
+    # create fifo and ensure cleanup
+    local fifo gauge_pid processed=0 last_progress=-1 progress
+    fifo=$(mktemp -u --tmpdir gauge.XXXXXX)
+    mkfifo "$fifo"
+    trap 'rm -f "$fifo"' EXIT
+
+    # launch whiptail reading from fifo (background)
+    whiptail --gauge "Searching ebooks..." 7 60 0 < "$fifo" &
+    gauge_pid=$!
+    exec 3> "$fifo"
+
+    TRUNC=()
+
+    # writer loop runs in the foreground so matches[] stays visible to caller
     while IFS= read -r line; do
+        ((processed++))
+
         if [[ "$line" == *"|"* ]]; then
             IFS='|' read -r path tags <<< "$line"
+            local filename filename_lc pattern_lc
             filename=$(basename "$path")
-
-            # Lower‑case filename and pattern
-            local filename_lc="${filename,,}"
-            local pattern_lc="${search_term,,}"
-
-            # Ensure a default wildcard
+            filename_lc="${filename,,}"
+            pattern_lc="${search_term,,}"
             pattern_lc="${pattern_lc:-*}"
 
-            # Now do a glob on the lower‑cased filename
             if [[ "$filename_lc" == $pattern_lc ]]; then
+                local dir="$(dirname "$path")"
+                local file="$(basename "$path")"
+    
+                # Truncate
+                local truncated_dir="$(truncate_dirname "$dir" 35)"
+                local truncated_file="$(truncate_filename "$file" 65)"
+
+                TRUNC+=("${processed}:${truncated_dir}/${truncated_file}" "")
                 matches+=("$path" "")
             fi
+        fi
 
-            #if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
-            #    matches+=("$path" "")
-            #fi
+        # throttle gauge updates
+        if (( processed % 100 == 0 )); then
+            progress=$(( processed * 100 / total_lines ))
+            if (( progress != last_progress )); then
+                {
+                    echo "XXX"
+                    echo "$progress"
+                    echo "Processed ${processed}/${total_lines}..."
+                    echo "XXX"
+                } >&3
+                last_progress=$progress
+            fi
         fi
     done < "$EBOOKS_DB"
+
+    # final 100% update
+    {
+        echo "XXX"
+        echo "100"
+        echo "Done."
+        echo "XXX"
+    } >&3
+    exec 3>&-
+    wait "$gauge_pid"
+    # END.
     
-    [ ${#matches[@]} -eq 0 ] && {
+    [ ${#TRUNC[@]} -eq 0 ] && {
         whiptail --msgbox "No matches found for: $search_term" 10 60
         return
     }
 
     # Truncate matches because of possible long file names.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
+    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
     CURRENT_PAGE=0
 
     # paginate in case trunc gets too big.
