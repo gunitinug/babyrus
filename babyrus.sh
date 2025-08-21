@@ -767,12 +767,19 @@ associate_tag() {
 	return 1
     }
 
-    # Get list of ebooks
-    mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
-    if [[ ${#ebooks[@]} -eq 0 ]]; then
-        whiptail --msgbox "No ebooks registered!" 8 40
-        return
-    fi
+    # NO LONGER NEEDED.
+#    # Get list of ebooks
+#    mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
+#    if [[ ${#ebooks[@]} -eq 0 ]]; then
+#        whiptail --msgbox "No ebooks registered!" 8 40
+#        return
+#    fi
+
+   [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Alert" --msgbox "No ebooks db found or is empty! Register at least one file!" 8 40 >/dev/tty
+        return 1
+    }
+    
 
     # Get filter string from user using whiptail. No globbing, simple substring match.
     filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (literal substring search; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
@@ -785,17 +792,79 @@ associate_tag() {
     # Defaults to "*" if unset
     filter_str=${filter_str:-"*"}
     
-    # Filter ebooks and store in array
-    mapfile -d $'\0' filtered_ebooks < <(filter_ebooks "$filter_str" "${ebooks[@]}")
+#    # Filter ebooks and store in array
+#    mapfile -d $'\0' filtered_ebooks < <(filter_ebooks "$filter_str" "${ebooks[@]}")
+#
+#    # Show msgbox and return if filtered_ebooks is empty.
+#    [[ "${#filtered_ebooks[@]}" -eq 0  ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return
+#
+#    # convert ebooks array into whiptail friendly format.
+#    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
+#
+#    # Truncate ebooks_whip because of possible long file names.
+#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
 
-    # Show msgbox and return if filtered_ebooks is empty.
-    [[ "${#filtered_ebooks[@]}" -eq 0  ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return
+    # FIX: SPEED IMPROVEMENT BY POPULATING TRUNC DIRECTLY. ALSO ADD WHIPTAIL GAUGE.
+    local total_lines
+    total_lines=$(wc -l < "$EBOOKS_DB")
 
-    # convert ebooks array into whiptail friendly format.
-    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
+    # Make a temporary FIFO and ensure cleanup on exit
+    local fifo
+    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
+    mkfifo "$fifo"
+    trap 'rm -f "$fifo"' EXIT
 
-    # Truncate ebooks_whip because of possible long file names.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
+    # Start whiptail reading from the FIFO in background
+    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
+    local gauge_pid=$!
+    
+    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
+    exec 3> "$fifo"
+
+    TRUNC=()
+    local ebooks_whip=()
+    local idx=1 processed=1
+    local path tags dir file truncated_dir truncated_file truncated_tags
+
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+    
+        path=${line%|*}
+        tags=${line##*|}
+        dir="$(dirname "$path")"
+        file="$(basename "$path")"
+    
+        if [[ "$filter_str" == "*" || "${file,,}" == *"${filter_str,,}"* ]]; then
+            truncated_dir="$(truncate_dirname "$dir" 35)"
+            truncated_file="$(truncate_filename "$file" 65)"
+            truncated_tags="$(truncate_tags "$tags")"
+            
+            ebooks_whip+=("$path" "")
+            TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
+            ((idx++))
+        fi
+
+        if (( processed % 100 == 0 || processed == total_lines )); then
+            local progress=$(( processed * 100 / total_lines ))
+            # Must send the XXX blocks exactly as below
+            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
+                "$progress" "$processed" "$total_lines" >&3
+        fi
+
+        ((processed++))
+    done < "$EBOOKS_DB"
+    
+    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
+    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
+    exec 3>&-
+    
+    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
+    wait "$gauge_pid"
+    # --- end gauge-via-fifo pattern ---
+
+    [[ "${#ebooks_whip[@]}" -eq 0 ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return 1
+    # END FIX.
+
     CURRENT_PAGE=0
 
     # Select ebook
