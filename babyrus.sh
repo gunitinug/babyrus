@@ -1209,55 +1209,119 @@ delete_tag_from_global_list() {
 
 remove_registered_ebook() {
     # Check if database file exists
-    if [[ ! -f "$EBOOKS_DB" ]]; then
-        whiptail --title "Error" --msgbox "Ebooks database not found!" 10 60
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
+        whiptail --title "Error" --msgbox "Ebooks database not found or empty!" 10 60
         return 1
     fi
 
-    # Read database entries into array
-    mapfile -t entries < "$EBOOKS_DB"
-
-    # Check for empty database
-    if [[ ${#entries[@]} -eq 0 ]]; then
-        whiptail --title "Error" --msgbox "The ebooks database is empty!" 10 60
-        return 1
-    fi
-
-    # Prepare menu items array for whiptail
-    local menu_items=()
-    for entry in "${entries[@]}"; do
-        IFS='|' read -r path tags <<< "$entry"
-        menu_items+=("$path" "T:${tags}")
-    done
+#    # Read database entries into array
+#    mapfile -t entries < "$EBOOKS_DB"
+#
+#    # Check for empty database
+#    if [[ ${#entries[@]} -eq 0 ]]; then
+#        whiptail --title "Error" --msgbox "The ebooks database is empty!" 10 60
+#        return 1
+#    fi
+#
+#    # Prepare menu items array for whiptail
+#    local menu_items=()
+#    for entry in "${entries[@]}"; do
+#        IFS='|' read -r path tags <<< "$entry"
+#        menu_items+=("$path" "T:${tags}")
+#    done
 
     # Get search string from user
     local search_str
-    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (literal substring match; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
         return 1  # User cancelled the search
     fi
 
-    # Display 'In operation' message because creating TRUNC may take some time.
-    in_operation_msg
+#    # Display 'In operation' message because creating TRUNC may take some time.
+#    in_operation_msg
+#
+#    # Create filtered_menu_items based on search_str
+#    local filtered_menu_items=()
+#    for ((i=0; i<${#menu_items[@]}; i+=2)); do
+#        path="${menu_items[i]}"
+#        tags="${menu_items[i+1]}"
+#        if [[ "${path,,}" == *"${search_str,,}"* ]]; then
+#            filtered_menu_items+=("$path" "$tags")
+#        fi
+#    done
+#
+#    # Check if filtered list is empty
+#    if [[ ${#filtered_menu_items[@]} -eq 0 ]]; then
+#        whiptail --title "Error" --msgbox "No ebooks found matching '$search_str'." 10 60
+#        return 1
+#    fi
+#
+#    # Truncate menu_items because of possible long file names.
+#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
-    # Create filtered_menu_items based on search_str
+    # FIX: SPEED IMPROVEMENT BY POPULATING TRUNC DIRECTLY. ALSO ADD WHIPTAIL GAUGE.
+    local total_lines
+    total_lines=$(wc -l < "$EBOOKS_DB")
+
+    # Make a temporary FIFO and ensure cleanup on exit
+    local fifo
+    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
+    mkfifo "$fifo"
+    trap 'rm -f "$fifo"' EXIT
+
+    # Start whiptail reading from the FIFO in background
+    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
+    local gauge_pid=$!
+    
+    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
+    exec 3> "$fifo"
+
+    : ${search_str:=*}
+    
+    TRUNC=()
     local filtered_menu_items=()
-    for ((i=0; i<${#menu_items[@]}; i+=2)); do
-        path="${menu_items[i]}"
-        tags="${menu_items[i+1]}"
-        if [[ "${path,,}" == *"${search_str,,}"* ]]; then
-            filtered_menu_items+=("$path" "$tags")
+    local idx=1 processed=1
+    local path tags dir file truncated_dir truncated_file truncated_tags
+
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+    
+        path=${line%|*}
+        tags=${line##*|}
+        dir="$(dirname "$path")"
+        file="$(basename "$path")"
+    
+        if [[ "$search_str" == "*" || "${file,,}" == *"${search_str,,}"* ]]; then
+            truncated_dir="$(truncate_dirname "$dir" 35)"
+            truncated_file="$(truncate_filename "$file" 65)"
+            truncated_tags="$(truncate_tags "$tags")"
+            
+            filtered_menu_items+=("$path" "")
+            TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "T:${truncated_tags}")
+            ((idx++))
         fi
-    done
 
-    # Check if filtered list is empty
-    if [[ ${#filtered_menu_items[@]} -eq 0 ]]; then
-        whiptail --title "Error" --msgbox "No ebooks found matching '$search_str'." 10 60
-        return 1
-    fi
+        if (( processed % 100 == 0 || processed == total_lines )); then
+            local progress=$(( processed * 100 / total_lines ))
+            # Must send the XXX blocks exactly as below
+            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
+                "$progress" "$processed" "$total_lines" >&3
+        fi
 
-    # Truncate menu_items because of possible long file names.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+        ((processed++))
+    done < "$EBOOKS_DB"
+
+    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
+    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
+    exec 3>&-
+    
+    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
+    wait "$gauge_pid"
+    # --- end gauge-via-fifo pattern ---
+
+    [[ "${#filtered_menu_items[@]}" -eq 0 ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return 1
+    # END FIX.
+    
     CURRENT_PAGE=0
 
     # Show selection dialog. paginate here because trunc may be large.
