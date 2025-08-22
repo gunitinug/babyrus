@@ -8420,7 +8420,7 @@ open_url_assoc_to_note_from_project() {
 
             local choice
             choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                20 150 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
             if [[ "$choice" == "<< Back" ]]; then
