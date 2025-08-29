@@ -1402,8 +1402,11 @@ open_file() {
 
 # Open file by search by filename workflow
 open_file_search_by_filename() {
+    [[ -f "$EBOOKS_DB" && -s "$EBOOKS_DB" ]] || { whiptail --title "Attention" --msgbox "Ebooks db doesn't exist or is empty. Register at least one file!" 10 60; return 1; }
+
     local search_term
-    search_term=$(whiptail --inputbox "Enter filename search term (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    search_term=$(whiptail --inputbox "Enter filename search term (literal substring match; * is \*; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    # Originally it was globbing but with new awk code it's literal substring match now.
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
@@ -1435,77 +1438,209 @@ open_file_search_by_filename() {
 #        fi
 #    done < "$EBOOKS_DB"
 
-    # SHOW WHIPTAIL GAUGE.
-    # count lines (protect against empty file)
-    local total_lines
-    total_lines=$(wc -l < "$EBOOKS_DB" 2>/dev/null) || total_lines=0
-    (( total_lines == 0 )) && total_lines=1
-
-    # create fifo and ensure cleanup
-    local fifo gauge_pid processed=0 last_progress=-1 progress
-    fifo=$(mktemp -u --tmpdir gauge.XXXXXX)
-    mkfifo "$fifo"
-    trap 'rm -f "$fifo"' EXIT
-
-    # launch whiptail reading from fifo (background)
-    whiptail --gauge "Searching ebooks..." 7 60 0 < "$fifo" &
-    gauge_pid=$!
-    exec 3> "$fifo"
+#    # SHOW WHIPTAIL GAUGE.
+#    # count lines (protect against empty file)
+#    local total_lines
+#    total_lines=$(wc -l < "$EBOOKS_DB" 2>/dev/null) || total_lines=0
+#    (( total_lines == 0 )) && total_lines=1
+#
+#    # create fifo and ensure cleanup
+#    local fifo gauge_pid processed=0 last_progress=-1 progress
+#    fifo=$(mktemp -u --tmpdir gauge.XXXXXX)
+#    mkfifo "$fifo"
+#    trap 'rm -f "$fifo"' EXIT
+#
+#    # launch whiptail reading from fifo (background)
+#    whiptail --gauge "Searching ebooks..." 7 60 0 < "$fifo" &
+#    gauge_pid=$!
+#    exec 3> "$fifo"
 
     TRUNC=()
-    local idx=1
+#    local idx=1
+#
+#    # writer loop runs in the foreground so matches[] stays visible to caller
+#    while IFS= read -r line; do
+#        ((processed++))
+#
+#        if [[ "$line" == *"|"* ]]; then
+#            IFS='|' read -r path tags <<< "$line"
+#            local filename filename_lc pattern_lc
+#            filename=$(basename "$path")
+#            filename_lc="${filename,,}"
+#            pattern_lc="${search_term,,}"
+#            pattern_lc="${pattern_lc:-*}"
+#
+#            if [[ "$filename_lc" == $pattern_lc ]]; then
+#                local dir="$(dirname "$path")"
+#                local file="$(basename "$path")"
+#    
+#                # Truncate
+#                local truncated_dir="$(truncate_dirname "$dir" 35)"
+#                local truncated_file="$(truncate_filename "$file" 65)"
+#
+#                TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
+#                matches+=("$path" "")
+#                ((idx++))
+#            fi
+#        fi
+#
+#        # throttle gauge updates
+#        if (( processed % 100 == 0 )); then
+#            progress=$(( processed * 100 / total_lines ))
+#            if (( progress != last_progress )); then
+#                {
+#                    echo "XXX"
+#                    echo "$progress"
+#                    echo "Processed ${processed}/${total_lines}..."
+#                    echo "XXX"
+#                } >&3
+#                last_progress=$progress
+#            fi
+#        fi
+#    done < "$EBOOKS_DB"
+#
+#    # final 100% update
+#    {
+#        echo "XXX"
+#        echo "100"
+#        echo "Done."
+#        echo "XXX"
+#    } >&3
+#    exec 3>&-
+#    wait "$gauge_pid"
+#    # END.
 
-    # writer loop runs in the foreground so matches[] stays visible to caller
-    while IFS= read -r line; do
-        ((processed++))
-
-        if [[ "$line" == *"|"* ]]; then
-            IFS='|' read -r path tags <<< "$line"
-            local filename filename_lc pattern_lc
-            filename=$(basename "$path")
-            filename_lc="${filename,,}"
-            pattern_lc="${search_term,,}"
-            pattern_lc="${pattern_lc:-*}"
-
-            if [[ "$filename_lc" == $pattern_lc ]]; then
-                local dir="$(dirname "$path")"
-                local file="$(basename "$path")"
+    # NEW FIX: USE AWK FOR SPEED.
+    # ensure gawk is used (we assume it exists)
+    local AWK_BIN="gawk"
     
-                # Truncate
-                local truncated_dir="$(truncate_dirname "$dir" 35)"
-                local truncated_file="$(truncate_filename "$file" 65)"
-
-                TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
-                matches+=("$path" "")
-                ((idx++))
-            fi
-        fi
-
-        # throttle gauge updates
-        if (( processed % 100 == 0 )); then
-            progress=$(( processed * 100 / total_lines ))
-            if (( progress != last_progress )); then
-                {
-                    echo "XXX"
-                    echo "$progress"
-                    echo "Processed ${processed}/${total_lines}..."
-                    echo "XXX"
-                } >&3
-                last_progress=$progress
-            fi
-        fi
-    done < "$EBOOKS_DB"
-
-    # final 100% update
+    # count total lines (avoid zero)
+    local total=$(wc -l < "$EBOOKS_DB" 2>/dev/null || echo 0)
+    (( total == 0 )) && total=1
+    
+    # temp files/fifos (unique)
+    local pid fifo1 out1 fifo2 out2
+    pid=$$
+    fifo1="/tmp/ebook_gauge_filter_${pid}.fifo"
+    out1="/tmp/ebook_filtered_${pid}.out"
+    fifo2="/tmp/ebook_gauge_trunc_${pid}.fifo"
+    out2="/tmp/ebook_trunc_${pid}.out"
+    
+    # cleanup on exit/interruption
+    cleanup() {
+      rm -f "$fifo1" "$fifo2" "$out1" "$out2"
+    }
+    trap cleanup EXIT
+    
+    ##########
+    # Step 1: filtered_menu_items (filtering)
+    ##########
+    mkfifo "$fifo1"
+    # start whiptail reading from fifo in background
+    whiptail --title "Progress" --gauge "Filtering ebooks…" 8 60 0 < "$fifo1" &
+    local gauge1_pid=$!
+    
+    # gawk: write NUL-separated matches to $out1 and progress to fifo1
+    "$AWK_BIN" -v search="$search_term" -v total="$total" '
+    BEGIN { FS = OFS = "|"; idx = 1 }
     {
-        echo "XXX"
-        echo "100"
-        echo "Done."
-        echo "XXX"
-    } >&3
-    exec 3>&-
-    wait "$gauge_pid"
-    # END.
+      tags = $NF
+      path = $1
+    
+      slash = match(path, "/[^/]*$")
+      if (slash) {
+        file = substr(path, slash + 1)
+        dir  = substr(path, 1, slash - 1)
+        if (dir == "") dir = "/"
+      } else {
+        file = path
+        dir  = "."
+      }
+    
+      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+        printf("%s\0\0", path)
+      }
+    
+      pct = int((NR / total) * 100)
+      printf("%d\n", pct) > "'"$fifo1"'"
+      fflush("'"$fifo1"'")
+    }
+    ' "$EBOOKS_DB" > "$out1"
+    
+    # close fifo so whiptail gets EOF and exits
+    rm -f "$fifo1"
+    wait "$gauge1_pid" 2>/dev/null || true
+    
+    # read results into array (NUL-separated)
+    mapfile -d '' -t matches < "$out1"
+    rm -f "$out1"
+    
+    ##########
+    # Step 2: TRUNC (truncate/display info)
+    ##########
+    mkfifo "$fifo2"
+    whiptail --title "Progress" --gauge "Preparing display/truncation…" 8 70 0 < "$fifo2" &
+    local gauge2_pid=$!
+    
+    "$AWK_BIN" -v search="$search_term" -v total="$total" '
+    BEGIN {
+      FS = OFS = "|"
+      idx = 1
+      maxd = 35   # dirname display width (including ellipsis if used)
+      maxf = 65   # filename display width (including ellipsis)
+      maxt = 40   # tags display width (including ellipsis)
+    }
+    {
+      tags = $NF
+      path = $1
+    
+      slash = match(path, "/[^/]*$")
+      if (slash) {
+        file = substr(path, slash + 1)
+        dir  = substr(path, 1, slash - 1)
+        if (dir == "") dir = "/"
+      } else {
+        file = path
+        dir  = "."
+      }
+    
+      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+        # truncate dir
+        trdir = dir
+        if (length(trdir) > maxd) {
+          start = length(trdir) - (maxd - 2)
+          if (start < 1) start = 1
+          trdir = "…" substr(trdir, start)
+        }
+    
+        # truncate file (beginning + end)
+        truncated_file = file
+        if (length(file) > maxf) {
+          prefix = int((maxf - 1) / 2)
+          suffix = (maxf - 1) - prefix
+          truncated_file = substr(file, 1, prefix) "…" substr(file, length(file) - suffix + 1)
+        }
+    
+        # truncate tags
+        truncated_tags = tags
+        if (length(truncated_tags) > maxt) truncated_tags = substr(truncated_tags, 1, maxt - 1) "…"
+    
+        printf("%s\0%s\0", idx ":" trdir "/" truncated_file, "T:" truncated_tags)
+        idx++
+      }
+    
+      pct = int((NR / total) * 100)
+      printf("%d\n", pct) > "'"$fifo2"'"
+      fflush("'"$fifo2"'")
+    }
+    ' "$EBOOKS_DB" > "$out2"
+    
+    rm -f "$fifo2"
+    wait "$gauge2_pid" 2>/dev/null || true
+    
+    mapfile -d '' -t TRUNC < "$out2"
+    rm -f "$out2"
+    # END NEW FIX.
     
     [ ${#TRUNC[@]} -eq 0 ] && {
         whiptail --msgbox "No matches found for: $search_term" 10 60
