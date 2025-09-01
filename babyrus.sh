@@ -2445,64 +2445,183 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
     #in_operation_msg # show 'in operation...' while building menu items...
 
     #local menu_items=()
-    local idx=1
-    declare -A line_map=()
-    
-    # Build the menu items array. Each menu entry is a pair:
-    # the index number and a description (file path with tags)
-    # FIX: CONSTRUCT TRUNC HERE TO POTENTIALLY SPEED UP BOTTLENECK.
-    # Count total lines once
+#    local idx=1
+#    declare -A line_map=()
+#    
+#    # Build the menu items array. Each menu entry is a pair:
+#    # the index number and a description (file path with tags)
+#    # FIX: CONSTRUCT TRUNC HERE TO POTENTIALLY SPEED UP BOTTLENECK.
+#    # Count total lines once
+#    local total_lines
+#    total_lines=$(wc -l <<< "$final_list")
+#
+#    TRUNC=()
+#    # Make a temporary FIFO and ensure cleanup on exit
+#    local fifo
+#    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
+#    mkfifo "$fifo"
+#    trap 'rm -f "$fifo"' EXIT
+#    
+#    # Start whiptail reading from the FIFO in background
+#    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
+#    local gauge_pid=$!
+#    
+#    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
+#    exec 3> "$fifo"
+#    
+#    # Build TRUNC in main shell; send gauge updates to fd 3
+#    while IFS= read -r line; do
+#        [[ -z $line ]] && continue
+#    
+#        local path=${line%|*}
+#        local tags=${line##*|}
+#    
+#        local dir="$(dirname "$path")"
+#        local file="$(basename "$path")"
+#    
+#        local truncated_dir="$(truncate_dirname "$dir" 35)"
+#        local truncated_file="$(truncate_filename "$file" 65)"
+#        local truncated_tags="$(truncate_tags "$tags")"
+#    
+#        TRUNC+=("$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}")
+#        line_map["$idx"]="$line"
+#    
+#        if (( idx % 100 == 0 || idx == total_lines )); then
+#            local progress=$(( idx * 100 / total_lines ))
+#            # Must send the XXX blocks exactly as below
+#            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
+#                "$progress" "$idx" "$total_lines" >&3
+#        fi
+#    
+#        ((idx++))
+#    done < <(printf "%s\n" "$final_list")
+#    
+#    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
+#    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
+#    exec 3>&-
+#    
+#    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
+#    wait "$gauge_pid"
+#    # --- end gauge-via-fifo pattern ---
+
+    # NEW FIX: BOTTLENECK SPEEDUP BY REPLACING LOOPS WITH AWK.
     local total_lines
     total_lines=$(wc -l <<< "$final_list")
-
-    TRUNC=()
-    # Make a temporary FIFO and ensure cleanup on exit
+    
+    # Create temporary files for awk output
+    trunc_file=$(mktemp)
+    line_map_file=$(mktemp)
+    
+    # FIFO for whiptail gauge
     local fifo
     fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
     mkfifo "$fifo"
-    trap 'rm -f "$fifo"' EXIT
+    trap 'rm -f "$fifo" "$trunc_file" "$line_map_file"' EXIT
     
-    # Start whiptail reading from the FIFO in background
+    # Start whiptail
     whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
     local gauge_pid=$!
     
-    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
+    # Open FIFO for writing
     exec 3> "$fifo"
     
-    # Build TRUNC in main shell; send gauge updates to fd 3
-    while IFS= read -r line; do
-        [[ -z $line ]] && continue
+    # Process lines with awk
+    awk -v total_lines="$total_lines" \
+        -v trunc_file="$trunc_file" \
+        -v line_map_file="$line_map_file" \
+        -v fifo="$fifo" '
+    function truncate_dirname(dir, max_len) {
+        if (length(dir) <= max_len) return dir;
+        return "..." substr(dir, length(dir) - max_len + 4);
+    }
+    function truncate_filename(file, max_len) {
+        # If the filename is already short enough, return it as is
+        if (length(file) <= max_len) {
+            return file
+        }
+        
+        # Find the last dot to separate extension
+        dot_position = 0
+        for (i = length(file); i > 0; i--) {
+            if (substr(file, i, 1) == ".") {
+                dot_position = i
+                break
+            }
+        }
+        
+        # If no extension found, just truncate the filename
+        if (dot_position == 0) {
+            return substr(file, 1, max_len - 3) "..."
+        }
+        
+        # Extract the base name and extension
+        base = substr(file, 1, dot_position - 1)
+        ext = substr(file, dot_position)
+        
+        # Calculate how much space we have for the base name
+        base_max_len = max_len - length(ext) - 3  # 3 for the "..."
+        
+        # Truncate the base name and add dots and extension
+        truncated_base = substr(base, 1, base_max_len)
+        return truncated_base "..." ext
+    }
+    function truncate_tags(tags, max_len) {
+        if (length(tags) <= max_len) return tags;
+        return substr(tags, 1, max_len - 3) "...";
+    }
+    {
+        if (!NF) next;
+        
+        split($0, parts, "|");
+        path = parts[1];
+        tags = parts[2];
+        
+        dir = path;
+        sub("/[^/]*$", "", dir);
+        file = path;
+        sub(".*/", "", file);
+        
+        truncated_dir = truncate_dirname(dir, 35);
+        truncated_file = truncate_filename(file, 65);
+        truncated_tags = truncate_tags(tags, 20); # Adjust tag length as needed
+        
+        # Write to temporary files using null delimiter
+        printf "%s\0%s\0", NR, truncated_dir "/" truncated_file " T:" truncated_tags >> trunc_file;
+        printf "%s\0%s\0", NR, $0 >> line_map_file;
+        
+        # Progress update
+        if (NR % 100 == 0 || NR == total_lines) {
+            progress = NR * 100 / total_lines;
+            printf "XXX\n%d\nProcessing file %d of %d...\nXXX\n", progress, NR, total_lines >> fifo;
+            fflush(fifo);
+        }
+    }
+    END {
+        printf "XXX\n100\nFinished building list (%d files)\nXXX\n", total_lines >> fifo;
+        close(fifo);
+        close(trunc_file);
+        close(line_map_file);
+    }
+    ' < <(printf "%s\n" "$final_list")
     
-        local path=${line%|*}
-        local tags=${line##*|}
-    
-        local dir="$(dirname "$path")"
-        local file="$(basename "$path")"
-    
-        local truncated_dir="$(truncate_dirname "$dir" 35)"
-        local truncated_file="$(truncate_filename "$file" 65)"
-        local truncated_tags="$(truncate_tags "$tags")"
-    
-        TRUNC+=("$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}")
-        line_map["$idx"]="$line"
-    
-        if (( idx % 100 == 0 || idx == total_lines )); then
-            local progress=$(( idx * 100 / total_lines ))
-            # Must send the XXX blocks exactly as below
-            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
-                "$progress" "$idx" "$total_lines" >&3
-        fi
-    
-        ((idx++))
-    done < <(printf "%s\n" "$final_list")
-    
-    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
-    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
+    # Close FIFO and wait for whiptail
     exec 3>&-
-    
-    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
     wait "$gauge_pid"
-    # --- end gauge-via-fifo pattern ---
+    
+    # Read temporary files into arrays using null delimiter
+    declare -a TRUNC
+    declare -A line_map
+    
+    # Read trunc_file
+    while IFS= read -r -d '' idx && IFS= read -r -d '' value; do
+        TRUNC+=("$idx" "$value")
+    done < "$trunc_file"
+    
+    # Read line_map_file
+    while IFS= read -r -d '' idx && IFS= read -r -d '' value; do
+        line_map["$idx"]="$value"
+    done < "$line_map_file"
+    # NEW FIX ENDS.
 
     # menu_items need truncating. the format is "idx#" "full path including tags"
     # Build the large list once:
