@@ -1169,19 +1169,19 @@ dissociate_tag_from_registered_ebook() {
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found or empty!" 8 40 && return 1
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found or empty!" 8 40 && return 1
 
-    # Read ebooks database into array
-    local ebooks_list=()
-    mapfile -t ebooks_list < "$EBOOKS_DB"
+#    # Read ebooks database into array
+#    local ebooks_list=()
+#    mapfile -t ebooks_list < "$EBOOKS_DB"
 
-    # Check for empty database
-    [[ ${#ebooks_list[@]} -eq 0 ]] && whiptail --msgbox "No registered ebooks!" 8 40 && return 0
+#    # Check for empty database
+#    [[ ${#ebooks_list[@]} -eq 0 ]] && whiptail --msgbox "No registered ebooks!" 8 40 && return 0
 
-    # Create menu items array
-    local menu_items=()
-    for entry in "${ebooks_list[@]}"; do
-        IFS='|' read -r path tags <<< "$entry"
-        menu_items+=("$path" "T:${tags}")
-    done
+#    # Create menu items array
+#    local menu_items=()
+#    for entry in "${ebooks_list[@]}"; do
+#        IFS='|' read -r path tags <<< "$entry"
+#        menu_items+=("$path" "T:${tags}")
+#    done
 
     local filter_str
     # Get filter string from user using whiptail. No globbing, simple substring match.
@@ -1195,11 +1195,96 @@ dissociate_tag_from_registered_ebook() {
     # Defaults to "*" if unset
     filter_str=${filter_str:-"*"}
 
-    # Filter menu_items and store in array
-    mapfile -d $'\0' filtered_menu_items < <(filter_menu_items "$filter_str" "${menu_items[@]}")
+#    # Filter menu_items and store in array
+#    mapfile -d $'\0' filtered_menu_items < <(filter_menu_items "$filter_str" "${menu_items[@]}")
+#
+#    # Truncate menu_items because of possible long file names.
+#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
 
-    # Truncate menu_items because of possible long file names.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    # NEW FIX: USE AWK INSTEAD FOR BOTTLENECK SPEEDUP.
+    # Initialize output files
+    local out1 out2
+    out1=$(mktemp)
+    out2=$(mktemp)
+    
+    # Process the eBooks database
+    awk -v filter_str="$filter_str" -v out1="$out1" -v out2="$out2" '
+    function rindex(str, char,   i) {
+        for (i = length(str); i > 0; i--) {
+            if (substr(str, i, 1) == char) {
+                return i
+            }
+        }
+        return 0
+    }
+    function truncate_str(str, max_len,    slen, prefix_len, suffix_len) {
+        slen = length(str)
+        
+        # If string is already short enough, return it as is
+        if (slen <= max_len) return str
+        
+        # If max_len is too small to include ellipsis, just return the first max_len chars
+        if (max_len <= 3) return substr(str, 1, max_len)
+        
+        # Compute how many chars to keep from start and end
+        prefix_len = int((max_len - 3) / 2)
+        suffix_len = max_len - 3 - prefix_len
+        
+        return substr(str, 1, prefix_len) "..." substr(str, slen - suffix_len + 1, suffix_len)
+    }
+    function truncate_file(file, max_len,   parts, dot_index, base, ext) {
+        dot_index = match(file, /\.[^.]*$/)
+        if (dot_index == 0) {
+            if (length(file) > max_len)
+                return "..." substr(file, length(file) - max_len + 4)
+            return file
+        }
+        ext = substr(file, dot_index)
+        base = substr(file, 1, dot_index - 1)
+        if (length(base) + length(ext) > max_len) {
+            base = truncate_str(base, max_len - length(ext))
+        }
+        return base ext
+    }
+    BEGIN {
+        FS = "|"
+        filtered_count = 0
+    }
+    {
+        path = $1
+        tags = $2
+        last_slash = rindex(path, "/")
+        dir = substr(path, 1, last_slash - 1)
+        file = substr(path, last_slash + 1)
+        # literal substring match
+        if (filter_str == "*" || index(tolower(file), tolower(filter_str)) > 0) {
+            filtered_count++
+            # Output for filtered_menu_items
+            printf "%s\0", path >> out1
+            printf "T:%s\0", tags >> out1
+            
+            # Truncate components
+            truncated_dir = (length(dir) > 35) ? truncate_str(dir, 35) : dir
+            truncated_file = truncate_file(file, 75) # originally 65 make it bit longer
+            truncated_tags = (length(tags) > 20) ? substr(tags, 1, 17) "..." : tags
+            
+            # Output for TRUNC
+            printf "%d:%s/%s\0", filtered_count, truncated_dir, truncated_file >> out2
+            printf "T:%s\0", truncated_tags >> out2
+        }
+    }' "$EBOOKS_DB"
+    
+    local filtered_menu_items=()
+    TRUNC=()
+
+    # Read the output files into arrays
+    mapfile -d '' -t filtered_menu_items < "$out1"
+    mapfile -d '' -t TRUNC < "$out2"
+    
+    # Clean up temporary files
+    rm -f "$out1" "$out2"
+    # END NEW FIX.
+
     CURRENT_PAGE=0
 
     # First selection: Choose ebook. paginate here because trunc may be large.
@@ -1222,13 +1307,18 @@ dissociate_tag_from_registered_ebook() {
     selected_ebook="${filtered_menu_items[$((m - 1))]}"
 
     # Find the selected entry
-    local original_entry tags_array
-    for entry in "${ebooks_list[@]}"; do
-        if [[ "$entry" == "${selected_ebook}|"* ]]; then
-            IFS='|' read -r original_path original_tags <<< "$entry"
-            break
-        fi
-    done
+#    local original_entry tags_array
+#    for entry in "${ebooks_list[@]}"; do
+#        if [[ "$entry" == "${selected_ebook}|"* ]]; then
+#            IFS='|' read -r original_path original_tags <<< "$entry"
+#            break
+#        fi
+#    done
+
+    # One-liner using awk.
+    local original_path original_tags tags_array
+    original_path=$(awk -F'|' -v ebook="$selected_ebook" '$1 == ebook {print $1; exit}' "$EBOOKS_DB")
+    original_tags=$(awk -F'|' -v ebook="$selected_ebook" '$1 == ebook {print $2; exit}' "$EBOOKS_DB")
 
     # Split tags into array
     IFS=',' read -ra tags_array <<< "$original_tags"
@@ -1268,13 +1358,19 @@ dissociate_tag_from_registered_ebook() {
     temp_file=$(mktemp)
     
     # Update the database
-    for entry in "${ebooks_list[@]}"; do
-        if [[ "$entry" == "${selected_ebook}|"* ]]; then
-            echo "$updated_entry" >> "$temp_file"
-        else
-            echo "$entry" >> "$temp_file"
-        fi
-    done
+#    for entry in "${ebooks_list[@]}"; do
+#        if [[ "$entry" == "${selected_ebook}|"* ]]; then
+#            echo "$updated_entry" >> "$temp_file"
+#        else
+#            echo "$entry" >> "$temp_file"
+#        fi
+#    done
+
+    # awk one-liner.
+    awk -v sel="$selected_ebook" -v upd="$updated_entry" -F'|' '
+        index($0, sel"|") == 1 { print upd; next }
+        { print }
+    ' "$EBOOKS_DB" > "$temp_file"
 
     mv -f "$temp_file" "$EBOOKS_DB"
     whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 80
