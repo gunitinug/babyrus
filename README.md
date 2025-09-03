@@ -2,7 +2,7 @@
 
 <img src="./babyrus.jpeg" height="110">
 
-> A terminal-based productivity tool to manage eBooks, notes, and goals—structured and streamlined.
+> *Babyrus* is the ultimate productivity tool for programmers!
 
 ---
 
