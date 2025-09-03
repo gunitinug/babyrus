@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99f'
+BABYRUS_VERSION='v.0.99g'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -3011,41 +3011,93 @@ dissoc_tag_to_bulk() {
         return 1
     }
 
-    local bulk
-    mapfile -d '' bulk < "$tempfile"
-    rm -f "$tempfile"
-    
-    # Process bulk entries
+#    local bulk
+#    mapfile -d '' bulk < "$tempfile"
+#    rm -f "$tempfile"
+#    
+#    # Process bulk entries
+#    local processed_bulk=()
+#    for entry in "${bulk[@]}"; do
+#        IFS='|' read -r path current_tags <<< "$entry"
+#        local new_tags
+#
+#        # Remove selected_tag if present
+#        if [[ -n "$current_tags" ]]; then
+#            IFS=',' read -ra tags_array <<< "$current_tags"
+#            local new_tags_array=()
+#            for tag in "${tags_array[@]}"; do
+#                [[ "$tag" != "$selected_tag" ]] && new_tags_array+=("$tag")
+#            done
+#            # Join array back to comma-separated string
+#            new_tags=$(IFS=','; echo "${new_tags_array[*]}")
+#        else
+#            new_tags="$current_tags"
+#        fi
+#
+#        processed_bulk+=("$path|$new_tags")
+#    done
+
+    # NEW FIX: USE AWK INSTEAD TO POPULATE PROCESSED_BULK
     local processed_bulk=()
-    for entry in "${bulk[@]}"; do
-        IFS='|' read -r path current_tags <<< "$entry"
-        local new_tags
-
-        # Remove selected_tag if present
-        if [[ -n "$current_tags" ]]; then
-            IFS=',' read -ra tags_array <<< "$current_tags"
-            local new_tags_array=()
-            for tag in "${tags_array[@]}"; do
-                [[ "$tag" != "$selected_tag" ]] && new_tags_array+=("$tag")
-            done
-            # Join array back to comma-separated string
-            new_tags=$(IFS=','; echo "${new_tags_array[*]}")
-        else
-            new_tags="$current_tags"
-        fi
-
-        processed_bulk+=("$path|$new_tags")
-    done
+    mapfile -d '' processed_bulk < <(
+      awk -v sel="$selected_tag" 'BEGIN { RS = "\0"; ORS = "\0" }
+      {
+        split($0, a, "|")
+        path = a[1]
+        tags = a[2]
+        if (tags == "") {
+          print path "|"
+          next
+        }
+        n = split(tags, arr, ",")
+        out = ""
+        for (i = 1; i <= n; i++) {
+          if (arr[i] != sel && arr[i] != "") {
+            out = out "," arr[i]
+          }
+        }
+        gsub(/^,|,$/, "", out)
+        print path "|" out
+      }' "$tempfile"
+    )
+    rm -f "$tempfile"
+    # NEW FIX ENDS.
 
     # Create associative array for updates
     declare -A updated_entries
-    for entry in "${processed_bulk[@]}"; do
-        IFS='|' read -r path tags <<< "$entry"
-        # Only add to updates if tags changed
-        if [[ "$tags" != "$(grep -F "$path|" "$EBOOKS_DB" | cut -d'|' -f2-)" ]]; then
-            updated_entries["$path"]="$tags"
-        fi
-    done
+#    for entry in "${processed_bulk[@]}"; do
+#        IFS='|' read -r path tags <<< "$entry"
+#        # Only add to updates if tags changed
+#        if [[ "$tags" != "$(grep -F "$path|" "$EBOOKS_DB" | cut -d'|' -f2-)" ]]; then
+#            updated_entries["$path"]="$tags"
+#        fi
+#    done
+
+    # NEW FIX: POPULATE UPDATED_ENTRIES USING AWK.
+    # Create temporary files for the data
+    local processed_bulk_file=$(mktemp)
+    printf "%s\n" "${processed_bulk[@]}" > "$processed_bulk_file"
+
+    local updated_list=$(awk -F'|' '
+      NR==FNR {
+        a[$1] = $2
+        next
+      }
+      {
+        if ($1 in a && a[$1] != $2) {
+          print $1 "|" a[$1]
+        }
+      }' "$processed_bulk_file" "$EBOOKS_DB")
+    
+    # Populate the bash associative array from the awk output
+    if [[ -n "$updated_list" ]]; then
+      while IFS='|' read -r path tags; do
+        updated_entries["$path"]="$tags"
+      done <<< "$updated_list"
+    fi
+
+    rm "$processed_bulk_file"
+    # NEW FIX END.
 
     # Skip if no changes
     [[ ${#updated_entries[@]} -eq 0 ]] && {
