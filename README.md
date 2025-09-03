@@ -6,19 +6,22 @@
 
 ---
 
-## 🚀 What is Babyrus?
+## 🚀 Babyrus – The Ultimate Productivity Tool for Programmers
 
 [![Watch the demo on YouTube](https://github.com/gunitinug/babyrus/blob/main/babyrus.png)](https://www.youtube.com/watch?v=i6dbxa1750M)
 
 **Click on the image for a short demo video of Babyrus in action.**
 
-**Babyrus** is a terminal-based productivity application that helps you manage projects, take notes, and organize digital resources—especially **eBooks** and **URLs**. It provides a structured workflow across three core layers:
+Babyrus is a fast, terminal-based productivity app built for developers who want to stay focused and organized.  
 
-* **Manage eBooks**
-* **Manage Notes**
-* **Manage Goals**
+It helps you:  
+- **Manage eBooks** – keep all your learning material in one place  
+- **Take Notes** – capture ideas, code snippets, and insights quickly  
+- **Track Goals** – define what you’re working toward and stay on target  
 
-You start by setting up a project and defining your goals, then write notes, and finally link those notes to relevant resources like eBooks or websites. Each layer works seamlessly together to support your planning, learning, and execution process.
+The workflow is simple: set up a project, define your goals, take notes, and connect them to the resources that matter—like eBooks and websites.  
+
+Everything fits together so you can plan smarter, learn faster, and execute better—all from your terminal.  
 
 ### ⚠️ Stay Up to Date
 
