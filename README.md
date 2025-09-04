@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Babyrus** is a fast, terminal-based productivity tool designed for developers. It is built to help you manage eBooks, take notes, and track project goals directly from the command line.
+**Babyrus** is a fast, terminal-based productivity tool designed for developers. It is built to help you manage eBooks and URLs, take notes, and track project goals directly from the command line.
 
 The application integrates these features to streamline your workflow: define project goals, link notes to relevant resources (e.g., eBooks, URLs), and organize everything with a flexible tagging system.
 
