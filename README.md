@@ -61,6 +61,20 @@ Launch the application from the project directory:
 ```bash
 ./babyrus.sh
 ```
+### 🔍 Searching in Babyrus
+
+Babyrus supports three different search methods. Use the method indicated by the program:
+
+1. **Literal Substring Match**  
+   A simple substring search. The `*` character is treated literally, not as a wildcard.
+
+2. **Globbing**  
+   Uses wildcards like `*stallman*`.
+
+3. **Boolean Search**  
+   Similar to globbing, but allows logical operators:  
+   - `||` for OR  
+   - `&&` for AND
 
 -----
 
