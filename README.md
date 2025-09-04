@@ -16,12 +16,12 @@ Babyrus is under active development. For the most stable and feature-rich experi
 
 ## Key Features
 
-  * **eBook Management:** Associate eBooks with notes and tags.
-  * **Chapter/Page Linking:** Use external viewers like Evince to jump to specific `chapter:page` locations.
-  * **URL Integration:** Link notes to URLs (e.g., YouTube videos, online articles).
-  * **Flexible Tagging:** Organize and filter content using a robust tagging system.
-  * **Bulk Management:** Efficiently handle large libraries of eBooks.
-  * **Scalable Architecture:** Designed to handle thousands of notes and files.
+### Babyrus: Key Features
+
+* **Effortless Organization:** Create a personalized knowledge base by associating notes and tags with your eBooks and external URLs.
+* **Seamless Workflow:** Quickly open an eBook to a specific page or jump to a URL directly from your notes.
+* **Goal Tracking:** Create project files to keep track of your goals and centralize all related notes.
+* **Built for Growth:** Handle thousands of notes and files with a powerful and efficient architecture.
 
 -----
 
