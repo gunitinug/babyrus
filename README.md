@@ -1,46 +1,49 @@
-# babyrus
+# Babyrus
 
-<img src="./babyrus.jpeg" height="110">
+## Project Overview
 
-> *Babyrus* is the ultimate productivity tool for programmers!
+**Babyrus** is a fast, terminal-based productivity tool designed for developers. It is built to help you manage eBooks, take notes, and track project goals directly from the command line.
 
----
+The application integrates these features to streamline your workflow: define project goals, link notes to relevant resources (e.g., eBooks, URLs), and organize everything with a flexible tagging system.
 
-## 🚀 Babyrus – The Ultimate Productivity Tool for Programmers
+-----
 
-[![Watch the demo on YouTube](https://github.com/gunitinug/babyrus/blob/main/babyrus.png)](https://www.youtube.com/watch?v=i6dbxa1750M)
+## ⚠️ Development Status
 
-**Click on the image for a short demo video of Babyrus in action.**
+Babyrus is under active development. For the most stable and feature-rich experience, it is recommended to pull the latest `main` branch.
 
-Babyrus is a fast, terminal-based productivity app built for developers who want to stay focused and organized.  
+-----
 
-It helps you:  
-- **Manage eBooks** – keep all your learning material in one place  
-- **Take Notes** – capture ideas, code snippets, and insights quickly  
-- **Track Goals** – define what you’re working toward and stay on target  
+## Key Features
 
-The workflow is simple: set up a project, define your goals, take notes, and connect them to the resources that matter—like eBooks and websites.  
+  * **eBook Management:** Associate eBooks with notes and tags.
+  * **Chapter/Page Linking:** Use external viewers like Evince to jump to specific `chapter:page` locations.
+  * **URL Integration:** Link notes to URLs (e.g., YouTube videos, online articles).
+  * **Flexible Tagging:** Organize and filter content using a robust tagging system.
+  * **Bulk Management:** Efficiently handle large libraries of eBooks.
+  * **Scalable Architecture:** Designed to handle thousands of notes and files.
 
-Everything fits together so you can plan smarter, learn faster, and execute better—all from your terminal.  
+-----
 
-### ⚠️ Stay Up to Date
+## Getting Started
 
-Babyrus is under active development and regularly refined. **To ensure the best experience, always use the latest commit** from the `main` branch, as new features and improvements are frequently added.
+### Requirements
 
-### 📖 Key Features
+Babyrus requires the following dependencies:
 
-* Associate eBooks with notes and tags
-* Register `chapter:page` pairs to jump to specific eBook sections (using external viewers like *Evince*)
-* Link notes with URLs (e.g., YouTube, online articles)
-* Organize and filter by **tags**
-* Handle large libraries with bulk eBook management
-* Designed to scale—from a few notes to thousands of files
+  * `bash >= 5.2.21`
+  * `whiptail`
+  * `wmctrl`
 
----
+**To install on Ubuntu/Debian:**
 
-## 🛠️ Getting Started
+```bash
+sudo apt install whiptail wmctrl
+```
 
-Clone the repository:
+### Installation
+
+Clone the repository and make the script executable:
 
 ```bash
 git clone https://github.com/gunitinug/babyrus.git
@@ -48,33 +51,19 @@ cd babyrus/
 chmod +x babyrus.sh
 ```
 
-Run the program:
+### Running the Application
+
+Launch the application from the project directory:
 
 ```bash
 ./babyrus.sh
 ```
 
----
+-----
 
-## ✅ Requirements
+## Configuration
 
-Babyrus requires:
-
-* `bash >= 5.2.21`
-* `whiptail`
-* `wmctrl`
-
-To install the dependencies on Ubuntu:
-
-```bash
-sudo apt install whiptail wmctrl
-```
-
----
-
-## ⚙️ Configuration
-
-Update the following section in the script to define which external apps to use:
+The script uses external applications for various tasks. You can customize these in the script itself.
 
 ```bash
 # External apps for eBook handling
@@ -87,53 +76,32 @@ declare -A EXTENSION_COMMANDS=(
 )
 
 # Editors/viewers for other sections
-DEFAULT_EDITOR="nano"         # Used inside the terminal
-URL_BROWSER="google-chrome"   # Used to open URLs
-DEFAULT_VIEWER="evince"       # Used to view eBooks
+DEFAULT_EDITOR="nano"        # Used for note editing within the terminal
+URL_BROWSER="google-chrome"  # Used to open external URLs
+DEFAULT_VIEWER="evince"      # Used to view eBooks
 ```
 
-Ensure all specified programs are installed. The script will exit if any are missing.
+**Note:** Ensure all configured applications are installed on your system. The script will exit if a required dependency is not found.
 
----
+### Viewer Compatibility
 
-## ⚠️ Note on Changing Default Viewer
+If you change `DEFAULT_VIEWER` from `evince`, you may need to update the `open_evince()` function to ensure compatibility with your chosen application's command-line arguments.
 
-If you change `DEFAULT_VIEWER` from `evince` to another app, update this function accordingly:
+For example, if your new viewer does not support the `-p` flag for jumping to a specific page, you will need to modify this section:
 
 ```bash
-open_evince() {
-    local selected_ebook="$1"
-    local page="$2"
-    [[ -z "$selected_ebook" ]] && return 1
+# Before (Evince-specific)
+"$DEFAULT_VIEWER" -p "$page" "$ebook_path"
 
-    local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
-    [[ -f "$ebook_path" ]] || {
-        whiptail --msgbox "Ebook not found: $ebook_path" 20 80
-        return 1
-    }
-
-    if [ -z "$page" ]; then
-        "$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
-    else
-        "$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown
-        # ⚠️ Adjust this line if your viewer does not support the -p option
-    fi
-}
+# After (Example for a viewer that does not support -p)
+"$DEFAULT_VIEWER" "$ebook_path"
 ```
 
-Replace the `-p "$page"` argument as needed for compatibility with your chosen viewer.
+-----
 
----
+## File Structure
 
-## 📚 Manual
-
-A user manual is included in the repository, but is currently in progress. Stay tuned!
-
----
-
-## 📁 Files Managed by Babyrus
-
-Babyrus creates and manages the following files and directories. If deleted, blank versions will be regenerated when you run the script again. Backups are saved as `backup_*.tar.gz` in the `babyrus/` folder. You can back up or restore files via the main menu.
+Babyrus manages the following files and directories. Deleting these will result in the application regenerating blank versions on the next run.
 
 ```bash
 readonly BACKUP_ENTRIES=(
@@ -151,31 +119,31 @@ readonly BACKUP_ENTRIES=(
 )
 ```
 
----
+The application provides a built-in backup and restore feature via the main menu. Backups are saved as `backup_*.tar.gz` within the `babyrus/` directory.
 
-## 🧪 Call for Testers
+-----
 
-Your feedback helps make Babyrus better! Here’s how you can contribute:
+## Contribution
 
-* **Try it out** — Follow the setup instructions and use Babyrus normally.
-* **Report bugs** — Found a bug or unexpected behavior? Report it via the [Issues tab](https://github.com/gunitinug/babyrus/issues).
-* **Suggest improvements** — Got ideas to make Babyrus more powerful or user-friendly? Let me know!
+We welcome contributions and feedback to improve Babyrus.
 
-No coding skills required—your real-world experience and input are just as valuable.
+  * **Report Bugs:** Please open an issue on the [GitHub Issues tab](https://github.com/gunitinug/babyrus/issues) if you encounter any bugs or unexpected behavior.
+  * **Suggest Features:** We are always open to ideas for new features or improvements.
+  * **Testing:** Your real-world usage and feedback are invaluable.
 
----
+-----
 
-## 👤 Author
+## Author
 
 **Logan Lee**
 📧 [logan.wonki.lee@gmail.com](mailto:logan.wonki.lee@gmail.com)
 
-Feel free to reach out with questions, ideas, or just to say hi!
+-----
 
----
+## License
 
-## 📝 License
+Babyrus is free software licensed under the [GNU General Public License, Version 3](https://www.gnu.org/licenses/gpl-3.0.html). A copy of the license is available in the repository as `LICENSE`.
 
-Babyrus is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+-----
 
-A copy of the license is included in this repository as [`LICENSE`](./LICENSE).
+[See a demo video](https://www.youtube.com/watch?v=i6dbxa1750M)
