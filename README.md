@@ -83,6 +83,8 @@ Launch the application from the project directory:
 
 To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings there.
 
+File `babyrus.sh.bak` is created to save old `babyrus.sh` executable.
+
 **Note:** Ensure all configured applications are installed on your system. The script will exit if a required dependency is not found.
 
 -----
