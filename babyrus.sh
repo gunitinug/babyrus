@@ -170,11 +170,12 @@ URL_BROWSER=\"${URL_BROWSER}\"
     ' "$config_file" > "$temp_file"
 
     # DEBUG
-    echo temp_file: >&2
-    cat $temp_file >&2
-    exit
+    #echo temp_file: >&2
+    #cat $temp_file >&2
+    #exit
 
     mv "$temp_file" "$config_file"
+    chmod +x "$config_file"	# make babyrus.sh executable again.
     whiptail --title "Info" --msgbox "Settings saved." 8 40
 }
 
