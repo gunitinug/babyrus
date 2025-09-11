@@ -85,20 +85,6 @@ To set default apps for different extensions (eg. .pdf or .epub), go to `Main Me
 
 **Note:** Ensure all configured applications are installed on your system. The script will exit if a required dependency is not found.
 
-### Viewer Compatibility
-
-If you change `DEFAULT_VIEWER` from `evince`, you may need to update the `open_evince()` function to ensure compatibility with your chosen application's command-line arguments.
-
-For example, if your new viewer does not support the `-p` flag for jumping to a specific page, you will need to modify this section:
-
-```bash
-# Before (Evince-specific)
-"$DEFAULT_VIEWER" -p "$page" "$ebook_path"
-
-# After (Example for a viewer that does not support -p)
-"$DEFAULT_VIEWER" "$ebook_path"
-```
-
 -----
 
 ## File Structure
