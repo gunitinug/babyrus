@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99g'
+BABYRUS_VERSION='v.0.99h'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -26,20 +26,20 @@ NOTES_TAGS_DB="${NOTES_METADATA_PATH}/notes-tags.db"
 NOTES_EBOOKS_DB="${NOTES_METADATA_PATH}/notes-ebooks.db"
 EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 
+# DO NOT DELETE OR ALTER BETWEEN THESE MARKERS(INCLUDING MARKERS)!!!
 #+++ CONFIGURATION +++#
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
-    ["pdf"]="evince"
+    ["pdf"]="okular"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
 )
 
-# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
-DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
-#DEFAULT_VIEWER="evince" # handled in EXTENSION_COMMANDS AND VIWER_COMMANDS instead.
+# Tweak these to set external apps for other sections.
+DEFAULT_EDITOR="vim" # runs in the same terminal as babyrus.
+URL_BROWSER="firefox"
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -59,6 +59,9 @@ edit_configuration() {
     local config_file="${BABYRUS_PATH}/babyrus.sh"
     local backup_file="${config_file}.bak"
     local temp_file=$(mktemp)
+
+    # Reload configuration from file before making changes
+    source <(sed -n '/^#+++ CONFIGURATION +++#$/,/^#+++ CONFIGURATION END +++#$/{//!p}' "$config_file")
 
     # --- Make a local backup in memory ---
     local -A BACKUP_EC
