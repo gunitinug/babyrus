@@ -26,6 +26,157 @@ NOTES_TAGS_DB="${NOTES_METADATA_PATH}/notes-tags.db"
 NOTES_EBOOKS_DB="${NOTES_METADATA_PATH}/notes-ebooks.db"
 EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 
+#+++ CONFIGURATION +++#
+# Tweak this to set external apps.
+declare -A EXTENSION_COMMANDS=(
+    ["txt"]="gnome-text-editor"
+    ["pdf"]="evince"
+    ["epub"]="okular"
+    ["mobi"]="okular"
+    ["azw3"]="okular"
+)
+
+# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
+DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
+URL_BROWSER="google-chrome"
+#DEFAULT_VIEWER="evince" # handled in EXTENSION_COMMANDS AND VIWER_COMMANDS instead.
+#+++ CONFIGURATION END +++#
+
+# ADD COMMANDS FOR VIEWERS.
+declare -A VIEWER_COMMANDS=(
+    # PDF viewers
+    ["evince"]="evince -p"
+    ["okular"]="okular -p"
+    ["zathura"]="zathura -P"
+    ["mupdf"]="mupdf -p"
+
+    # EPUB/MOBI/AZW3 viewers
+    ["calibre"]="ebook-viewer --open-at"    
+)
+
+# Function to edit configuration using whiptail
+edit_configuration() {
+    local config_file="${BABYRUS_PATH}/babyrus.sh"
+    local backup_file="${config_file}.bak"
+    local temp_file=$(mktemp)
+
+    # --- Make a local backup in memory ---
+    local -A BACKUP_EC
+    for key in "${!EXTENSION_COMMANDS[@]}"; do
+        BACKUP_EC["$key"]="${EXTENSION_COMMANDS[$key]}"
+    done
+    # --- Also env variables ---
+    local BACKUP_DE="$DEFAULT_EDITOR"
+    local BACKUP_UB="$URL_BROWSER"
+
+    # Create ordered list of extensions for consistent display
+    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3")
+
+    while true; do
+        # Build menu options
+        local options=()
+        for ext in "${ordered_exts[@]}"; do
+            options+=("${ext}" "${EXTENSION_COMMANDS[$ext]}")
+        done
+        options+=("DEFAULT_EDITOR" "${DEFAULT_EDITOR}")
+        options+=("URL_BROWSER" "${URL_BROWSER}")
+        options+=("Save" "Save changes")
+
+        local choice
+        choice=$(whiptail --title "Set Default Apps" --menu \
+            "Choose a setting to modify:" 20 60 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+
+        # Cancel pressed
+        [[ $? -ne 0 ]] && {
+            # --- Revert EXTENSION_COMMANDS and env variables from local backup ---
+            for key in "${!BACKUP_EC[@]}"; do
+                EXTENSION_COMMANDS["$key"]="${BACKUP_EC[$key]}"
+            done
+            DEFAULT_EDITOR="$BACKUP_DE"            
+            URL_BROWSER="$BACKUP_UB"
+            return 1
+        }
+
+        local current_value
+        local new_value
+        case "$choice" in
+            DEFAULT_EDITOR|URL_BROWSER)
+                current_value="${!choice}"
+                new_value=$(whiptail --inputbox "Enter new value for ${choice}:" \
+                    10 60 "${current_value}" 3>&1 1>&2 2>&3)
+                [[ $? -eq 0 ]] && [[ -n "$new_value" ]] && declare "${choice}=${new_value}"
+                ;;
+            "Save")
+                break
+                ;;
+            *)
+                current_value="${EXTENSION_COMMANDS[$choice]}"
+                new_value=$(whiptail --inputbox "Enter new command for .${choice}:" \
+                    10 60 "${current_value}" 3>&1 1>&2 2>&3)
+                [[ $? -eq 0 ]] && [[ -n "$new_value" ]] && EXTENSION_COMMANDS["$choice"]="${new_value}"
+                ;;
+        esac
+    done
+
+    # Ask yesno to user.
+    whiptail --title "Confirm" --yesno "Are you sure to proceed?" 8 40 || {
+        # --- Revert EXTENSION_COMMANDS and env variables from local backup ---
+        for key in "${!BACKUP_EC[@]}"; do
+            EXTENSION_COMMANDS["$key"]="${BACKUP_EC[$key]}"
+        done
+        DEFAULT_EDITOR="$BACKUP_DE"            
+        URL_BROWSER="$BACKUP_UB"        
+        return 1
+    }
+
+    # Create backup and update configuration file
+    cp "$config_file" "$backup_file" 2>/dev/null || true
+
+    # Generate new configuration block
+    local new_config_block="#+++ CONFIGURATION +++#
+# Tweak this to set external apps.
+declare -A EXTENSION_COMMANDS=(
+    [\"txt\"]=\"${EXTENSION_COMMANDS[txt]}\"
+    [\"pdf\"]=\"${EXTENSION_COMMANDS[pdf]}\"
+    [\"epub\"]=\"${EXTENSION_COMMANDS[epub]}\"
+    [\"mobi\"]=\"${EXTENSION_COMMANDS[mobi]}\"
+    [\"azw3\"]=\"${EXTENSION_COMMANDS[azw3]}\"
+)
+
+# Tweak these to set external apps for other sections.
+DEFAULT_EDITOR=\"${DEFAULT_EDITOR}\" # runs in the same terminal as babyrus.
+URL_BROWSER=\"${URL_BROWSER}\"
+#+++ CONFIGURATION END +++#"
+
+    # DEBUG
+    echo new_config_block:
+    echo "$new_config_block"    
+
+    # Use awk to replace the configuration block
+    awk -v new="$new_config_block" '
+        /#\+\+\+ CONFIGURATION \+\+\+#/ {        
+            in_block = 1
+            printf "%s\n", new
+            next
+        }
+        /#\+\+\+ CONFIGURATION END \+\+\+#/ {
+            in_block = 0
+            next
+        }
+        !in_block {
+            print
+        }
+    ' "$config_file" > "$temp_file"
+
+    # DEBUG
+    echo temp_file:
+    cat $temp_file
+    exit
+
+    mv "$temp_file" "$config_file"
+    whiptail --title "Info" --msgbox "Settings saved." 8 40
+}
+
 # Create notes directories if not created
 mkdir -p "${NOTES_METADATA_PATH}"
 
@@ -97,22 +248,6 @@ TAGS_DB="${BABYRUS_PATH}/tags.db"      # Format: "tag"
 # Ensure databases exist
 touch "$EBOOKS_DB" "$TAGS_DB"
 
-# Tweak this to set external apps.
-# These apps are used in 'Manage eBooks' section only!
-declare -A EXTENSION_COMMANDS=(
-    ["txt"]="gnome-text-editor"
-    ["pdf"]="evince"
-    ["epub"]="okular"
-    ["mobi"]="xdg-open"
-    ["azw3"]="xdg-open"
-)
-
-# Tweak these to set external apps for other sections.
-# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
-DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
-DEFAULT_VIEWER="evince"
-
 # Check all specified external apps are found for 'Manage eBooks' section.
 for ext in "${!EXTENSION_COMMANDS[@]}"; do
     cmd="${EXTENSION_COMMANDS[$ext]}"
@@ -124,9 +259,8 @@ done
 
 # Check if all commands exist for other sections too.
 if ! command -v "$DEFAULT_EDITOR" >/dev/null || \
-   ! command -v "$URL_BROWSER" >/dev/null || \
-   ! command -v "$DEFAULT_VIEWER" >/dev/null; then
-    echo "This script requires '${DEFAULT_EDITOR}', '${URL_BROWSER}', and '${DEFAULT_VIEWER}' in order to run correctly." >&2
+   ! command -v "$URL_BROWSER" >/dev/null; then
+    echo "This script requires '${DEFAULT_EDITOR}', '${URL_BROWSER}' in order to run correctly." >&2
     exit 1
 fi
 
@@ -6606,14 +6740,23 @@ open_evince() {
     local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
     [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
 
+    # extract extension then get viewer accordingly.
+    local ext="${ebook_path##*.}"
+    local viewer="${EXTENSION_COMMANDS[$ext]}"
+
     #evince -p "$page" "$ebook_path" &> /dev/null & disown
 
     if [ -z "$page" ]; then
         #evince "$ebook_path" &> /dev/null & disown
-	"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
+	    #"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
+        "$viewer" "$ebook_path" &> /dev/null & disown
     else
         #evince -p "$page" "$ebook_path" &> /dev/null & disown
-	"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown
+	    #"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown        
+        
+        local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
+        "${cmd_and_option[@]}" "$page" "$ebook_path" &> /dev/null & disown
+
     fi
 }
 
@@ -9272,12 +9415,13 @@ Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3"
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 50 5 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 50 8 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
-	    "Backup" "Backup Everything" \
-	    "Restore" "Restore from File" \
+            "Configure" "Set Default Apps" \
+	        "Backup" "Backup Everything" \
+	        "Restore" "Restore from File" \
             3>&1 1>&2 2>&3)
 
         if [ $? != 0 ]; then
@@ -9294,12 +9438,15 @@ show_main_menu() {
             "Goals")
                 show_projects_menu
                 ;;
-	    "Backup")
-		backup_db
-		;;
-	    "Restore")
-		restore_db
-		;;
+            "Configure")
+                edit_configuration
+                ;;
+	        "Backup")
+		        backup_db
+		        ;;
+	        "Restore")
+		        restore_db
+		        ;;
         esac
     done
 }
