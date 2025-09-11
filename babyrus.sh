@@ -30,16 +30,15 @@ EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
-    ["pdf"]="evince"
+    ["pdf"]="okular"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
 )
 
-# DEFAULT_EDITOR is a terminal-based editor runs inside current terminal.
-DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
-#DEFAULT_VIEWER="evince" # handled in EXTENSION_COMMANDS AND VIWER_COMMANDS instead.
+# Tweak these to set external apps for other sections.
+DEFAULT_EDITOR="vim" # runs in the same terminal as babyrus.
+URL_BROWSER="firefox"
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -133,24 +132,24 @@ edit_configuration() {
     cp "$config_file" "$backup_file" 2>/dev/null || true
 
     # Generate new configuration block
-    local new_config_block="#+++ CONFIGURATION +++#
+#+++ CONFIGURATION +++#
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
-    [\"txt\"]=\"${EXTENSION_COMMANDS[txt]}\"
-    [\"pdf\"]=\"${EXTENSION_COMMANDS[pdf]}\"
-    [\"epub\"]=\"${EXTENSION_COMMANDS[epub]}\"
-    [\"mobi\"]=\"${EXTENSION_COMMANDS[mobi]}\"
-    [\"azw3\"]=\"${EXTENSION_COMMANDS[azw3]}\"
+    ["txt"]="gnome-text-editor"
+    ["pdf"]="okular"
+    ["epub"]="okular"
+    ["mobi"]="okular"
+    ["azw3"]="okular"
 )
 
 # Tweak these to set external apps for other sections.
-DEFAULT_EDITOR=\"${DEFAULT_EDITOR}\" # runs in the same terminal as babyrus.
-URL_BROWSER=\"${URL_BROWSER}\"
-#+++ CONFIGURATION END +++#"
+DEFAULT_EDITOR="vim" # runs in the same terminal as babyrus.
+URL_BROWSER="firefox"
+#+++ CONFIGURATION END +++#
 
     # DEBUG
-    echo new_config_block:
-    echo "$new_config_block"    
+    #echo new_config_block: >&2
+    #echo "$new_config_block" >&2  
 
     # Use awk to replace the configuration block
     awk -v new="$new_config_block" '
@@ -169,11 +168,13 @@ URL_BROWSER=\"${URL_BROWSER}\"
     ' "$config_file" > "$temp_file"
 
     # DEBUG
-    echo temp_file:
-    cat $temp_file
-    exit
+    #echo temp_file: >&2
+    #cat $temp_file >&2
+    #exit
 
     mv "$temp_file" "$config_file"
+    # make babyrus.sh executable again.
+    chmod +x "$config_file"
     whiptail --title "Info" --msgbox "Settings saved." 8 40
 }
 
