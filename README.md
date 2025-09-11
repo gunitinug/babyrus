@@ -81,23 +81,7 @@ Launch the application from the project directory:
 
 ## Configuration
 
-The script uses external applications for various tasks. You can customize these in the script itself.
-
-```bash
-# External apps for eBook handling
-declare -A EXTENSION_COMMANDS=(
-    ["txt"]="gnome-text-editor"
-    ["pdf"]="evince"
-    ["epub"]="okular"
-    ["mobi"]="xdg-open"
-    ["azw3"]="xdg-open"
-)
-
-# Editors/viewers for other sections
-DEFAULT_EDITOR="nano"        # Used for note editing within the terminal
-URL_BROWSER="google-chrome"  # Used to open external URLs
-DEFAULT_VIEWER="evince"      # Used to view eBooks
-```
+To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings there.
 
 **Note:** Ensure all configured applications are installed on your system. The script will exit if a required dependency is not found.
 
