@@ -31,15 +31,15 @@ EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
-    ["pdf"]="okular"
+    ["pdf"]="evince"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
 )
 
 # Tweak these to set external apps for other sections.
-DEFAULT_EDITOR="vim" # runs in the same terminal as babyrus.
-URL_BROWSER="firefox"
+DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
+URL_BROWSER="google-chrome"
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -2578,7 +2578,7 @@ format_file_info() {
     directory=$(dirname "$file_with_path")
     filename=$(basename "$file_with_path")
 
-    # Print the formatted output
+    # Print the formatted output, now also print file size.
     echo "File name:"
     echo "$filename"
     echo ""
@@ -2587,6 +2587,9 @@ format_file_info() {
     echo ""
     echo "Tags:"
     echo "$tags"
+    echo ""
+    echo "File size:"
+    echo "$(du -h "$file_with_path" | cut -f1)"
 }
 
 # Depends on parser code above for parsing custom boolean patterns to be used here.
