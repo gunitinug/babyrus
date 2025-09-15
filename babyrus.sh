@@ -2588,6 +2588,8 @@ format_file_info() {
     echo "Tags:"
     echo "$tags"
     echo ""
+    echo "$(file --mime-type -b "$file_with_path")"
+    echo ""
     echo "File size:"
     echo "$(du -h "$file_with_path" | cut -f1)"
 }
@@ -2886,7 +2888,7 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 
         # Format file info and display it.
         local formatted_str="$(format_file_info "$selected_line")"
-        whiptail --scrolltext --msgbox "$formatted_str" 20 80
+        whiptail --scrolltext --msgbox "$formatted_str" 25 80
     done
 }
 
@@ -3613,7 +3615,7 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 
         # Format file info and display it.
         local formatted_str="$(format_file_info "$selected_line")"
-        whiptail --scrolltext --title "$whip_title" --msgbox "$formatted_str" 20 80
+        whiptail --scrolltext --title "$whip_title" --msgbox "$formatted_str" 25 80
     done
 }
 
