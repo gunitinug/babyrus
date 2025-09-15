@@ -713,7 +713,7 @@ check_illegal_filenames() {
 
 register_ebook() {
     # Get search string for files
-    search=$(whiptail --inputbox "Enter search string to look for ebook files (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)
+    search=$(whiptail --inputbox "Enter search string to look for ebook files (globbing; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
     [ $? -ne 0 ] && return
 
     # Get search path by navigating
@@ -733,8 +733,8 @@ register_ebook() {
     # in operation... message
     in_operation_msg
 
-    run_find="$(find "$search_path" -type f -iname "*$search*" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)"
-    run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter.
+    run_find="$(find "$search_path" -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # edited for globbing $search
+    #run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter. (not needed?)
 
     # Detect illegal file names.
     # If detected, return from this function.
@@ -754,7 +754,8 @@ register_ebook() {
 
     # shortened filtered output with line numbers:
     # shorten the dirname if its length is greater than 50.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//')
+    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//') # removing training RS not needed?
+    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}")
     CURRENT_PAGE=0
 
     # debug
@@ -798,6 +799,8 @@ register_ebook() {
     # Check if ebook already exists
     if grep -q "^${selected}|" "$EBOOKS_DB"; then
         whiptail --msgbox "Ebook already registered!" 8 40
+        # debug
+        #echo "$selected" >&2
         return
     fi
 
