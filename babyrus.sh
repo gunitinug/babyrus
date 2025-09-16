@@ -754,7 +754,7 @@ register_ebook() {
 
     # shortened filtered output with line numbers:
     # shorten the dirname if its length is greater than 50.
-    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//') # removing training RS not needed?
+    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//') # removing trailing RS not needed?
     mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}")
     CURRENT_PAGE=0
 
@@ -1602,10 +1602,11 @@ remove_registered_ebook() {
 
     # Get search string from user
     local search_str
-    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (literal substring match; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
         return 1  # User cancelled the search
     fi
+    : ${search_str:=*}
 
 #    # Display 'In operation' message because creating TRUNC may take some time.
 #    in_operation_msg
@@ -1727,6 +1728,17 @@ remove_registered_ebook() {
     
     # gawk: write NUL-separated matches to $out1 and progress to fifo1
     "$AWK_BIN" -v search="$search_str" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }
     BEGIN { FS = OFS = "|"; idx = 1 }
     {
       tags = $NF
@@ -1742,8 +1754,12 @@ remove_registered_ebook() {
         dir  = "."
       }
     
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-        printf("%s\0\0", path)
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      #  printf("%s\0\0", path)
+      #}
+      pattern = glob2re(tolower(search))
+      if (search == "*" || tolower(file) ~ pattern) {
+          printf("%s\0\0", path)
       }
     
       pct = int((NR / total) * 100)
@@ -1768,6 +1784,17 @@ remove_registered_ebook() {
     local gauge2_pid=$!
     
     "$AWK_BIN" -v search="$search_str" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }
     BEGIN {
       FS = OFS = "|"
       idx = 1
@@ -1789,7 +1816,9 @@ remove_registered_ebook() {
         dir  = "."
       }
     
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      pattern = glob2re(tolower(search))
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      if (search == "*" || tolower(file) ~ pattern) {
         # truncate dir
         trdir = dir
         if (length(trdir) > maxd) {
