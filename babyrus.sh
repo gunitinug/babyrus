@@ -4160,10 +4160,12 @@ remove_ebooks_from_checklist() {
 
     # Ask for search term first
     local search_term
-    search_term=$(whiptail --inputbox "Enter a string to filter by filename (literal substring match; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
+    search_term=$(whiptail --inputbox "Enter a string to filter by filename (globbing; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
         whiptail --msgbox "Cancelled." 8 40
         return 1
     }
+
+    : ${search_term:=*}
 
     # Prepare case-insensitive search
     local search_term_lower=""
@@ -4176,12 +4178,12 @@ remove_ebooks_from_checklist() {
     local -a entries=()
     while IFS='|' read -r path tags; do
         # Filter logic
-        if [[ -z "$search_term" ]]; then  # No filter
+        if [[ "$search_term" == "*" ]]; then  # No filter
             entries+=("$path")
         else
             local filename="$(basename "$path")"
             local filename_lower="$(tr '[:upper:]' '[:lower:]' <<< "$filename")"
-            [[ "$filename_lower" == *"$search_term_lower"* ]] && entries+=("$path")
+            [[ "$filename_lower" == $search_term_lower ]] && entries+=("$path")
         fi
     done < "$EBOOKS_DB"
 
