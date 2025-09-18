@@ -924,7 +924,7 @@ associate_tag() {
     
 
     # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (literal substring search; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
+    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (globbing; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
     
     # Handle cancel/escape
     if [ $? -ne 0 ]; then
@@ -1039,6 +1039,17 @@ associate_tag() {
     
     # gawk: write NUL-separated matches to $out1 and progress to fifo1
     "$AWK_BIN" -v search="$filter_str" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }    
     BEGIN { FS = OFS = "|"; idx = 1 }
     {
       tags = $NF
@@ -1054,7 +1065,9 @@ associate_tag() {
         dir  = "."
       }
     
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      pattern = glob2re(tolower(search))
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      if (search == "*" || tolower(file) ~ pattern) {      
         printf("%s\0\0", path)
       }
     
@@ -1080,6 +1093,17 @@ associate_tag() {
     local gauge2_pid=$!
     
     "$AWK_BIN" -v search="$filter_str" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }
     BEGIN {
       FS = OFS = "|"
       idx = 1
@@ -1101,7 +1125,9 @@ associate_tag() {
         dir  = "."
       }
     
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      pattern = glob2re(tolower(search))
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      if (search == "*" || tolower(file) ~ pattern) {
         # truncate dir
         trdir = dir
         if (length(trdir) > maxd) {
@@ -1195,6 +1221,8 @@ associate_tag() {
         return
     fi
     
+    whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 80 || return 1
+
     # Update ebook entry
     tmpfile=$(mktemp)
     awk -v ebook="$ebook" -v tag="$tag" '
