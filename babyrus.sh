@@ -2993,16 +2993,18 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
 This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60 >/dev/tty
 
     # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
     if [ $? -ne 0 ]; then
         return 1
     fi
 
-    # Defaults to .*
-    tag_pattern="${tag_pattern:-.*}"
+    # Defaults to .* --- not needed.
+    #tag_pattern="${tag_pattern:-.*}"
 
     # Further filter the lines by matching the tag pattern (which appears after the |)
-    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
+    #final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
+    final_list=$(printf '%s\n' "$filtered_lines" | grep -iP "\|.*${tag_pattern:+\Q$tag_pattern\E}")   # literal substring match
+
     if [ -z "$final_list" ]; then
         whiptail --msgbox "No files match the given tag pattern." 8 60 >/dev/tty
         return 1
@@ -3345,6 +3347,10 @@ remove_files_in_bulk() {
     local bulk
     mapfile -d '' bulk < "$tempfile"
     rm -f "$tempfile"
+
+    # Debug
+    #printf "%s\n" "${bulk[@]}" >&2
+    #exit
 
     # Extract paths from bulk entries
     declare -A paths_to_remove
