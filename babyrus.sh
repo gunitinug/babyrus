@@ -4826,25 +4826,50 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
     
     [[ -z "$selected_dir" ]] && return  # User canceled
 
-    # Escape special regex characters in directory path
-    local escaped_dir="$selected_dir"
-    #local escaped_dir="${selected_dir//\//\\/}"
-    #escaped_dir="${escaped_dir//./\\.}"
-    #escaped_dir="${escaped_dir//|/\\|}"
-    #escaped_dir="${escaped_dir//^/\\^}"
-    #escaped_dir="${escaped_dir//\$/\\\$}"
-    #escaped_dir="${escaped_dir//+/\\+}"
-    #escaped_dir="${escaped_dir//(/\(}"
-    #escaped_dir="${escaped_dir//)/\)}"
-    #escaped_dir="${escaped_dir//\[/\[}"
-    #escaped_dir="${escaped_dir//]/\]}"
-    #escaped_dir="${escaped_dir//\{/\{}"
-    #escaped_dir="${escaped_dir//\}/\}}"
+    # # Escape special regex characters in directory path
+    # local escaped_dir="$selected_dir"
+    # #local escaped_dir="${selected_dir//\//\\/}"
+    # #escaped_dir="${escaped_dir//./\\.}"
+    # #escaped_dir="${escaped_dir//|/\\|}"
+    # #escaped_dir="${escaped_dir//^/\\^}"
+    # #escaped_dir="${escaped_dir//\$/\\\$}"
+    # #escaped_dir="${escaped_dir//+/\\+}"
+    # #escaped_dir="${escaped_dir//(/\(}"
+    # #escaped_dir="${escaped_dir//)/\)}"
+    # #escaped_dir="${escaped_dir//\[/\[}"
+    # #escaped_dir="${escaped_dir//]/\]}"
+    # #escaped_dir="${escaped_dir//\{/\{}"
+    # #escaped_dir="${escaped_dir//\}/\}}"
 
-    # Get matching lines
-    local matching_lines
-    matching_lines=$(grep -E "^${escaped_dir}/[^/]+\|" "$EBOOKS_DB")
-    
+    # # Get matching lines
+    # local matching_lines
+    # matching_lines=$(grep -E "^${escaped_dir}/[^/]+\|" "$EBOOKS_DB")
+
+    # FIX: AWK REPLACEMENT (DOESN'T DO REGEX SO ESCAPING META NOT REQUIRED)
+    local matching_lines=$(
+        awk -v dir="$selected_dir" -F'|' '
+        BEGIN {
+            prefix = dir "/"
+            plen = length(prefix)
+        }
+        {
+            if (index($1, prefix) == 1) {
+                rest = substr($1, plen+1)
+                if (length(rest) > 0 && index(rest, "/") == 0 && NF > 1) {
+                    print
+                }
+            }
+        }
+        ' "$EBOOKS_DB"
+    )
+
+    # Debug
+    #echo matching_lines: >&2
+    #echo "$matching_lines" >&2
+    #exit
+
+    local escaped_dir="$selected_dir"   # just included here for failsafe.
+
     # Check for matches
     if [[ -z "$matching_lines" ]]; then
         whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 60 >/dev/tty
