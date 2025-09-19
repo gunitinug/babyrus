@@ -4599,23 +4599,26 @@ associate_tag_from_checklist() {
     # --- Step 2: Ask for filename filter ---
     local search_term
     search_term=$(whiptail --inputbox \
-        "Enter a substring to filter filenames (literal substring match; empty is wildcard):" \
+        "Enter a substring to filter filenames (globbing; empty is wildcard):" \
         8 50 --title "Search Filter" \
         3>&1 1>&2 2>&3) || {
             whiptail --msgbox "Cancelled." 8 40
             return 1
         }
-    local search_lower=""
-    [[ -n "$search_term" ]] && search_lower="$(tr '[:upper:]' '[:lower:]' <<< "$search_term")"
 
+    : ${search_term:=*}
+    local search_lower="${search_term,,}"
+        
     # Bulding... infobox
     TERM=ansi whiptail --title "Building" --infobox "Building menu.\n\nPlease wait..." 10 40
 
     # --- Step 3: Load & filter e-book entries ---
     local -a entries=()
     while IFS='|' read -r path tags_on_book; do
-        if [[ -z "$search_term" ]] || \
-           [[ "$(basename "$path" | tr '[:upper:]' '[:lower:]')" == *"$search_lower"* ]]; then
+        local file_="$(basename "$path")"
+
+        if [[ "$search_term" == "*" ]] || \
+           [[ "${file_,,}" == $search_lower ]]; then
             entries+=("$path|$tags_on_book")
         fi
     done < "$EBOOKS_DB"
