@@ -1355,7 +1355,7 @@ dissociate_tag_from_registered_ebook() {
 
     local filter_str
     # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (empty for wildcard):" 8 40 3>&1 1>&2 2>&3)    
+    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (globbing; empty for wildcard):" 8 40 3>&1 1>&2 2>&3)    
 
     # Handle cancel/escape
     if [ $? -ne 0 ]; then
@@ -1416,6 +1416,17 @@ dissociate_tag_from_registered_ebook() {
         }
         return base ext
     }
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }
     BEGIN {
         FS = "|"
         filtered_count = 0
@@ -1425,9 +1436,12 @@ dissociate_tag_from_registered_ebook() {
         tags = $2
         last_slash = rindex(path, "/")
         dir = substr(path, 1, last_slash - 1)
-        file = substr(path, last_slash + 1)
+        file = substr(path, last_slash + 1)        
         # literal substring match
-        if (filter_str == "*" || index(tolower(file), tolower(filter_str)) > 0) {
+        #if (filter_str == "*" || index(tolower(file), tolower(filter_str)) > 0) {
+        # globbing instead
+        pattern = glob2re(tolower(filter_str))
+        if (filter_str == "*" || tolower(file) ~ pattern) {
             filtered_count++
             # Output for filtered_menu_items
             printf "%s\0", path >> out1
