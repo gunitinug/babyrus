@@ -2741,7 +2741,7 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
 This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
 
     # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         return 1
     fi
