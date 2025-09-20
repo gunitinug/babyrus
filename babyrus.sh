@@ -1260,6 +1260,12 @@ generate_ebooks_result_list() {
 
 # generate_ebooks_list is orphaned.
 view_ebooks() {
+    # EDGE CASE: EBOOKS_DB file
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
+        whiptail --title "Alert" --msgbox "Ebooks db file does not exist or is empty!" 10 60
+        return 1
+    fi
+
     local page_size=100
     local current_page=1
     local total_lines total_pages
