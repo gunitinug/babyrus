@@ -1282,7 +1282,7 @@ view_tags() {
 
 search_tags() {
     # Get search term
-    search=$(whiptail --inputbox "Enter tag search string:" 8 40 3>&1 1>&2 2>&3)
+    search=$(whiptail --inputbox "Enter tag search string (literal substring match; empty means wildcard):" 10 40 3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then return; fi
     
     # Find matching tags
