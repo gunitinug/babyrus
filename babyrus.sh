@@ -1237,6 +1237,7 @@ associate_tag() {
     whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 80
 }
 
+# Orphaned
 generate_ebooks_list() {
     local counter=1
     while IFS= read -r line || [ -n "$line" ]; do
@@ -1257,15 +1258,154 @@ generate_ebooks_result_list() {
     done < "$1"
 }
 
+# generate_ebooks_list is orphaned.
 view_ebooks() {
-    [[ $(wc -l < "$EBOOKS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No ebooks registered." 10 40 && return
+    local page_size=100
+    local current_page=1
+    local total_lines total_pages
 
-    local tmpfile
-    tmpfile=$(mktemp)
-    generate_ebooks_list > "$tmpfile"
-    whiptail --scrolltext --title "All Registered eBooks" --textbox "$tmpfile" 20 80
-    rm -f "$tmpfile"
+    # Count non-empty lines using awk
+    total_lines=$(awk 'NF > 0 {count++} END {print count+0}' "$EBOOKS_DB")
+    if [[ $total_lines -eq 0 ]]; then
+        whiptail --msgbox "No ebooks found in database." 8 50
+        return
+    fi
+
+    total_pages=$(( (total_lines + page_size - 1) / page_size ))
+
+    while true; do
+        # Create menu options array directly using process substitution
+        local -a menu_options_array
+        
+        # # Use awk to generate the main menu items
+        # mapfile -d '' -t menu_options_array < <(
+        #     awk -v page="$current_page" -v size="$page_size" '
+        #         NF > 0 {
+        #             if (++count > (page-1)*size && count <= page*size) 
+        #                 printf "%s\0%s\0", count, $0
+        #         }
+        #     ' "$EBOOKS_DB"
+        # )
+
+        mapfile -d '' -t menu_options_array < <(
+            awk -v page="$current_page" -v size="$page_size" -v path_max=30 -v file_max=80 '
+                NF > 0 {
+                    if (++count > (page-1)*size && count <= page*size) {
+                        # Split line by "|" to get the path part
+                        split($0, parts, "|")
+                        full_path = parts[1]
+                        
+                        # Extract filename and path
+                        last_slash = match(full_path, /\/[^\/]*$/)
+                        if (last_slash > 0) {
+                            path = substr(full_path, 1, last_slash - 1)
+                            file = substr(full_path, last_slash + 1)
+                        } else {
+                            path = ""
+                            file = full_path
+                        }
+                        
+                        # Extract file extension
+                        ext = ""
+                        dot_pos = match(file, /\.[^.]*$/)
+                        if (dot_pos > 0) {
+                            ext = substr(file, dot_pos)
+                            file_base = substr(file, 1, dot_pos - 1)
+                        } else {
+                            file_base = file
+                        }
+                        
+                        # Truncate path
+                        path_len = length(path)
+                        if (path_len > path_max) {
+                            # Keep first and last parts with ellipsis
+                            first_part = substr(path, 1, 10)
+                            last_slash_pos = match(path, /\/[^\/]*$/)
+                            if (last_slash_pos > 10) {
+                                last_part = substr(path, last_slash_pos)
+                                path_tr = first_part ".../" last_part
+                            } else {
+                                path_tr = substr(path, 1, path_max - 3) "..."
+                            }
+                        } else {
+                            path_tr = path
+                        }
+                        
+                        # Truncate filename (keep extension visible)
+                        file_base_len = length(file_base)
+                        if (file_base_len > file_max - length(ext)) {
+                            max_base = file_max - length(ext) - 3
+                            if (max_base < 1) max_base = 1
+                            file_tr = substr(file_base, 1, max_base) "..." ext
+                        } else {
+                            file_tr = file_base ext
+                        }
+                        
+                        printf "%s\0%s/%s\0", count, path_tr, file_tr
+                    }
+                }
+            ' "$EBOOKS_DB"
+        )        
+
+        # Add navigation buttons directly to the array
+        if [[ $current_page -gt 1 ]]; then
+            menu_options_array+=("__prev__" "Previous Page")
+        fi
+        if [[ $current_page -lt $total_pages ]]; then
+            menu_options_array+=("__next__" "Next Page")
+        fi
+
+        # If no items on this page (shouldn't happen, but safe)
+        if [[ ${#menu_options_array[@]} -eq 0 ]]; then
+            menu_options_array=("" "No items on this page")
+        fi
+
+        # Show menu with fixed dimensions
+        local choice
+        choice=$(whiptail --title "E-Books (Page $current_page/$total_pages)" \
+                 --menu "Choose an ebook:" 20 170 10 \
+                 --ok-button "OK" --cancel-button "Back" \
+                 "${menu_options_array[@]}" 3>&1 1>&2 2>&3)
+
+        [[ $? -ne 0 ]] && return  # Exit on cancel
+
+        case "$choice" in
+            "__next__") 
+                ((current_page++))
+                continue
+                ;;
+            "__prev__")
+                ((current_page--))
+                continue
+                ;;
+            *)
+            	# Edge case
+            	[[ -z "$choice" ]] && continue
+                # Get original line using awk
+                local selected_line
+                selected_line=$(awk -v line_num="$choice" '
+                    NF > 0 && ++count == line_num {print; exit}
+                ' "$EBOOKS_DB")
+                
+                if [[ -n "$selected_line" ]]; then
+                    local formatted_str="$(format_file_info "$selected_line")"
+                    whiptail --scrolltext --msgbox "$formatted_str" 25 80
+                fi
+                ;;
+        esac
+    done
 }
+
+# OLD VERSION
+# view_ebooks() {
+#     [[ $(wc -l < "$EBOOKS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No ebooks registered." 10 40 && return
+
+#     local tmpfile
+#     tmpfile=$(mktemp)
+#     generate_ebooks_list > "$tmpfile"
+#     whiptail --scrolltext --title "All Registered eBooks" --textbox "$tmpfile" 20 80
+#     rm -f "$tmpfile"
+# }
 
 view_tags() {
     [[ $(wc -l < "$TAGS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No tags registered." 10 40 && return
