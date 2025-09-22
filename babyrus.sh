@@ -2132,7 +2132,7 @@ open_file_search_by_filename() {
     [[ -f "$EBOOKS_DB" && -s "$EBOOKS_DB" ]] || { whiptail --title "Attention" --msgbox "Ebooks db doesn't exist or is empty. Register at least one file!" 10 60; return 1; }
 
     local search_term
-    search_term=$(whiptail --inputbox "Enter filename search term (literal substring match; * is \*; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    search_term=$(whiptail --inputbox "Enter filename search term (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
     # Originally it was globbing but with new awk code it's literal substring match now.
 
     # Exit if user canceled
@@ -2269,6 +2269,17 @@ open_file_search_by_filename() {
     
     # gawk: write NUL-separated matches to $out1 and progress to fifo1
     "$AWK_BIN" -v search="$search_term" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }    
     BEGIN { FS = OFS = "|"; idx = 1 }
     {
       tags = $NF
@@ -2284,7 +2295,9 @@ open_file_search_by_filename() {
         dir  = "."
       }
     
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      pattern = glob2re(tolower(search))
+      if (search == "*" || tolower(file) ~ pattern) {
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
         printf("%s\0\0", path)
       }
     
@@ -2310,6 +2323,17 @@ open_file_search_by_filename() {
     local gauge2_pid=$!
     
     "$AWK_BIN" -v search="$search_term" -v total="$total" '
+    # Turn the glob into a regex (case insensitive)
+    function glob2re(glob,    re) {
+        # Escape regex meta characters first
+        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
+
+        # Convert glob wildcards to regex
+        gsub(/\*/, ".*", glob)
+        gsub(/\?/, ".", glob)
+
+        return "^" glob "$"
+    }    
     BEGIN {
       FS = OFS = "|"
       idx = 1
@@ -2330,8 +2354,9 @@ open_file_search_by_filename() {
         file = path
         dir  = "."
       }
-    
-      if (search == "*" || index(tolower(file), tolower(search)) > 0) {
+      pattern = glob2re(tolower(search))
+      if (search == "*" || tolower(file) ~ pattern) {
+      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
         # truncate dir
         trdir = dir
         if (length(trdir) > maxd) {
