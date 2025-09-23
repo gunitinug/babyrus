@@ -3908,7 +3908,13 @@ Then, you can selected to open a file item." 20 80
     fi
 
     # Display all lines in ebooks.db that match the chosen directory
+    # Displays matching lines from ebooks.db that has the chosen dir.
     local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" ${EBOOKS_DB})"
+
+    # Debug
+    #echo matching_files_in_chosen_dir: >&2
+    #echo "$matching_files_in_chosen_dir" >&2
+    #exit
 
     # Now, get from user pattern and tag_pattern to further narrow the search.
     # Show boolean pattern help information
@@ -3940,28 +3946,44 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
 
     # Defaults to *
     pattern="${pattern:-*}"
+    pattern="${pattern,,}"
 
-    # DEBUG - if need be save to a temp file perhaps?
+    # DEBUG
     #echo pattern: >&2
-    #echo "$pattern" >&2
+    #echo "$pattern" >&2    
 
     # Convert pattern to regex using your existing parse_expr function
     regex=$(parse_expr "$pattern")
 
     # DEBUG
-    #echo regex: >&2
-    #echo "$regex" >&2
+    echo regex: >&2
+    echo "$regex" >&2
+    #exit
 
     # Filter file paths from $EBOOKS_DB using the regex.
-    # Only the file path part is considered (everything before the |)
-    filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
+    # Only the file name is considered
+    #filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
+    filtered_paths="$(
+        while IFS='|' read -r path rest; do
+            fname=${path##*/}
+            if grep -iqP "$regex" <<< "$fname"; then
+                echo "$path|$rest"
+            fi
+        done <<< "$matching_files_in_chosen_dir"
+    )"
+
+    # Debug
+    #echo filtered_paths: >&2
+    #echo "$filtered_paths" >&2
+    #exit
 
     if [ -z "$filtered_paths" ]; then
         whiptail --msgbox "No files match the given file name pattern." 8 60
         return 1
     fi
 
-    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
+    #filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")     # this seems wrong.
+    filtered_lines="$filtered_paths"    # seems redundant but failsafe.
 
     # DEBUG
     #echo filtered lines:
@@ -3974,7 +3996,7 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
 This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
 
     # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
+    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         return 1
     fi
