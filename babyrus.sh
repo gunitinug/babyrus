@@ -2429,7 +2429,7 @@ open_file_search_by_filename() {
 # Open file by search by tag workflow
 open_file_search_by_tag() {
     local tag_search
-    tag_search=$(whiptail --inputbox "Enter tag search term (empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    tag_search=$(whiptail --inputbox "Enter tag search term (literal substring match; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
 
     # Exit if user canceled
     [ $? -ne 0 ] && return 1
