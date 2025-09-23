@@ -3956,8 +3956,8 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
     regex=$(parse_expr "$pattern")
 
     # DEBUG
-    echo regex: >&2
-    echo "$regex" >&2
+    #echo regex: >&2
+    #echo "$regex" >&2
     #exit
 
     # Filter file paths from $EBOOKS_DB using the regex.
