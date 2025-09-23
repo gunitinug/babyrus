@@ -5902,10 +5902,13 @@ filter_by_filename() {
 
   # Read available tags from TAGS_DB
   local tags=()
-  if [ -f "$TAGS_DB" ]; then
-    while IFS= read -r tag; do
-      tags+=("$tag")
-    done < "$TAGS_DB"
+#   if [ -f "$TAGS_DB" ]; then
+#     while IFS= read -r tag; do
+#       tags+=("$tag")
+#     done < "$TAGS_DB"
+#   fi
+  if [[ -f "$TAGS_DB" ]]; then
+    mapfile -t tags < <(sort "$TAGS_DB")
   fi
 
   # Prepare tag options for whiptail menu, starting with "ANY TAG"
@@ -5923,10 +5926,12 @@ filter_by_filename() {
 
   # Prompt for search term
   local search_term
-  search_term=$(whiptail --inputbox "Enter search term for ebook file name (empty is wildcard; * is literal \*):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
+  search_term=$(whiptail --inputbox "Enter search term for ebook file name (globbing; empty is wildcard):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
     return 1
   fi
+  
+  : ${search_term:=*}
 
   # Clear the global array
   FILTERED_EBOOKS=()
@@ -5954,13 +5959,15 @@ filter_by_filename() {
       fi
     fi
 
+    shopt -s nocasematch    # preserves spaces in search_term
     # Filename filter
     if [ -n "$search_term" ]; then
       # Perform case-insensitive substring match
-      if [[ "${filename,,}" != *"${search_term,,}"* ]]; then
+      if [[ "${filename,,}" != ${search_term,,} ]]; then
         continue
       fi
     fi
+    shopt -u nocasematch
 
     FILTERED_EBOOKS+=("$filepath" "")
   done < "$EBOOKS_DB"
@@ -6434,7 +6441,7 @@ manage_ebooks() {
 
                 local to_remove to_remove_tr
                 to_remove_tr=$(whiptail --title "Remove Ebook" --menu "Select ebook to remove:" \
-                    20 100 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+                    20 170 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
                 [ $? -eq 0 ] || continue
 
                 local n m
