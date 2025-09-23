@@ -8281,7 +8281,10 @@ filter_projects_by_name() {
     shopt -s nocasematch  # Enable case-insensitive matching
     for line in "${projects_lines[@]}"; do
         title="${line%%|*}"
-        [[ "$title" == $pattern ]] && filtered_lines+=("$line")
+        #[[ "$title" == $pattern ]] && filtered_lines+=("$line")    # doesn't seem to work if glob has spaces
+        case "$title" in
+            $pattern) filtered_lines+=("$line") ;;
+        esac    
     done
     shopt -u nocasematch  # Disable case-insensitive matching (restore default)
 
