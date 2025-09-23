@@ -38,14 +38,14 @@ Babyrus provides three different search methods, whichever is most suitable for 
    A simple substring search. The `*` character is treated literally, not as a wildcard.
 
 2. **Globbing**  
-   Uses wildcards like `*stallman*`. You can include spaces and \* and \?.
+   Uses wildcards like `*stallman*`. You can include spaces and `*` and `?`.
 
 3. **Boolean Search**  
    Similar to globbing, but allows logical operators:  
    - `||` for OR  
    - `&&` for AND
 
-   Spaces are allowed but for now \? is not implemented.
+   Spaces are allowed but for now `?` is not implemented.
 
 ### Requirements
 
