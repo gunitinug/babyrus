@@ -9733,6 +9733,7 @@ restore_db() {
 show_help() {
   whiptail --title "BABYRUS HELP" --scrolltext --msgbox "
 MANAGE EBOOKS / FILE MANAGEMENT / REGISTER FILE(S)
+==================================================
 
 Add Files in Bulk:
   - Register many files at once.
@@ -9760,6 +9761,7 @@ Register eBooks from Checklist:
   * Best for: Picking files manually without search.
 
 MANAGE EBOOKS / FILE MANAGEMENT / DEREGISTER FILE(S)
+====================================================
 
 Remove Registered eBook:
   - Deregister a single ebook file.
@@ -9804,6 +9806,7 @@ Remove Files by Filepath Recursively:
   * Best for: Removing all files in a directory tree except those with tags.
 
 MANAGE EBOOKS / TAG MANAGEMENT / REGISTER TAG
+=============================================
 
 Register Tag:
   - Create a new tag to associate with ebook(s).
@@ -9812,6 +9815,7 @@ Register Tag:
   * Best for: Setting up a new tag to organize ebooks.
 
 MANAGE EBOOKS / TAG MANAGEMENT / ASSOCIATE TAG
+==============================================
 
 Associate Tag with eBook:
   - Associate a tag with a single registered ebook.
@@ -9848,6 +9852,58 @@ Associate Tag by Filepath:
     2. Select a directory where registered files are located.
     3. Confirm to associate the tag with every file in that directory.
   * Best for: Applying a tag across all files in a directory.
+
+MANAGE EBOOKS / TAG MANAGEMENT / DISSOCIATE TAG
+===============================================
+
+Dissociate Tag from Registered eBook:
+  - Remove a tag from a single registered ebook.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Choose a file from the matching list.
+    3. Choose a tag from the file's associated tags.
+    4. Confirm to dissociate.
+  * Best for: Removing one tag from one ebook.
+
+Dissociate Tag from Checklist:
+  - Remove a tag from multiple files using a checklist.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Babyrus shows all matching files in a checklist.
+    3. Select the files you want to dissociate the tag from.
+    4. Also select '__proceed__' to confirm.
+  * Best for: Manually dissociating a tag from many files.
+
+Dissociate Tag from Bulk:
+  - Remove a tag from many files automatically.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Enter a search string to filter by file name.
+    3. Enter a search string to filter by tag name.
+    4. Review candidate files shown in the message box.
+    5. Confirm to remove the tag from all candidate files.
+  * Best for: Quickly clearing a tag from many files at once.
+
+Dissociate Tag by Filepath:
+  - Remove a tag from all files under a specific directory.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Select a directory where registered files are located.
+    3. Review the candidate files shown.
+    4. Confirm to remove the tag from those files.
+  * Best for: Removing a tag across all files in a directory.
+
+MANAGE EBOOKS / TAG MANAGEMENT / DELETE TAG
+===========================================
+
+Delete Tag from Global List:
+  - Remove a tag completely from the tags database.
+  - Steps:
+    1. Babyrus shows all registered tags.
+    2. Choose the tag you want to delete.
+    3. If the tag is still associated with files, Babyrus will
+       prompt you to dissociate it from those files first.
+  * Best for: Cleaning up unused tags from the global list.
 " 40 120
 }
 
