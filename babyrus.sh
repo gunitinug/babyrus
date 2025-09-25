@@ -9802,6 +9802,52 @@ Remove Files by Filepath Recursively:
     1. Select a path from the menu.
     2. Confirm removal.
   * Best for: Removing all files in a directory tree except those with tags.
+
+MANAGE EBOOKS / TAG MANAGEMENT / REGISTER TAG
+
+Register Tag:
+  - Create a new tag to associate with ebook(s).
+  - Steps:
+    1. Enter a name for the new tag when prompted.
+  * Best for: Setting up a new tag to organize ebooks.
+
+MANAGE EBOOKS / TAG MANAGEMENT / ASSOCIATE TAG
+
+Associate Tag with eBook:
+  - Associate a tag with a single registered ebook.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Choose a file from the matching list.
+    3. Choose a tag from the list of registered tags.
+    4. The chosen tag is associated with the selected file.
+  * Best for: Adding a tag to one specific ebook.
+
+Associate Tag from Checklist:
+  - Associate a tag with multiple files using a checklist.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Enter a search string to filter by file name.
+    3. Select files from the checklist.
+    4. Also select '__proceed__' to confirm.
+  * Best for: Tagging many files manually in one go.
+
+Associate Tag to Bulk:
+  - Associate a tag with a large number of files automatically.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Enter a search string to filter by file name.
+    3. Enter a search string to filter by tag name.
+    4. Review the candidate files in the message box.
+    5. Confirm to apply the tag to all listed files.
+  * Best for: Quickly tagging many files that meet specific criteria.
+
+Associate Tag by Filepath:
+  - Associate a tag with every file under a chosen directory.
+  - Steps:
+    1. Choose a tag from the list of registered tags.
+    2. Select a directory where registered files are located.
+    3. Confirm to associate the tag with every file in that directory.
+  * Best for: Applying a tag across all files in a directory.
 " 40 120
 }
 
