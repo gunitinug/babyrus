@@ -9732,6 +9732,8 @@ restore_db() {
 ################################
 show_help() {
   whiptail --title "BABYRUS HELP" --scrolltext --msgbox "
++++ THE BABYRUS +++
+
 MANAGE EBOOKS / FILE MANAGEMENT / REGISTER FILE(S)
 ==================================================
 
@@ -9957,6 +9959,8 @@ View All Registered Tags:
   - Steps:
     1. Babyrus shows tags in a scrollable message box.
   * Best for: Reviewing all available tags.
+
++++ THE BABYRUS +++
 " 40 120
 }
 
