@@ -9728,6 +9728,41 @@ restore_db() {
 }
 
 ################################
+# HELP
+################################
+show_help() {
+  whiptail --title "BABYRUS HELP" --scrolltext --msgbox "
+FILE MANAGEMENT / REGISTER FILE(S)
+
+Add Files in Bulk:
+  - Register many files at once.
+  - Steps:
+    1. Select a root directory (recursive).
+    2. Enter a search string to filter files by name.
+    3. All matching files are added to the ebooks database.
+  * Best for: Quickly registering a large set of files.
+
+Register eBook:
+  - Register a single ebook file.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Select a root directory (recursive).
+    3. Choose a file from the matching list.
+  * Best for: Finding and registering one specific file.
+
+Register eBooks from Checklist:
+  - Manually browse and select multiple files.
+  - Steps:
+    1. Open the checklist view.
+    2. Traverse directories.
+    3. Mark the files to register.
+    4. Also mark '__add__' to confirm.
+  * Best for: Picking files manually without search.
+
+" 40 120
+}
+
+################################
 # Main Menu
 ################################
 
@@ -9743,6 +9778,7 @@ show_main_menu() {
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
             "Configure" "Set Default Apps" \
+            "Help" "Read Help" \
 	        "Backup" "Backup Everything" \
 	        "Restore" "Restore from File" \
             3>&1 1>&2 2>&3)
@@ -9763,6 +9799,9 @@ show_main_menu() {
                 ;;
             "Configure")
                 edit_configuration
+                ;;
+            "Help")
+                show_help
                 ;;
 	        "Backup")
 		        backup_db
