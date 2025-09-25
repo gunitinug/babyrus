@@ -9904,6 +9904,59 @@ Delete Tag from Global List:
     3. If the tag is still associated with files, Babyrus will
        prompt you to dissociate it from those files first.
   * Best for: Cleaning up unused tags from the global list.
+
+MANAGE EBOOKS / SEARCH & LOOKUP / LOOKUP FILES
+==============================================
+
+Lookup Registered Files:
+  - Look up registered files by file name and tag.
+  - Info available: full file name, directory, tags, size, mime type.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Enter a search string to filter by tag name.
+    3. Babyrus shows a list of matching files.
+    4. Select a file to see full details.
+    5. The menu stays open until you select 'Back'.
+  * Best for: Inspecting detailed info for files matching certain criteria.
+
+Search eBook by Tag:
+  - Look up files by their associated tag.
+  - Steps:
+    1. Enter a search string to filter by tag names.
+    2. Babyrus shows matching tags.
+    3. Choose a tag to view its files.
+    4. Matching files are shown in a message box.
+  * Best for: Quickly finding all ebooks under one tag.
+
+Lookup by Filepath:
+  - Look up registered files under a specific directory.
+  - Steps:
+    1. Select a directory from the list of registered paths.
+    2. Enter a search string to filter by file name.
+    3. Enter a search string to filter by tag name.
+    4. Babyrus shows all matching files.
+    5. Select a file to see full details (name, directory, tags, mime type, size).
+  * Best for: Narrowing lookup to a specific folder and its files.
+
+MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED EBOOKS
+============================================================
+
+View All Registered eBooks:
+  - Display detailed info for every registered ebook.
+  - Steps:
+    1. Babyrus shows a paginated list of all registered files.
+    2. Select an item to view details (name, path, tags, mime type, size).
+    3. Menu remains active so you can inspect multiple files.
+  * Best for: Browsing all registered ebooks in one place.
+
+MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED TAGS
+==========================================================
+
+View All Registered Tags:
+  - Display all registered tags.
+  - Steps:
+    1. Babyrus shows tags in a scrollable message box.
+  * Best for: Reviewing all available tags.
 " 40 120
 }
 
