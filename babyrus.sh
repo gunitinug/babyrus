@@ -9732,7 +9732,7 @@ restore_db() {
 ################################
 show_help() {
   whiptail --title "BABYRUS HELP" --scrolltext --msgbox "
-FILE MANAGEMENT / REGISTER FILE(S)
+MANAGE EBOOKS / FILE MANAGEMENT / REGISTER FILE(S)
 
 Add Files in Bulk:
   - Register many files at once.
@@ -9759,6 +9759,49 @@ Register eBooks from Checklist:
     4. Also mark '__add__' to confirm.
   * Best for: Picking files manually without search.
 
+MANAGE EBOOKS / FILE MANAGEMENT / DEREGISTER FILE(S)
+
+Remove Registered eBook:
+  - Deregister a single ebook file.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Choose a file from the matching list.
+    3. Confirm to deregister.
+  * Best for: Removing one specific ebook from the database.
+
+Remove eBooks from Checklist:
+  - Deregister multiple files using a checklist.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Wait for the checklist to appear.
+    3. Select the files you want removed.
+    4. Select '__proceed__' at the same time to confirm removal.
+  * Best for: Removing multiple files manually.
+
+Remove Files in Bulk:
+  - Deregister multiple files at once.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Enter a search string to filter by tag name.
+    3. Matching files are selected for bulk removal.
+    4. Confirm removal.
+  * Best for: Quickly deregistering many files matching criteria.
+
+Remove Files by Filepath:
+  - Deregister all files under a selected path (non-recursive).
+  - Files with tags will NOT be removed.
+  - Steps:
+    1. Select a path from the menu.
+    2. Confirm removal.
+  * Best for: Removing all files in a specific directory without touching subdirectories.
+
+Remove Files by Filepath Recursively:
+  - Deregister all files under a selected path, including subdirectories.
+  - Files with tags will NOT be removed.
+  - Steps:
+    1. Select a path from the menu.
+    2. Confirm removal.
+  * Best for: Removing all files in a directory tree except those with tags.
 " 40 120
 }
 
