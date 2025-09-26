@@ -9960,6 +9960,36 @@ View All Registered Tags:
     1. Babyrus shows tags in a scrollable message box.
   * Best for: Reviewing all available tags.
 
+MANAGE EBOOKS / SEARCH & LOOKUP / OPEN & READ
+=============================================
+
+Open eBook Search by Filename:
+  - Open a registered file by filtering with its file name.
+  - Steps:
+    1. Enter a search string to filter by file name.
+    2. Babyrus shows a list of matching files.
+    3. Choose a file to open with an external viewer.
+  * Best for: Quickly opening a file when you know part of its name.
+
+Open eBook Search by Tag:
+  - Open a file by searching with its associated tag.
+  - Steps:
+    1. Enter a search string to filter by tag name.
+    2. Babyrus shows matching tags from the tag database.
+    3. Choose a tag to view associated files.
+    4. Select a file to open with an external viewer.
+  * Best for: Opening a file by category or topic.
+
+Open File by File Path:
+  - Open a file located in a specific directory.
+  - Steps:
+    1. Choose a directory from the list of registered file paths.
+    2. Enter a search string to filter by file name (within the directory).
+    3. Enter a search string to filter by tag name (within the directory).
+    4. Babyrus shows matching files.
+    5. Choose a file to open with an external viewer.
+  * Best for: Narrowing down and opening files by folder location.
+
 +++ THE BABYRUS +++
 " 40 120
 }
