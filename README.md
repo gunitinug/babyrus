@@ -1,6 +1,6 @@
 <h1 align="center">Babyrus</h1>
 <p align="center">
-  <img src="./logo.png" alt="Babyrus logo" width="200">
+  <img src="./babyrus logo.png" alt="Babyrus logo" width="200">
 </p>
 
 ## Project Overview
