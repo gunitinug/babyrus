@@ -10026,7 +10026,6 @@ File name generation is automatic.
 Step 2: Add Tags
 Select “Tags” from the menu.
 Babyrus will display a paginated list of all registered tags (including tags from other notes).
-20 tags per page.
 Use “>> Next Page” or “<< Previous Page” to navigate.
 
 Options:
@@ -10050,21 +10049,16 @@ Adding a new ebook:
 - Select one file from the list.
 
 Next actions:
-- “Add chapter” – Create a bookmark with chapter name + page number.
-  You can revisit and open the ebook later at this specific page.
+- “Add chapter” – Create a bookmark with chapter name + page number.  
   Multiple chapters may be added.
 - “Save and return” – Save the ebook selection and return.
 
-Managing ebooks:
-- Add new ebook
-- Remove ebook (to cancel or delete an association)
-- Back (to exit without changes)
+Remove ebook:
+- Remove associated ebook file: you can remove ebook files that you've added in the above steps.
 
 Step 4: Edit the Note
-Select “Save and Edit”.
-The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
-When finished:
-Select “Save and Return” to store the changes.
+Select “Save and Edit”: The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
+When finished: Select “Save and Return” to store the changes.
 
 +++ THE BABYRUS +++
 " 40 120
