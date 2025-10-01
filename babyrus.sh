@@ -10010,6 +10010,62 @@ After confirming, changes are made.
 Revert Renaming Illegal Filenames:
 Babyrus provides a way to revert file renaming changes from the last renaming operation. 
 If you confirm, Babyrus will restore original filenames in the eBooks database.
+
+MANAGE NOTES:
+=============
+
+Add Note:
+Used to create a new note entry.
+
+Step 1: Set Note Title
+Select “Note Title” from the menu.
+You must set a title before saving a note.
+The note path is generated based on the title, and a timestamp is added to its name.
+File name generation is automatic.
+
+Step 2: Add Tags
+Select “Tags” from the menu.
+Babyrus will display a paginated list of all registered tags (including tags from other notes).
+20 tags per page.
+Use “>> Next Page” or “<< Previous Page” to navigate.
+
+Options:
+- Create a new tag: Select “Add new tag”, enter the name, and it will be created.
+- Select existing tags: Choose from the list.
+  Associated tags will be shown with [x] next to them.
+You may associate any number of tags with a note.
+
+Step 3: Associate Ebooks
+Select “Ebooks” from the menu.
+Babyrus will display a list of previously associated ebook files.
+
+Adding a new ebook:
+- Select “Add new ebook”.
+- Filter candidate ebook files by tag:
+  * Choose “ANY TAG” (no filtering), or
+  * Select a tag (tags here belong to registered ebooks, not notes).
+- Enter a search term to filter by ebook filename.
+- Babyrus will display the number of matches found.
+- A list of matching files will be shown.
+- Select one file from the list.
+
+Next actions:
+- “Add chapter” – Create a bookmark with chapter name + page number.
+  You can revisit and open the ebook later at this specific page.
+  Multiple chapters may be added.
+- “Save and return” – Save the ebook selection and return.
+
+Managing ebooks:
+- Add new ebook
+- Remove ebook (to cancel or delete an association)
+- Back (to exit without changes)
+
+Step 4: Edit the Note
+Select “Save and Edit”.
+The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
+When finished:
+Select “Save and Return” to store the changes.
+
 +++ THE BABYRUS +++
 " 40 120
 }
