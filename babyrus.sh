@@ -9990,6 +9990,26 @@ Open File by File Path:
     5. Choose a file to open with an external viewer.
   * Best for: Narrowing down and opening files by folder location.
 
+MANAGE EBOOKS / MAINTENANCE:
+============================
+
+Find Remove Broken Entries:
+Used to remove from the eBooks database broken entries (i.e., paths that point to non-existent files). 
+If there are no broken entries Babyrus will notify you. Otherwise, the broken entries are removed.
+
+Rename and Reregister Illegal Filenames:
+Registered file names containing characters: | , # : ; are illegal in Babyrus 
+because they potentially conflict with line formats of Babyrus’ database files. 
+This function renames any illegal file names found in the eBooks database, 
+avoids name conflicts, and reregisters them into the database. 
+Babyrus allows the user to revert the changes if they wish. 
+Babyrus takes some time to collect information about illegal file names. 
+If illegal file names are found, Babyrus displays candidate files for renaming. 
+After confirming, changes are made.
+
+Revert Renaming Illegal Filenames:
+Babyrus provides a way to revert file renaming changes from the last renaming operation. 
+If you confirm, Babyrus will restore original filenames in the eBooks database.
 +++ THE BABYRUS +++
 " 40 120
 }
