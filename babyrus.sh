@@ -10167,6 +10167,30 @@ If no chapters are registered:
 If chapters are registered:
 - You can select a bookmark, and the ebook will open at that page in an external viewer.
 
+Associate URL to Note:
+This function is used to link a URL to your note file. URLs are managed separately from the Add Note or Edit Note functions.
+
+Step 1: Display Registered Notes
+When you begin, Babyrus displays a list of all registered note files. Left side shows file paths and right side associated tags inside square brackets.
+Select the note file you want to work with.
+
+Step 2: Access the URL Menu
+After selecting a note, you are presented with a menu containing:
+- Register URL
+- Save and return
+- A list of all URLs currently associated with the note
+
+Step 3: Manage Existing URLs
+If you click on an existing URL, two options are available:
+- Change values – Edit the URL
+- Delete URL – Remove the URL
+
+Step 4: Register a New URL
+To add a new URL, select Register URL.
+
+Step 5: Save and Exit
+Once finished, select Save and return to confirm your changes.
+
 +++ THE BABYRUS +++
 " 40 120
 }
