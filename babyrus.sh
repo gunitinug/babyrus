@@ -10135,6 +10135,38 @@ If chapters are registered:
 Babyrus will display a list of all registered bookmarks.
 Selecting one will open the ebook file with the external viewer directly at the specified page.
 
+Do Stuff by Tag:
+This function allows you to narrow down note entries by their associated tag and perform actions on them. Available actions include editing notes or opening associated ebooks.
+
+Step 1: Select a Tag
+Babyrus begins by displaying a global list of all registered tags (tags linked to note files). Choose a tag from this list to continue.
+
+Step 2: Choose an Action
+After selecting a tag, you are given two options:
+- Edit Note
+- Open Associated eBook
+
+Editing a Note
+If you select Edit Note, Babyrus displays a list of all note files associated with the chosen tag. From there:
+- Select the note you want.
+- A familiar menu from the Edit Note function appears.
+
+You can now:
+- Edit note content
+- Add or remove tags
+- Add or remove ebooks
+
+Opening an Associated eBook
+If you select Open Associated eBook, Babyrus shows a list of note files that match the chosen tag. Once you select a note:
+- A list of all associated ebook files is displayed.
+- Choose the file you wish to open with an external viewer.
+
+If no chapters are registered:
+- Babyrus will still offer to open the file.
+
+If chapters are registered:
+- You can select a bookmark, and the ebook will open at that page in an external viewer.
+
 +++ THE BABYRUS +++
 " 40 120
 }
