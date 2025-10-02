@@ -10209,6 +10209,19 @@ If you want to remove a URL, select Remove URL. Babyrus will again display the l
 Step 4: Save and return
 Once you are done managing URLs, select Save and return to confirm the changes and return to parent menu.
 
+Open URL from Note:
+This function allows you to open a URL that has been previously associated with a note file.
+
+Step 1: Display Registered Notes
+Babyrus first displays a list of all registered note files. Each item has file path on the left, any associated tags (inside square brackets) on the right.
+Select the note file you want to work with.
+
+Step 2: View Associated URLs
+After selecting a note, Babyrus will show you a list of all URLs associated with that note.
+
+Step 3: Open URL
+Choose the URL you want from the list. The selected URL will then be opened automatically in your web browser.
+
 +++ THE BABYRUS +++
 " 40 120
 }
