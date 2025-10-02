@@ -10110,6 +10110,31 @@ From the main Edit Note menu, you can:
 - Save and Edit – Opens the note file in an external terminal editor to modify its contents.
 - Save and Return – Saves all changes and returns to the parent menu.
 
+Open Associated eBook:
+This function allows you to open an ebook file that has been associated with a note using either Add Note or Edit Note. It also supports opening at specific bookmarks.
+
+Displaying Notes
+When you use this function, Babyrus will display a list of all registered note files.
+- The file path (including the file name) is shown on the left.
+- Any associated tag(s) appear on the right, surrounded by square brackets.
+Select the note you want to work with.
+
+Handling Notes Without eBooks
+If the selected note has no associated ebooks, Babyrus will display:
+\"No ebooks associated with the note\"
+
+Displaying Associated eBooks
+If the note does have associated ebooks, Babyrus will show a list of all linked ebook files.
+
+If no chapters are registered:
+A menu titled \"No Chapters Found\" appears with two options:
+- Open – Opens the ebook file with the configured external viewer (e.g., Evince) at the last page opened by that viewer.
+- Return – Goes back to the previous menu.
+
+If chapters are registered:
+Babyrus will display a list of all registered bookmarks.
+Selecting one will open the ebook file with the external viewer directly at the specified page.
+
 +++ THE BABYRUS +++
 " 40 120
 }
