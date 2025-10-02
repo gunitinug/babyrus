@@ -10060,6 +10060,56 @@ Step 4: Edit the Note
 Select “Save and Edit”: The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
 When finished: Select “Save and Return” to store the changes.
 
+Edit Note:
+The Edit Note function is used to edit an existing note. When you begin, Babyrus will display a paginated menu containing all existing notes. You can navigate forward or backward through pages if there are many items. Select the note you want to edit to access its menu.
+
+The menu options for the selected note include:
+- Note Title
+- Note Path
+- Tags
+- Ebooks
+- Save and Edit
+- Save and Return
+
+Editing the Note Title
+You can change the note title by selecting Note Title.
+Important: Changing the note title does not alter the note path or the note file name.
+
+Managing Tags
+To add or remove tags, select Tags. This will display a list of all registered tags, including both:
+- Tags associated with this note (marked with [x])
+- Other available tags
+Selecting a tag will either associate or dissociate it with the note, depending on its current state.
+You can also choose Add new tag to create a new tag and associate it with the note.
+
+Managing Ebooks
+To associate ebooks with the note, select Ebooks. Babyrus will display:
+- A list of currently associated ebook files
+- Options to Add new ebook or Remove ebook
+
+Removing an Ebook
+- Select Remove ebook.
+- Choose the file you want to remove.
+
+Adding an Ebook
+- Select Add new ebook.
+- Babyrus will display the global list of registered ebook tags, along with an ANY TAG option.
+- Selecting ANY TAG means not filtering by tag.
+- Enter a search term to filter ebook files by name (blank acts as a wildcard).
+- Babyrus will show the number of matching entries. Select OK.
+- From the displayed list of matching files, choose the ebook to associate with the note.
+
+Adding Chapters (Optional)
+After associating an ebook, Babyrus allows you to:
+- Save and return
+- Add chapter
+If you select Add chapter, you can create bookmarks that let you reopen the ebook at a specific page later.
+
+Saving Changes
+From the main Edit Note menu, you can:
+- Save and Edit – Opens the note file in an external terminal editor to modify its contents.
+- Save and Return – Saves all changes and returns to the parent menu.
+
 +++ THE BABYRUS +++
 " 40 120
 }
