@@ -10191,6 +10191,24 @@ To add a new URL, select Register URL.
 Step 5: Save and Exit
 Once finished, select Save and return to confirm your changes.
 
+Dissociate URL from Note:
+This function is used to dissociate (unlink) a URL from a note previously associated using the Associate URL to Note function.
+
+Step 1: Display Registered Notes
+Babyrus first displays a list of all registered note files. Each item has file path on the left, associated tags (inside square brackets) on the right.
+Select the note file you want to work with.
+
+Step 2: View Associated URLs
+After selecting a note, Babyrus shows a list of all URLs associated with the chosen note file. You will also see two options:
+- Remove URL
+- Save and return
+
+Step 3: Remove a URL
+If you want to remove a URL, select Remove URL. Babyrus will again display the list of URLs. Choose the one you want to remove, and it will be unlinked from the note.
+
+Step 4: Save and return
+Once you are done managing URLs, select Save and return to confirm the changes and return to parent menu.
+
 +++ THE BABYRUS +++
 " 40 120
 }
