@@ -10222,6 +10222,11 @@ After selecting a note, Babyrus will show you a list of all URLs associated with
 Step 3: Open URL
 Choose the URL you want from the list. The selected URL will then be opened automatically in your web browser.
 
+Open an eBook from Global List:
+Babyrus keeps track of all eBook file paths linked to note files in a single global list. This makes it easy to open any associated eBook directly with an external viewer.
+
+Babyrus displays the complete global list of eBook files (those that are associated to a note file). Simply select the file you want, and it will open in your default external viewer.
+
 +++ THE BABYRUS +++
 " 40 120
 }
