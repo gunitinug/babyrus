@@ -10227,6 +10227,32 @@ Babyrus keeps track of all eBook file paths linked to note files in a single glo
 
 Babyrus displays the complete global list of eBook files (those that are associated to a note file). Simply select the file you want, and it will open in your default external viewer.
 
+Delete Notes:
+This function is used to delete one or more note files.
+
+How it Works:
+- Babyrus displays a checklist of all registered note files.
+- Multiple files can be selected at once for deletion.
+- To confirm, check the option __proceed__.
+
+Result:
+- The selected note files are permanently removed from the notes database.
+
+Delete Note Tag from Global List:
+Babyrus manages all registered note tags centrally. This function is used to delete a tag from the database.
+
+How it Works:
+- Babyrus presents a list of all registered note tags.
+- Select one item to remove it.
+
+Note:
+- A tag can only be deleted if it is not associated with any note file.
+- If the tag is still linked to one or more note files, Babyrus will notify you that the deletion cannot proceed until the conflicts are resolved.
+
+Resolving Conflicts:
+- Dissociate the tag from all associated note files first.
+- Once the tag is no longer linked, it can be deleted successfully.
+
 +++ THE BABYRUS +++
 " 40 120
 }
