@@ -8749,6 +8749,9 @@ edit_project() {
                             headings[$selected_index]="$new_text"	# what happens when new text is ""?
                             ;;
                         "Move before"|"Move after")
+                            # LOGIC ERROR FIX: IF HEADINGS COUNT IS LESS THAN OR EQUAL TO ONE, CONTINUE.
+                            [[ ${#headings[@]} -le 1 ]] && continue
+                            
                             local targets=()
                             for i in "${!headings[@]}"; do
                                 [[ $i -ne $selected_index ]] && {
