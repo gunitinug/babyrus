@@ -8751,7 +8751,7 @@ edit_project() {
                         "Move before"|"Move after")
                             # LOGIC ERROR FIX: IF HEADINGS COUNT IS LESS THAN OR EQUAL TO ONE, CONTINUE.
                             [[ ${#headings[@]} -le 1 ]] && continue
-                            
+
                             local targets=()
                             for i in "${!headings[@]}"; do
                                 [[ $i -ne $selected_index ]] && {
@@ -10258,6 +10258,35 @@ Note:
 Resolving Conflicts:
 - Dissociate the tag from all associated note files first.
 - Once the tag is no longer linked, it can be deleted successfully.
+
+MANAGE GOALS:
+=============
+
+Add New Project:
+Used to create a new project. Begin by entering a project title. Babyrus will automatically generate a project file name based on the title, with a timestamp appended to it.
+
+When ready, select ‘Proceed’ to begin adding content to your project. The project file is structured with headings and subheadings that describe different parts of your project. Often they can be thought of as a summary.
+
+Adding and Managing Headings
+At the start, Babyrus displays two options:
+- Add new heading
+- Save and return
+
+Select ‘Add new heading’ to insert a new heading. Once added, the heading will appear in the menu.
+
+Selecting a heading opens a list of available actions:
+- Change text – Edit the text of the selected heading.
+- Move before – Move the heading before another one.
+- Move after – Move the heading after another one.
+- Indent right – Increase indentation by one tab, turning the heading into a subheading.
+- Indent left – Decrease indentation by one tab, making the heading a parent heading.
+- Remove heading – Delete the selected heading.
+
+Note:
+- To use the Move before or Move after options, your project must contain at least two headings.
+
+Saving the Project
+After you finish organizing and editing your headings, select ‘Save and return’ to save your changes and return to the previous menu.
 
 +++ THE BABYRUS +++
 " 40 120
