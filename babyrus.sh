@@ -10318,6 +10318,42 @@ You can also select an existing heading to perform one of the following actions:
 Saving Changes
 After making edits, select 'Save and return' to save all changes and go back to the parent menu.
 
+Print Project Content on Screen:
+
+Used to display a project's content in read-only mode on the screen.
+
+Filtering Projects
+Start by entering a glob pattern to filter projects by title. Babyrus will display a list of candidate project files.
+
+Viewing Content
+Select the project you want to view. Babyrus will then display the project’s content on the screen in read-only mode.
+
+Associate note with project:
+
+Used to associate a note file with a project file.
+
+Filtering Projects
+Begin by entering a glob pattern to filter projects by title. Babyrus will show a list of matching project files. Select the one you want.
+
+Selecting a Note File
+Next, Babyrus will display all registered note files. Each entry shows the note’s full file path on the left and any associated tags on the right (inside square brackets).
+
+Association Confirmation
+Choose the note file you wish to associate with the selected project. If it isn’t already associated, Babyrus will confirm that the note has been successfully linked to the project.
+
+Dissociate Note from Project:
+
+Used to remove the association between a note file and a project file.
+
+Filtering Projects
+Start by entering a glob pattern to filter projects by title. Babyrus will list matching project files. Select the one you want.
+
+Selecting an Associated Note
+Babyrus will then display all note files currently associated with the chosen project. Select the note you wish to dissociate.
+
+Dissociation Confirmation
+If successful, Babyrus will notify you that the note has been successfully dissociated from the project.
+
 +++ THE BABYRUS +++
 " 40 120
 }
