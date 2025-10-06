@@ -10354,6 +10354,40 @@ Babyrus will then display all note files currently associated with the chosen pr
 Dissociation Confirmation
 If successful, Babyrus will notify you that the note has been successfully dissociated from the project.
 
+Do Stuff With Linked Notes In Project File:
+
+Used to perform actions with note files linked to a project file. The available actions are View Note and Open eBooks.
+
+Filtering Projects
+
+Start by entering a glob pattern to filter projects by title.
+Babyrus will display a list of candidate project files.
+Select the project you want to work with.
+
+Selecting a Linked Note
+
+After choosing a project, Babyrus will list all note files linked to that project.
+Select the note file you want to interact with.
+
+Viewing a Note
+
+Choose 'View Note' to display the content of the selected note file in read-only mode.
+This is useful when browsing through the contents of all note files linked to a project.
+
+Opening eBooks
+
+Choose 'Open eBooks' to access ebook files linked to the selected note file.
+Babyrus will show all ebook files associated with that note.
+
+If no chapters are registered:
+Babyrus displays a simple menu with two options — Open and Return.
+Select 'Open' to open the ebook using an external viewer.
+Select 'Return' to go back to the previous menu.
+
+If one or more chapters are registered:
+Babyrus lists all registered chapters.
+Choose one, and Babyrus will open the ebook file at that specific page using an external viewer.
+
 +++ THE BABYRUS +++
 " 40 120
 }
