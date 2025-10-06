@@ -10431,6 +10431,44 @@ Babyrus will display a confirmation message.
 Select 'Delete' to confirm.
 The project file will then be permanently removed from the database.
 
+CONFIGURE:
+
+Use this function to set default applications for different file types based on their extensions.
+Babyrus relies on these defaults to open files appropriately.
+
+When you open the 'Set Default Apps' menu, you’ll see a list showing file extensions on the left and their current default applications on the right.
+
+To change a default app:
+
+1. Select the item corresponding to the extension you want to modify.
+2. Babyrus will prompt you to enter a new command.
+3. For example, to change the default app for '.pdf' files to Evince, enter: evince
+
+From then on, Babyrus will use Evince whenever you open a '.pdf' file.
+
+HELP:
+
+Use this function to view the help documentation for Babyrus.
+It provides guidance on how to use all major features of the system.
+
+BACKUP:
+
+This function creates a backup of all Babyrus database files — including the ebooks, notes, and projects databases.
+
+When prompted, confirm that you want to proceed.
+Babyrus will generate a backup file named:
+
+    backup_<timestamp>.tar.gz
+
+This ensures your data is safely stored for recovery if needed.
+
+RESTORE:
+
+Use this function to restore Babyrus data from a previously created backup file.
+
+Simply select one of the available backup files to restore.
+During the restoration process, existing database files will be overwritten with the contents of the backup.
+
 +++ THE BABYRUS +++
 " 40 120
 }
