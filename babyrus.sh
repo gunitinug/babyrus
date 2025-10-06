@@ -10388,6 +10388,49 @@ If one or more chapters are registered:
 Babyrus lists all registered chapters.
 Choose one, and Babyrus will open the ebook file at that specific page using an external viewer.
 
+Open URL From Linked Notes in Project File:
+
+A note file can include linked URLs that you can open directly in a web browser. This function allows you to select a note file linked to a project file, then open one of its associated URLs.
+
+Step 1: Filter Projects
+
+Enter a glob pattern to filter projects by title.
+Babyrus will display a list of all matching registered project files.
+
+Step 2: Select a Project
+
+Choose the project file you want to work with from the displayed list.
+
+Step 3: Select a Linked Note
+
+Babyrus will list all note files associated with the selected project.
+Choose the note file you want to access.
+
+Step 4: Open a Linked URL
+
+Babyrus will display all registered URLs linked to the note.
+Select the URL you want to open, and it will be launched in your default web browser.
+Alternatively, select 'Back' to return to the parent menu.
+
+Delete Project:
+
+Used to delete a project file from the projects database.
+
+Step 1: Filter Projects
+
+Enter a glob pattern to filter projects by title.
+Babyrus will display a list of all matching project files.
+
+Step 2: Select a Project
+
+Choose the project you want to delete from the list.
+
+Step 3: Confirm Deletion
+
+Babyrus will display a confirmation message.
+Select 'Delete' to confirm.
+The project file will then be permanently removed from the database.
+
 +++ THE BABYRUS +++
 " 40 120
 }
