@@ -8480,6 +8480,9 @@ add_project() {
                             headings[$selected_index]="$new_text"
                             ;;
                         "Move before"|"Move after")
+                            # LOGIC ERROR FIX: IF HEADINGS COUNT IS LESS THAN OR EQUAL TO ONE, CONTINUE.
+                            [[ ${#headings[@]} -le 1 ]] && continue
+
                             # Get target position using indices
                             local targets=()
                             for i in "${!headings[@]}"; do
