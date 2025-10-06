@@ -10288,6 +10288,36 @@ Note:
 Saving the Project
 After you finish organizing and editing your headings, select ‘Save and return’ to save your changes and return to the previous menu.
 
+Edit existing project:
+
+This function is used to edit an existing project in Babyrus.
+
+Finding the Project to Edit
+Start by entering a glob pattern to narrow down your search. Babyrus will then display a list of candidate project files.
+Select the project file you want to edit.
+
+Changing the Project Title
+Once selected, choose 'Project title' to modify the title of the project.
+
+Note:
+- The project path remains unchanged even when the title is updated.
+
+Editing Project Content
+Select 'Proceed' to view and edit the content of the chosen project. Babyrus will display the full content of the project file along with two options:
+- Add new heading
+- Save and return
+
+Adding and Managing Headings
+To add a new heading, select 'Add new heading.'
+You can also select an existing heading to perform one of the following actions:
+- Change text – Edit the text of the selected heading.
+- Move before / Move after – Reposition the heading relative to another one.
+- Indent left / Indent right – Adjust the indentation level.
+- Remove heading – Delete the selected heading from the project.
+
+Saving Changes
+After making edits, select 'Save and return' to save all changes and go back to the parent menu.
+
 +++ THE BABYRUS +++
 " 40 120
 }
