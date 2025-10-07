@@ -6923,6 +6923,58 @@ list_notes() {
 # Following code section is about opening ebook file associated with a note
 # with an external viewer like evince.
 get_notes() {
+    # SUB FUNCTION FOR PAGINATE SELECT TAG.
+    show_tag_menu() {
+        local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
+        local PAGE_SIZE=10
+        local page=0
+        local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+        local selected_tag__=""
+        local choice start end menu_items
+
+        while true; do
+            start=$(( page * PAGE_SIZE * 2 ))
+            end=$(( start + PAGE_SIZE * 2 ))
+            menu_items=("${TAG_OPTIONS__[@]:$start:$((PAGE_SIZE * 2))}")
+
+            # Add navigation items
+            if (( page > 0 )); then
+                menu_items+=("<< Previous Page" "")
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=("Next Page >>" "")
+            fi
+
+            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+                            --menu "Choose a tag to find linked notes:" 20 60 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            # Handle user action
+            exit_status=$?
+            if [[ $exit_status -ne 0 ]]; then
+                # User pressed Cancel or Esc
+                return 1
+            fi
+
+            case "$choice" in
+                "Next Page >>")
+                    ((page++))
+                    ;;
+                "<< Previous Page")
+                    ((page--))
+                    ;;
+                *)
+                    selected_tag__="$choice"
+                    break
+                    ;;
+            esac
+        done
+
+        echo "$selected_tag__"
+    }
+
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
         whiptail --msgbox "No notes found in $NOTES_DB" 8 50 >/dev/tty
         return 1
@@ -6944,12 +6996,15 @@ get_notes() {
             TAG_OPTIONS+=("$tag" "")
         done
 
-        # Show menu and let user choose a tag
-        local selected_tag
-        selected_tag=$(whiptail --title "Filter by Tag" \
-                                --menu "Choose a tag to find linked notes:" 20 60 10 \
-                                "${TAG_OPTIONS[@]}" \
-                                3>&1 1>&2 2>&3) || return 1
+        # ADDITIONAL FIX: PAGINATE SELECT TAG.
+        local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
+
+        # # Show menu and let user choose a tag
+        # local selected_tag
+        # selected_tag=$(whiptail --title "Filter by Tag" \
+        #                         --menu "Choose a tag to find linked notes:" 20 60 10 \
+        #                         "${TAG_OPTIONS[@]}" \
+        #                         3>&1 1>&2 2>&3) || return 1
 
         if [[ "$selected_tag" == "ANY TAG" ]]; then
             mapfile -t lines < "$NOTES_DB"
