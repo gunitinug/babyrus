@@ -6928,13 +6928,54 @@ get_notes() {
         return 1
     fi
 
-    local lines=()
-    while IFS= read -r line; do
-        lines+=("$line")
-    done < "$NOTES_DB"
+    # FIX: POPULATE LINES BY LETTING USER SELECT TAG FIRST.
+    # Read all tags into a bash array for whiptail menu
+    local -a tags lines
+
+    mapfile -t tags < "$NOTES_TAGS_DB"
+
+    if [[ "${#tags[@]}" -eq 0 ]]; then
+        mapfile -t lines < "$NOTES_DB"
+    else
+        # Build tag options for whiptail (needs tag and description pairs)
+        local TAG_OPTIONS=()
+        TAG_OPTIONS+=("ANY TAG" "")
+        for tag in "${tags[@]}"; do
+            TAG_OPTIONS+=("$tag" "")
+        done
+
+        # Show menu and let user choose a tag
+        local selected_tag
+        selected_tag=$(whiptail --title "Filter by Tag" \
+                                --menu "Choose a tag to find linked notes:" 20 60 10 \
+                                "${TAG_OPTIONS[@]}" \
+                                3>&1 1>&2 2>&3) || return 1
+
+        if [[ "$selected_tag" == "ANY TAG" ]]; then
+            mapfile -t lines < "$NOTES_DB"
+        else
+            # Populate array with lines that have exact match for selected tag
+            mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
+                {
+                    n = split($3, tags, ",")
+                    for (i = 1; i <= n; i++) {
+                        if (tags[i] == tag) {
+                            print $0
+                            next
+                        }
+                    }
+                }' "$NOTES_DB")
+        fi
+    fi
+    # END FIX.    
+
+    # local lines=()
+    # while IFS= read -r line; do
+    #     lines+=("$line")
+    # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --msgbox "No notes found in $NOTES_DB" 8 50 >/dev/tty
+        whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
         echo ""
         return 1
     fi
