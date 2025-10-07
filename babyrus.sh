@@ -9736,14 +9736,32 @@ restore_db() {
 ################################
 # HELP
 ################################
-show_help() {
-  whiptail --title "BABYRUS HELP" --scrolltext --msgbox "
-+++ THE BABYRUS +++
 
+# Help in sections.
+show_help() {
+    while true; do
+        CHOICE=$(whiptail --title "Babyrus Help Menu" --cancel-button "Back" \
+            --menu "Select a help topic:" 20 60 10 \
+            "1" "Help: Manage eBooks" \
+            "2" "Help: Manage Notes" \
+            "3" "Help: Manage Goals" \
+            "4" "Help: Configure" \
+            "5" "Help: Help" \
+            "6" "Help: Backup" \
+            "7" "Help: Restore" 3>&1 1>&2 2>&3)
+
+        exitstatus=$?
+        if [ $exitstatus != 0 ]; then
+            break
+        fi
+
+        case $CHOICE in
+            1)
+                whiptail --scrolltext --title "Manage eBooks" --cancel-button "Back" --msgbox "\
 MANAGE EBOOKS / FILE MANAGEMENT / REGISTER FILE(S)
 ==================================================
 
-Add Files in Bulk:
+ADD FILES IN BULK:
   - Register many files at once.
   - Steps:
     1. Select a root directory (recursive).
@@ -9751,7 +9769,7 @@ Add Files in Bulk:
     3. All matching files are added to the ebooks database.
   * Best for: Quickly registering a large set of files.
 
-Register eBook:
+REGISTER EBOOK:
   - Register a single ebook file.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9759,7 +9777,7 @@ Register eBook:
     3. Choose a file from the matching list.
   * Best for: Finding and registering one specific file.
 
-Register eBooks from Checklist:
+REGISTER EBOOKS FROM CHECKLIST:
   - Manually browse and select multiple files.
   - Steps:
     1. Open the checklist view.
@@ -9771,7 +9789,7 @@ Register eBooks from Checklist:
 MANAGE EBOOKS / FILE MANAGEMENT / DEREGISTER FILE(S)
 ====================================================
 
-Remove Registered eBook:
+REMOVE REGISTERED EBOOK:
   - Deregister a single ebook file.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9779,7 +9797,7 @@ Remove Registered eBook:
     3. Confirm to deregister.
   * Best for: Removing one specific ebook from the database.
 
-Remove eBooks from Checklist:
+REMOVE EBOOKS FROM CHECKLIST:
   - Deregister multiple files using a checklist.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9788,7 +9806,7 @@ Remove eBooks from Checklist:
     4. Select '__proceed__' at the same time to confirm removal.
   * Best for: Removing multiple files manually.
 
-Remove Files in Bulk:
+REMOVE FILES IN BULK:
   - Deregister multiple files at once.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9797,7 +9815,7 @@ Remove Files in Bulk:
     4. Confirm removal.
   * Best for: Quickly deregistering many files matching criteria.
 
-Remove Files by Filepath:
+REMOVE FILES BY FILEPATH:
   - Deregister all files under a selected path (non-recursive).
   - Files with tags will NOT be removed.
   - Steps:
@@ -9805,7 +9823,7 @@ Remove Files by Filepath:
     2. Confirm removal.
   * Best for: Removing all files in a specific directory without touching subdirectories.
 
-Remove Files by Filepath Recursively:
+REMOVE FILES BY FILEPATH RECURSIVELY:
   - Deregister all files under a selected path, including subdirectories.
   - Files with tags will NOT be removed.
   - Steps:
@@ -9816,7 +9834,7 @@ Remove Files by Filepath Recursively:
 MANAGE EBOOKS / TAG MANAGEMENT / REGISTER TAG
 =============================================
 
-Register Tag:
+REGISTER TAG:
   - Create a new tag to associate with ebook(s).
   - Steps:
     1. Enter a name for the new tag when prompted.
@@ -9825,7 +9843,7 @@ Register Tag:
 MANAGE EBOOKS / TAG MANAGEMENT / ASSOCIATE TAG
 ==============================================
 
-Associate Tag with eBook:
+ASSOCIATE TAG WITH EBOOK:
   - Associate a tag with a single registered ebook.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9834,7 +9852,7 @@ Associate Tag with eBook:
     4. The chosen tag is associated with the selected file.
   * Best for: Adding a tag to one specific ebook.
 
-Associate Tag from Checklist:
+ASSOCIATE TAG FROM CHECKLIST:
   - Associate a tag with multiple files using a checklist.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9843,7 +9861,7 @@ Associate Tag from Checklist:
     4. Also select '__proceed__' to confirm.
   * Best for: Tagging many files manually in one go.
 
-Associate Tag to Bulk:
+ASSOCIATE TAG TO BULK:
   - Associate a tag with a large number of files automatically.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9853,7 +9871,7 @@ Associate Tag to Bulk:
     5. Confirm to apply the tag to all listed files.
   * Best for: Quickly tagging many files that meet specific criteria.
 
-Associate Tag by Filepath:
+ASSOCIATE TAG BY FILEPATH:
   - Associate a tag with every file under a chosen directory.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9864,7 +9882,7 @@ Associate Tag by Filepath:
 MANAGE EBOOKS / TAG MANAGEMENT / DISSOCIATE TAG
 ===============================================
 
-Dissociate Tag from Registered eBook:
+DISSOCIATE TAG FROM REGISTERED EBOOK:
   - Remove a tag from a single registered ebook.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9873,7 +9891,7 @@ Dissociate Tag from Registered eBook:
     4. Confirm to dissociate.
   * Best for: Removing one tag from one ebook.
 
-Dissociate Tag from Checklist:
+DISSOCIATE TAG FROM CHECKLIST:
   - Remove a tag from multiple files using a checklist.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9882,7 +9900,7 @@ Dissociate Tag from Checklist:
     4. Also select '__proceed__' to confirm.
   * Best for: Manually dissociating a tag from many files.
 
-Dissociate Tag from Bulk:
+DISSOCIATE TAG FROM BULK:
   - Remove a tag from many files automatically.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9892,7 +9910,7 @@ Dissociate Tag from Bulk:
     5. Confirm to remove the tag from all candidate files.
   * Best for: Quickly clearing a tag from many files at once.
 
-Dissociate Tag by Filepath:
+DISSOCIATE TAG BY FILEPATH:
   - Remove a tag from all files under a specific directory.
   - Steps:
     1. Choose a tag from the list of registered tags.
@@ -9904,7 +9922,7 @@ Dissociate Tag by Filepath:
 MANAGE EBOOKS / TAG MANAGEMENT / DELETE TAG
 ===========================================
 
-Delete Tag from Global List:
+DELETE TAG FROM GLOBAL LIST:
   - Remove a tag completely from the tags database.
   - Steps:
     1. Babyrus shows all registered tags.
@@ -9916,7 +9934,7 @@ Delete Tag from Global List:
 MANAGE EBOOKS / SEARCH & LOOKUP / LOOKUP FILES
 ==============================================
 
-Lookup Registered Files:
+LOOKUP REGISTERED FILES:
   - Look up registered files by file name and tag.
   - Info available: full file name, directory, tags, size, mime type.
   - Steps:
@@ -9927,7 +9945,7 @@ Lookup Registered Files:
     5. The menu stays open until you select 'Back'.
   * Best for: Inspecting detailed info for files matching certain criteria.
 
-Search eBook by Tag:
+SEARCH EBOOK BY TAG:
   - Look up files by their associated tag.
   - Steps:
     1. Enter a search string to filter by tag names.
@@ -9936,7 +9954,7 @@ Search eBook by Tag:
     4. Matching files are shown in a message box.
   * Best for: Quickly finding all ebooks under one tag.
 
-Lookup by Filepath:
+LOOKUP BY FILEPATH:
   - Look up registered files under a specific directory.
   - Steps:
     1. Select a directory from the list of registered paths.
@@ -9949,7 +9967,7 @@ Lookup by Filepath:
 MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED EBOOKS
 ============================================================
 
-View All Registered eBooks:
+VIEW ALL REGISTERED EBOOKS:
   - Display detailed info for every registered ebook.
   - Steps:
     1. Babyrus shows a paginated list of all registered files.
@@ -9960,7 +9978,7 @@ View All Registered eBooks:
 MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED TAGS
 ==========================================================
 
-View All Registered Tags:
+VIEW ALL REGISTERED TAGS:
   - Display all registered tags.
   - Steps:
     1. Babyrus shows tags in a scrollable message box.
@@ -9969,7 +9987,7 @@ View All Registered Tags:
 MANAGE EBOOKS / SEARCH & LOOKUP / OPEN & READ
 =============================================
 
-Open eBook Search by Filename:
+OPEN EBOOK SEARCH BY FILENAME:
   - Open a registered file by filtering with its file name.
   - Steps:
     1. Enter a search string to filter by file name.
@@ -9977,7 +9995,7 @@ Open eBook Search by Filename:
     3. Choose a file to open with an external viewer.
   * Best for: Quickly opening a file when you know part of its name.
 
-Open eBook Search by Tag:
+OPEN EBOOK SEARCH BY TAG:
   - Open a file by searching with its associated tag.
   - Steps:
     1. Enter a search string to filter by tag name.
@@ -9986,7 +10004,7 @@ Open eBook Search by Tag:
     4. Select a file to open with an external viewer.
   * Best for: Opening a file by category or topic.
 
-Open File by File Path:
+OPEN FILE BY FILE PATH:
   - Open a file located in a specific directory.
   - Steps:
     1. Choose a directory from the list of registered file paths.
@@ -9999,11 +10017,11 @@ Open File by File Path:
 MANAGE EBOOKS / MAINTENANCE:
 ============================
 
-Find Remove Broken Entries:
+FIND REMOVE BROKEN ENTRIES:
 Used to remove from the eBooks database broken entries (i.e., paths that point to non-existent files). 
 If there are no broken entries Babyrus will notify you. Otherwise, the broken entries are removed.
 
-Rename and Reregister Illegal Filenames:
+RENAME AND REREGISTER ILLEGAL FILENAMES:
 Registered file names containing characters: | , # : ; are illegal in Babyrus 
 because they potentially conflict with line formats of Babyrus’ database files. 
 This function renames any illegal file names found in the eBooks database, 
@@ -10013,14 +10031,17 @@ Babyrus takes some time to collect information about illegal file names.
 If illegal file names are found, Babyrus displays candidate files for renaming. 
 After confirming, changes are made.
 
-Revert Renaming Illegal Filenames:
+REVERT RENAMING ILLEGAL FILENAMES:
 Babyrus provides a way to revert file renaming changes from the last renaming operation. 
 If you confirm, Babyrus will restore original filenames in the eBooks database.
-
+" 40 120
+                ;;
+            2)
+                whiptail --scrolltext --title "Manage Notes" --cancel-button "Back" --msgbox "\
 MANAGE NOTES:
 =============
 
-Add Note:
+ADD NOTE:
 Used to create a new note entry.
 
 Step 1: Set Note Title
@@ -10066,7 +10087,7 @@ Step 4: Edit the Note
 Select “Save and Edit”: The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
 When finished: Select “Save and Return” to store the changes.
 
-Edit Note:
+EDIT NOTE:
 The Edit Note function is used to edit an existing note. When you begin, Babyrus will display a paginated menu containing all existing notes. You can navigate forward or backward through pages if there are many items. Select the note you want to edit to access its menu.
 
 The menu options for the selected note include:
@@ -10116,7 +10137,7 @@ From the main Edit Note menu, you can:
 - Save and Edit – Opens the note file in an external terminal editor to modify its contents.
 - Save and Return – Saves all changes and returns to the parent menu.
 
-Open Associated eBook:
+OPEN ASSOCIATED EBOOK:
 This function allows you to open an ebook file that has been associated with a note using either Add Note or Edit Note. It also supports opening at specific bookmarks.
 
 Displaying Notes
@@ -10141,7 +10162,7 @@ If chapters are registered:
 Babyrus will display a list of all registered bookmarks.
 Selecting one will open the ebook file with the external viewer directly at the specified page.
 
-Do Stuff by Tag:
+DO STUFF BY TAG:
 This function allows you to narrow down note entries by their associated tag and perform actions on them. Available actions include editing notes or opening associated ebooks.
 
 Step 1: Select a Tag
@@ -10173,7 +10194,7 @@ If no chapters are registered:
 If chapters are registered:
 - You can select a bookmark, and the ebook will open at that page in an external viewer.
 
-Associate URL to Note:
+ASSOCIATE URL TO NOTE:
 This function is used to link a URL to your note file. URLs are managed separately from the Add Note or Edit Note functions.
 
 Step 1: Display Registered Notes
@@ -10197,7 +10218,7 @@ To add a new URL, select Register URL.
 Step 5: Save and Exit
 Once finished, select Save and return to confirm your changes.
 
-Dissociate URL from Note:
+DISSOCIATE URL FROM NOTE:
 This function is used to dissociate (unlink) a URL from a note previously associated using the Associate URL to Note function.
 
 Step 1: Display Registered Notes
@@ -10215,7 +10236,7 @@ If you want to remove a URL, select Remove URL. Babyrus will again display the l
 Step 4: Save and return
 Once you are done managing URLs, select Save and return to confirm the changes and return to parent menu.
 
-Open URL from Note:
+OPEN URL FROM NOTE:
 This function allows you to open a URL that has been previously associated with a note file.
 
 Step 1: Display Registered Notes
@@ -10228,12 +10249,12 @@ After selecting a note, Babyrus will show you a list of all URLs associated with
 Step 3: Open URL
 Choose the URL you want from the list. The selected URL will then be opened automatically in your web browser.
 
-Open an eBook from Global List:
+OPEN AN EBOOK FROM GLOBAL LIST:
 Babyrus keeps track of all eBook file paths linked to note files in a single global list. This makes it easy to open any associated eBook directly with an external viewer.
 
 Babyrus displays the complete global list of eBook files (those that are associated to a note file). Simply select the file you want, and it will open in your default external viewer.
 
-Delete Notes:
+DELETE NOTES:
 This function is used to delete one or more note files.
 
 How it Works:
@@ -10244,7 +10265,7 @@ How it Works:
 Result:
 - The selected note files are permanently removed from the notes database.
 
-Delete Note Tag from Global List:
+DELETE NOTE TAG FROM GLOBAL LIST:
 Babyrus manages all registered note tags centrally. This function is used to delete a tag from the database.
 
 How it Works:
@@ -10258,11 +10279,14 @@ Note:
 Resolving Conflicts:
 - Dissociate the tag from all associated note files first.
 - Once the tag is no longer linked, it can be deleted successfully.
-
+" 40 120
+                ;;
+            3)
+                whiptail --scrolltext --title "Manage Goals" --cancel-button "Back" --msgbox "\
 MANAGE GOALS:
 =============
 
-Add New Project:
+ADD NEW PROJECT:
 Used to create a new project. Begin by entering a project title. Babyrus will automatically generate a project file name based on the title, with a timestamp appended to it.
 
 When ready, select ‘Proceed’ to begin adding content to your project. The project file is structured with headings and subheadings that describe different parts of your project. Often they can be thought of as a summary.
@@ -10288,7 +10312,7 @@ Note:
 Saving the Project
 After you finish organizing and editing your headings, select ‘Save and return’ to save your changes and return to the previous menu.
 
-Edit existing project:
+EDIT EXISTING PROJECT:
 
 This function is used to edit an existing project in Babyrus.
 
@@ -10318,7 +10342,7 @@ You can also select an existing heading to perform one of the following actions:
 Saving Changes
 After making edits, select 'Save and return' to save all changes and go back to the parent menu.
 
-Print Project Content on Screen:
+PRINT PROJECT CONTENT ON SCREEN:
 
 Used to display a project's content in read-only mode on the screen.
 
@@ -10328,7 +10352,7 @@ Start by entering a glob pattern to filter projects by title. Babyrus will displ
 Viewing Content
 Select the project you want to view. Babyrus will then display the project’s content on the screen in read-only mode.
 
-Associate note with project:
+ASSOCIATE NOTE WITH PROJECT:
 
 Used to associate a note file with a project file.
 
@@ -10341,7 +10365,7 @@ Next, Babyrus will display all registered note files. Each entry shows the note�
 Association Confirmation
 Choose the note file you wish to associate with the selected project. If it isn’t already associated, Babyrus will confirm that the note has been successfully linked to the project.
 
-Dissociate Note from Project:
+DISSOCIATE NOTE FROM PROJECT:
 
 Used to remove the association between a note file and a project file.
 
@@ -10354,7 +10378,7 @@ Babyrus will then display all note files currently associated with the chosen pr
 Dissociation Confirmation
 If successful, Babyrus will notify you that the note has been successfully dissociated from the project.
 
-Do Stuff With Linked Notes In Project File:
+DO STUFF WITH LINKED NOTES IN PROJECT FILE:
 
 Used to perform actions with note files linked to a project file. The available actions are View Note and Open eBooks.
 
@@ -10388,7 +10412,7 @@ If one or more chapters are registered:
 Babyrus lists all registered chapters.
 Choose one, and Babyrus will open the ebook file at that specific page using an external viewer.
 
-Open URL From Linked Notes in Project File:
+OPEN URL FROM LINKED NOTES IN PROJECT FILE:
 
 A note file can include linked URLs that you can open directly in a web browser. This function allows you to select a note file linked to a project file, then open one of its associated URLs.
 
@@ -10412,7 +10436,7 @@ Babyrus will display all registered URLs linked to the note.
 Select the URL you want to open, and it will be launched in your default web browser.
 Alternatively, select 'Back' to return to the parent menu.
 
-Delete Project:
+DELETE PROJECT:
 
 Used to delete a project file from the projects database.
 
@@ -10430,8 +10454,12 @@ Step 3: Confirm Deletion
 Babyrus will display a confirmation message.
 Select 'Delete' to confirm.
 The project file will then be permanently removed from the database.
-
+" 40 120
+                ;;
+            4)
+                whiptail --scrolltext --title "Configure" --cancel-button "Back" --msgbox "\
 CONFIGURE:
+==========
 
 Use this function to set default applications for different file types based on their extensions.
 Babyrus relies on these defaults to open files appropriately.
@@ -10445,13 +10473,21 @@ To change a default app:
 3. For example, to change the default app for '.pdf' files to Evince, enter: evince
 
 From then on, Babyrus will use Evince whenever you open a '.pdf' file.
-
+" 40 120
+                ;;
+            5)
+                whiptail --scrolltext --title "Help" --cancel-button "Back" --msgbox "\
 HELP:
+=====
 
 Use this function to view the help documentation for Babyrus.
 It provides guidance on how to use all major features of the system.
-
+" 40 120
+                ;;
+            6)
+                whiptail --scrolltext --title "Backup" --cancel-button "Back" --msgbox "\
 BACKUP:
+=======
 
 This function creates a backup of all Babyrus database files — including the ebooks, notes, and projects databases.
 
@@ -10461,16 +10497,21 @@ Babyrus will generate a backup file named:
     backup_<timestamp>.tar.gz
 
 This ensures your data is safely stored for recovery if needed.
-
+" 40 120
+                ;;
+            7)
+                whiptail --scrolltext --title "Restore" --cancel-button "Back" --msgbox "\
 RESTORE:
+========
 
 Use this function to restore Babyrus data from a previously created backup file.
 
 Simply select one of the available backup files to restore.
 During the restoration process, existing database files will be overwritten with the contents of the backup.
-
-+++ THE BABYRUS +++
 " 40 120
+                ;;
+        esac
+    done
 }
 
 ################################
