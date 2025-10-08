@@ -6856,12 +6856,119 @@ paginate_get_notes() {
 }
 
 list_notes() {
+    # SUB FUNCTION FOR PAGINATE SELECT TAG.
+    show_tag_menu() {
+        local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
+        local PAGE_SIZE=10
+        local page=0
+        local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+        local selected_tag__=""
+        local choice start end menu_items
+
+        while true; do
+            start=$(( page * PAGE_SIZE * 2 ))
+            end=$(( start + PAGE_SIZE * 2 ))
+            menu_items=("${TAG_OPTIONS__[@]:$start:$((PAGE_SIZE * 2))}")
+
+            # Add navigation items
+            if (( page > 0 )); then
+                menu_items+=("<< Previous Page" "")
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=("Next Page >>" "")
+            fi
+
+            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+                            --menu "Choose a tag to find notes to edit:" 20 60 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            # Handle user action
+            exit_status=$?
+            if [[ $exit_status -ne 0 ]]; then
+                # User pressed Cancel or Esc
+                return 1
+            fi
+
+            case "$choice" in
+                "Next Page >>")
+                    ((page++))
+                    ;;
+                "<< Previous Page")
+                    ((page--))
+                    ;;
+                *)
+                    selected_tag__="$choice"
+                    break
+                    ;;
+            esac
+        done
+
+        echo "$selected_tag__"
+    }
+
     while true; do
         local db_file="$NOTES_DB"
         [ ! -f "$db_file" ] && {
             whiptail --msgbox "No notes database found" 8 40
             return 1
         }
+
+        # FIX: POPULATE LINES BY LETTING USER SELECT TAG FIRST.
+        # Read all tags into a bash array for whiptail menu
+        local -a tags lines
+
+        mapfile -t tags < "$NOTES_TAGS_DB"
+
+        if [[ "${#tags[@]}" -eq 0 ]]; then
+            mapfile -t lines < "$NOTES_DB"
+        else
+            # Build tag options for whiptail (needs tag and description pairs)
+            local TAG_OPTIONS=()
+            TAG_OPTIONS+=("ANY TAG" "")
+            for tag in "${tags[@]}"; do
+                TAG_OPTIONS+=("$tag" "")
+            done
+
+            # ADDITIONAL FIX: PAGINATE SELECT TAG.
+            local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
+
+            # # Show menu and let user choose a tag
+            # local selected_tag
+            # selected_tag=$(whiptail --title "Filter by Tag" \
+            #                         --menu "Choose a tag to find linked notes:" 20 60 10 \
+            #                         "${TAG_OPTIONS[@]}" \
+            #                         3>&1 1>&2 2>&3) || return 1
+
+            if [[ "$selected_tag" == "ANY TAG" ]]; then
+                mapfile -t lines < "$NOTES_DB"
+            else
+                # Populate array with lines that have exact match for selected tag
+                mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
+                    {
+                        n = split($3, tags, ",")
+                        for (i = 1; i <= n; i++) {
+                            if (tags[i] == tag) {
+                                print $0
+                                next
+                            }
+                        }
+                    }' "$NOTES_DB")
+            fi
+        fi
+        # END FIX.    
+
+        # local lines=()
+        # while IFS= read -r line; do
+        #     lines+=("$line")
+        # done < "$NOTES_DB"
+
+        if [[ ${#lines[@]} -eq 0 ]]; then
+            # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+            # echo ""
+            return 1
+        fi        
 
         # Reset arrays and index for fresh load each iteration
         local -a menu_entries=()
@@ -6878,7 +6985,7 @@ list_notes() {
             menu_entries+=("${idx}:${title_tr}" "${tag_display}")
             MENU_PATH_ENTRIES+=("$path" "")
             ((idx++))
-        done < "$db_file"
+        done < <(printf '%s\n' "${lines[@]}")
 
         [ ${#menu_entries[@]} -eq 0 ] && {
             whiptail --msgbox "No notes found in database." 8 40
@@ -7030,8 +7137,8 @@ get_notes() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
-        echo ""
+        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        # echo ""
         return 1
     fi
 
