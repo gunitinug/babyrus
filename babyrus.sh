@@ -7867,7 +7867,20 @@ delete_notes() {
         sorted=($(for i in "${final_selection[@]}"; do echo "$i"; done | sort -nr))
         for idx in "${sorted[@]}"; do
             local line_num=$(( idx + 1 ))
-            sed -i "${line_num}d" "$NOTES_DB"
+
+            # actual file deletion.
+            local note_path="$(sed -n "${line_num}p" "$NOTES_DB" | cut -d'|' -f2)"
+
+            if [[ -f "$note_path" ]]; then
+                rm "$note_path"
+                #echo "Deleted file: $note_path" >&2
+            else
+                :
+                #echo "File not found: $note_path" >&2
+            fi            
+
+            # remove from database.
+            sed -i "${line_num}d" "$NOTES_DB"            
         done
         whiptail --title "Deletion Complete" --msgbox "Selected notes have been deleted." 10 40
     else
@@ -8288,6 +8301,58 @@ assoc_url_to_note() {
 }
 
 dissoc_url_from_note() {
+    # SUB FUNCTION FOR PAGINATE SELECT TAG.
+    show_tag_menu() {
+        local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
+        local PAGE_SIZE=10
+        local page=0
+        local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+        local selected_tag__=""
+        local choice start end menu_items
+
+        while true; do
+            start=$(( page * PAGE_SIZE * 2 ))
+            end=$(( start + PAGE_SIZE * 2 ))
+            menu_items=("${TAG_OPTIONS__[@]:$start:$((PAGE_SIZE * 2))}")
+
+            # Add navigation items
+            if (( page > 0 )); then
+                menu_items+=("<< Previous Page" "")
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=("Next Page >>" "")
+            fi
+
+            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+                            --menu "Choose a tag to find linked notes:" 20 60 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            # Handle user action
+            exit_status=$?
+            if [[ $exit_status -ne 0 ]]; then
+                # User pressed Cancel or Esc
+                return 1
+            fi
+
+            case "$choice" in
+                "Next Page >>")
+                    ((page++))
+                    ;;
+                "<< Previous Page")
+                    ((page--))
+                    ;;
+                *)
+                    selected_tag__="$choice"
+                    break
+                    ;;
+            esac
+        done
+
+        echo "$selected_tag__"
+    }
+
     touch "$URLS_DB"
 	
     #local URLS_DB="$URLS_DB"
@@ -8300,6 +8365,19 @@ dissoc_url_from_note() {
         whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
         return 1
     fi
+
+    # FIX: ASK FOR TAG FIRST.
+    local -a tags
+    mapfile -t tags < "$NOTES_TAGS_DB"    
+    # Build tag options for whiptail (needs tag and description pairs)
+    local TAG_OPTIONS=()
+    TAG_OPTIONS+=("ANY TAG" "")
+    for tag in "${tags[@]}"; do
+        TAG_OPTIONS+=("$tag" "")
+    done
+
+    # ADDITIONAL FIX: PAGINATE SELECT TAG.
+    local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
 
     # Extract unique note paths from URLS_DB
     local note_paths=()
@@ -8320,7 +8398,19 @@ dissoc_url_from_note() {
         #menu_items+=("$path" "")
 
         tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
-        menu_items+=("$path" "[${tags__}]")
+
+        # FIX: FILTER BY SELECTED TAG.
+        local tag_array=()
+        IFS=',' read -r -a tag_array <<< "$tags__"
+
+        for tag in "${tag_array[@]}"; do
+            if [[ "$tag" == "$selected_tag" || "$selected_tag" == "ANY TAG" ]]; then
+                menu_items+=("$path" "[${tags__}]")
+                break  # optional: stop after first match
+            fi
+        done
+        # don't need it any more.
+        #menu_items+=("$path" "[${tags__}]")
     done
 
     # Paginate instead!
