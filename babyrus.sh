@@ -9451,11 +9451,11 @@ delete_project() {
     local lines=()
     mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
-    # Check for empty database
-    if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --title "Error" --msgbox "No projects found in database." 8 50
-        return 1
-    fi
+    # # Check for empty database
+    # if [[ ${#lines[@]} -eq 0 ]]; then
+    #     whiptail --title "Error" --msgbox "No projects found in database." 8 50
+    #     return 1
+    # fi
 
 #    # Extract project paths and build menu options
 #    local paths=()
@@ -9472,11 +9472,11 @@ delete_project() {
 #    done
 
     local paths=()
-    local options=()
+    local options=("<< Back" "")
     local line i
     for line in "${lines[@]}"; do
         IFS='|' read -ra parts <<< "$line"
-	i=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+	    i=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
 
         if [[ ${#parts[@]} -ge 2 ]]; then
             paths+=("${parts[1]}")
@@ -9500,7 +9500,7 @@ delete_project() {
     #selected=$(whiptail --title "Delete Project" --menu "Choose a project to delete:" \
     #    20 150 10 "${options[@]}" 3>&1 1>&2 2>&3) || return 1
     
-    [[ -z "$selected" ]] && return 1  # User canceled
+    [[ -z "$selected" || "$selected" == "<< Back" ]] && return 1  # User canceled
 
     # Validate selection
     local index=$((selected - 1))
