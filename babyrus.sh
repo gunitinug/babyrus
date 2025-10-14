@@ -9720,10 +9720,10 @@ dissociate_note_from_project() {
     local lines=()
     mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
 
-    if [[ ${#lines[@]} -eq 0 ]]; then
-        whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
-        return 1
-    fi
+    # if [[ ${#lines[@]} -eq 0 ]]; then
+    #     whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
+    #     return 1
+    # fi
 
     # Generate project selection menu options
 #    local -a project_options
@@ -9732,7 +9732,7 @@ dissociate_note_from_project() {
 #        IFS='|' read -r title path notes <<< "${lines[index]}"
 #        project_options+=("$index" "$path")
 #    done
-    local project_options=()
+    local project_options=("<< Back" "")
     local title path notes line lineno
     for line in "${lines[@]}"; do
         IFS='|' read -r title path notes <<< "$line"
@@ -9749,7 +9749,7 @@ dissociate_note_from_project() {
     paginate_get_projects "Select Project" "${project_options[@]}"
     local selected_project
     selected_project="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project" ]] && return 1
+    [[ -z "$selected_project" || "$selected_project" == "<< Back" ]] && return 1
 
     #local selected_project
     #selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
