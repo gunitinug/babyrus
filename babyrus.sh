@@ -9862,10 +9862,10 @@ do_stuff_with_project_file() {
     local projects=()
     mapfile -d '' -t projects < <(filter_projects_by_name)	
     
-    if [ ${#projects[@]} -eq 0 ]; then
-        whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60 >/dev/tty
-        return 1
-    fi
+    # if [ ${#projects[@]} -eq 0 ]; then
+    #     whiptail --msgbox "No projects found in $PROJECTS_DB" 20 60 >/dev/tty
+    #     return 1
+    # fi
 
     # Create project selection menu
 #    local project_menu_options=()
@@ -9874,7 +9874,7 @@ do_stuff_with_project_file() {
 #        project_menu_options+=("$((index + 1))" "$title")
 #    done
 
-    local project_menu_options=()
+    local project_menu_options=("<< Back" "")
     local title line lineno
     for line in "${projects[@]}"; do
         IFS='|' read -r title _ _ <<< "$line"
@@ -9891,7 +9891,7 @@ do_stuff_with_project_file() {
     paginate_get_projects "Select Project" "${project_menu_options[@]}"
     local selected_project_tag
     selected_project_tag="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project_tag" ]] && return 1
+    [[ -z "$selected_project_tag" || "$selected_project_tag" == "<< Back" ]] && return 1
 
     #local selected_project_tag
     #selected_project_tag=$(whiptail --menu "Select Project" 20 78 12 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
