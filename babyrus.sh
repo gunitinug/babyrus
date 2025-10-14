@@ -9353,7 +9353,7 @@ edit_project() {
 
 print_project() {
     #local line_num=0		# can't use this any more.
-    local options=()
+    local options=("<< Back" "")
 
     # Check if database file exists and is valid
     if [ ! -f "$PROJECTS_DB" ]; then
@@ -9384,18 +9384,18 @@ print_project() {
     done < <(filter_projects_by_name)
     # END FIX.
 
-    if [ ${#options[@]} -eq 0 ]; then
-        whiptail --msgbox "Error: No valid projects found in database." 10 50 >/dev/tty
-        return 1
-    fi
+    # if [ ${#options[@]} -eq 0 ]; then
+    #     whiptail --msgbox "Error: No valid projects found in database." 10 50 >/dev/tty
+    #     return 1
+    # fi
 
     # Continuous selection loop added here
     while true; do
-	# Paginate options
+    	# Paginate options
         paginate_get_projects "View Project Content" "${options[@]}"
-	local selected_line
-	selected_line="$SELECTED_ITEM_PROJECT"
-	[[ -z "$selected_line" ]] && return 1
+        local selected_line
+        selected_line="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_line" || "$selected_line" == "<< Back" ]] && return 1
 
         # Show project selection menu
         #local selected_line
