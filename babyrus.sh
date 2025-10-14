@@ -7619,6 +7619,53 @@ by their associated tag and do stuff with them. You can edit note or open associ
 
 # The following code section is about opening an ebook file in global list NOTES_EBOOKS_DB.
 open_ebook_note_from_global_list() {
+    paginate_menu() {
+        local title=$1
+        shift
+        local options=("$@")  # rest are options (tag, description pairs)
+        local page_size=10    # items per page
+        local total_items=${#options[@]}
+        local total_pages=$(( (total_items / 2 + page_size - 1) / page_size ))
+        local current_page=1
+        local choice
+
+        while true; do
+            local start_index=$(( (current_page - 1) * page_size * 2 ))
+            local end_index=$(( start_index + page_size * 2 ))
+            local page_items=("${options[@]:start_index:end_index-start_index}")
+
+            # Add navigation items if applicable
+            local menu_items=("${page_items[@]}")
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev page" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next page" "")
+            fi
+
+            choice=$(whiptail --title "$title" \
+                            --cancel-button "Back" \
+                            --menu "Page ${current_page}/${total_pages}" 20 170 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # user pressed Cancel
+
+            case "$choice" in
+                ">> Next page")
+                    ((current_page++))
+                    ;;
+                "<< Prev page")
+                    ((current_page--))
+                    ;;
+                *)
+                    echo "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
     # Initial message
     whiptail --title "Open eBook File From Global List" \
          --msgbox "This feature allows you to open an ebook file from global list." 8 78
@@ -7663,14 +7710,17 @@ open_ebook_note_from_global_list() {
         ((idx++))
     done
 
-    # Show the menu and get the selected line
+    # # Show the menu and get the selected line
+    # local selected_idx selected_line
+    # selected_idx=$(whiptail --title "Open eBook File From Global List" \
+    #     --cancel-button "Back" \
+    #     --menu "Choose an eBook to open:" \
+    #     20 170 10 \
+    #     "${options[@]}" \
+    #     3>&1 1>&2 2>&3) || return 1
+
     local selected_idx selected_line
-    selected_idx=$(whiptail --title "Open eBook File From Global List" \
-        --cancel-button "Back" \
-        --menu "Choose an eBook to open:" \
-        20 170 10 \
-        "${options[@]}" \
-        3>&1 1>&2 2>&3) || return 1
+    selected_idx="$(paginate_menu "Open eBook File From Global List" "${options[@]}")" || return 1
 
     # Get line
     selected_line="${OPTIONS_LINE["$((selected_idx-1))"]}"
