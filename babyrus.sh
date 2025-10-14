@@ -8516,6 +8516,58 @@ dissoc_url_from_note() {
 #URL_BROWSER='google-chrome'
 
 open_url_assoc_to_note() {
+    # SUB FUNCTION FOR PAGINATE SELECT TAG.
+    show_tag_menu() {
+        local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
+        local PAGE_SIZE=10
+        local page=0
+        local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+        local selected_tag__=""
+        local choice start end menu_items
+
+        while true; do
+            start=$(( page * PAGE_SIZE * 2 ))
+            end=$(( start + PAGE_SIZE * 2 ))
+            menu_items=("${TAG_OPTIONS__[@]:$start:$((PAGE_SIZE * 2))}")
+
+            # Add navigation items
+            if (( page > 0 )); then
+                menu_items+=("<< Previous Page" "")
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=("Next Page >>" "")
+            fi
+
+            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+                            --menu "Choose a tag to find linked notes:" 20 60 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            # Handle user action
+            exit_status=$?
+            if [[ $exit_status -ne 0 ]]; then
+                # User pressed Cancel or Esc
+                return 1
+            fi
+
+            case "$choice" in
+                "Next Page >>")
+                    ((page++))
+                    ;;
+                "<< Previous Page")
+                    ((page--))
+                    ;;
+                *)
+                    selected_tag__="$choice"
+                    break
+                    ;;
+            esac
+        done
+
+        echo "$selected_tag__"
+    }
+
     touch "$URLS_DB"
 	
     #local URLS_DB="$URLS_DB"
@@ -8528,6 +8580,19 @@ open_url_assoc_to_note() {
         whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
         return 1
     fi
+
+    # FIX: ASK FOR TAG FIRST.
+    local -a tags
+    mapfile -t tags < "$NOTES_TAGS_DB"    
+    # Build tag options for whiptail (needs tag and description pairs)
+    local TAG_OPTIONS=()
+    TAG_OPTIONS+=("ANY TAG" "")
+    for tag in "${tags[@]}"; do
+        TAG_OPTIONS+=("$tag" "")
+    done
+
+    # ADDITIONAL FIX: PAGINATE SELECT TAG.
+    local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
 
     while true; do
         # Extract unique note paths
@@ -8544,18 +8609,29 @@ open_url_assoc_to_note() {
 
         # Select note path
         local menu_items=("<< Return" "")
-	local tags__		# FIX: display tags too!
+	    local tags__		# FIX: display tags too!
         for path in "${note_paths[@]}"; do
-	    tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
+	        tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
 
-            menu_items+=("$path" "[${tags__}]")
+            # FIX: FILTER BY SELECTED TAG.
+            local tag_array=()
+            IFS=',' read -r -a tag_array <<< "$tags__"
+
+            for tag in "${tag_array[@]}"; do
+                if [[ "$tag" == "$selected_tag" || "$selected_tag" == "ANY TAG" ]]; then
+                    menu_items+=("$path" "[${tags__}]")
+                    break  # optional: stop after first match
+                fi
+            done
+
+            #menu_items+=("$path" "[${tags__}]")
         done
 
-	# Paginate instead!
-	! paginate_get_notes "Select Note to Open URL" "${menu_items[@]}" && return 1
-	local selected_path
-	selected_path="$SELECTED_ITEM"
-	[[ -z "$selected_path" ]] && return 1
+        # Paginate instead!
+        ! paginate_get_notes "Select Note to Open URL" "${menu_items[@]}" && return 1
+        local selected_path
+        selected_path="$SELECTED_ITEM"
+        [[ -z "$selected_path" ]] && return 1
 
         #local selected_path
         #selected_path=$(whiptail --title "Select Note" --menu "Choose a note to open URLs:" \
