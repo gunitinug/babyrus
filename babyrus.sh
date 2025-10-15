@@ -4817,6 +4817,60 @@ dissociate_tag_from_checklist() {
 }
 
 associate_tag_from_checklist() {
+    paginate_tags_menu() {
+        local title="$1"
+        shift
+        local items=("$@")
+        local per_page=20
+        local total_items=$(( ${#items[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local current_page=1
+        local choice start_index end_index menu_items tag desc
+
+        while true; do
+            # Calculate start and end indices for current page
+            start_index=$(( (current_page - 1) * per_page * 2 ))
+            end_index=$(( start_index + per_page * 2 ))
+            menu_items=()
+
+            # Add items for current page
+            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                tag="${items[i]}"
+                desc="${items[i+1]}"
+                menu_items+=("$tag" "$desc")
+            done
+
+            # Add navigation options
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next" "")
+            fi
+
+            # Show whiptail menu
+            choice=$(whiptail --title "$title" \
+                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+            case "$choice" in
+                ">> Next")
+                    (( current_page++ ))
+                    ;;
+                "<< Prev")
+                    (( current_page-- ))
+                    ;;
+                *)
+                    # Return selected tag
+                    printf '%s\n' "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
     touch "$EBOOKS_DB" "$TAGS_DB"
 
     local ITEMS_PER_PAGE=100
@@ -4851,14 +4905,19 @@ associate_tag_from_checklist() {
         tag_choices+=("$i" "${tags[$i]}")
     done
 
+    # local selected_index
+    # selected_index=$(whiptail --title "Select Tag to Associate" \
+    #     --menu "Choose one tag:" 20 60 10 \
+    #     "${tag_choices[@]}" \
+    #     3>&1 1>&2 2>&3) || {
+    #         whiptail --msgbox "Cancelled." 8 40
+    #         return 1
+    #     }
+
+    # FIX: PAGINATE TAG SELECTION.
     local selected_index
-    selected_index=$(whiptail --title "Select Tag to Associate" \
-        --menu "Choose one tag:" 20 60 10 \
-        "${tag_choices[@]}" \
-        3>&1 1>&2 2>&3) || {
-            whiptail --msgbox "Cancelled." 8 40
-            return 1
-        }
+    selected_index="$(paginate_tags_menu "Select Tag to Associate" "${tag_choices[@]}")" || return 1
+
     local selected_tag="${tags[$selected_index]}"
 
     # --- Step 2: Ask for filename filter ---
