@@ -1263,7 +1263,7 @@ associate_tag() {
 
     # FIX: PAGINATE TAG SELECTION
     local tag
-    tag=$(paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}") || return 1
+    tag="$(paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || return 1
 
     # # Select tag
     # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
