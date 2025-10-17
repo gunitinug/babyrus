@@ -5490,6 +5490,60 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
 }
 
 dissoc_tag_by_filepath() {
+    paginate_tags_menu() {
+        local title="$1"
+        shift
+        local items=("$@")
+        local per_page=20
+        local total_items=$(( ${#items[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local current_page=1
+        local choice start_index end_index menu_items tag desc
+
+        while true; do
+            # Calculate start and end indices for current page
+            start_index=$(( (current_page - 1) * per_page * 2 ))
+            end_index=$(( start_index + per_page * 2 ))
+            menu_items=()
+
+            # Add items for current page
+            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                tag="${items[i]}"
+                desc="${items[i+1]}"
+                menu_items+=("$tag" "$desc")
+            done
+
+            # Add navigation options
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next" "")
+            fi
+
+            # Show whiptail menu
+            choice=$(whiptail --title "$title" \
+                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+            case "$choice" in
+                ">> Next")
+                    (( current_page++ ))
+                    ;;
+                "<< Prev")
+                    (( current_page-- ))
+                    ;;
+                *)
+                    # Return selected tag
+                    printf '%s\n' "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+    
     # Help message
     whiptail --title "Help" \
          --msgbox "This function will dissociate your chosen tag to every file in a directory that you choose. \
@@ -5530,12 +5584,16 @@ You may choose from a list of directories registered in the ebooks db. It is inv
         tag_menu_items+=("$tag" "")
     done
 
-    # Select tag
-    local selected_tag
-    selected_tag=$(whiptail --title "Remove Tag" --menu "Choose a tag to remove:" \
-        20 150 10 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    # # Select tag
+    # local selected_tag
+    # selected_tag=$(whiptail --title "Remove Tag" --menu "Choose a tag to remove:" \
+    #     20 150 10 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     
-    [[ -z "$selected_tag" ]] && return 1 # User canceled
+    # [[ -z "$selected_tag" ]] && return 1 # User canceled
+
+    # FIX: PAGINATE TAG SELECTION.
+    local selected_tag
+    selected_tag="$(paginate_tags_menu "Choose a tag to remove:" "${tag_menu_items[@]}")" || return 1
 
     # Get unique directories
     local dirs
