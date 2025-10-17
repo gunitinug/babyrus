@@ -1765,6 +1765,60 @@ dissociate_tag_from_registered_ebook() {
 }
 
 delete_tag_from_global_list() {
+    paginate_tags_menu() {
+        local title="$1"
+        shift
+        local items=("$@")
+        local per_page=20
+        local total_items=$(( ${#items[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local current_page=1
+        local choice start_index end_index menu_items tag desc
+
+        while true; do
+            # Calculate start and end indices for current page
+            start_index=$(( (current_page - 1) * per_page * 2 ))
+            end_index=$(( start_index + per_page * 2 ))
+            menu_items=()
+
+            # Add items for current page
+            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                tag="${items[i]}"
+                desc="${items[i+1]}"
+                menu_items+=("$tag" "$desc")
+            done
+
+            # Add navigation options
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next" "")
+            fi
+
+            # Show whiptail menu
+            choice=$(whiptail --title "$title" \
+                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+            case "$choice" in
+                ">> Next")
+                    (( current_page++ ))
+                    ;;
+                "<< Prev")
+                    (( current_page-- ))
+                    ;;
+                *)
+                    # Return selected tag
+                    printf '%s\n' "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
     # Check dependencies
     [[ ! -f "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found!" 8 40 && return 1
     [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found!" 8 40 && return 1
@@ -1789,11 +1843,15 @@ delete_tag_from_global_list() {
         menu_items+=("$tag" "")
     done
 
-    # Tag selection
+    # # Tag selection
+    # local selected_tag
+    # selected_tag=$(whiptail --title "Delete Global Tag" --menu "Choose tag to delete:" \
+    #     20 60 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    # [[ $? -ne 0 ]] && return 0  # User canceled
+
+    # FIX: PAGINATE TAG SELECTION.
     local selected_tag
-    selected_tag=$(whiptail --title "Delete Global Tag" --menu "Choose tag to delete:" \
-        20 60 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && return 0  # User canceled
+    selected_tag="$(paginate_tags_menu "Choose tag to delete from global list:" "${menu_items[@]}")" || return 1
 
     # Check for tag usage in ebooks
     local used_in=()
