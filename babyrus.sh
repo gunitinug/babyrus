@@ -1485,6 +1485,119 @@ view_tags() {
 }
 
 search_tags() {
+    paginate_tags_menu() {
+        local title="$1"
+        shift
+        local items=("$@")
+        local per_page=20
+        local total_items=$(( ${#items[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local current_page=1
+        local choice start_index end_index menu_items tag desc
+
+        while true; do
+            # Calculate start and end indices for current page
+            start_index=$(( (current_page - 1) * per_page * 2 ))
+            end_index=$(( start_index + per_page * 2 ))
+            menu_items=()
+
+            # Add items for current page
+            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                tag="${items[i]}"
+                desc="${items[i+1]}"
+                menu_items+=("$tag" "$desc")
+            done
+
+            # Add navigation options
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next" "")
+            fi
+
+            # Show whiptail menu
+            choice=$(whiptail --title "$title" \
+                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+            case "$choice" in
+                ">> Next")
+                    (( current_page++ ))
+                    ;;
+                "<< Prev")
+                    (( current_page-- ))
+                    ;;
+                *)
+                    # Return selected tag
+                    printf '%s\n' "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
+    paginate_result_menu() {
+        local title="$1"
+        local result="$2"
+        local per_page=100
+        local page=0
+        local choice start end total max_page
+
+        # Convert newline-separated string into an array safely
+        mapfile -t lines <<< "$result"
+
+        total=${#lines[@]}
+        (( max_page = (total + per_page - 1) / per_page - 1 ))
+
+        while :; do
+            (( start = page * per_page ))
+            (( end = start + per_page ))
+            (( end > total )) && end=$total
+
+            local menu_items=()
+            local truncated_dir truncated_file truncated_tags
+            for (( i=start; i<end; i++ )); do
+                IFS='|' read -r path tags <<<"${lines[i]}"                
+
+                # TRUNCATE!!!!
+                local filename_tr dirname_tr tags_tr filename dirname
+                filename="$(basename "$path")"
+                dirname="$(dirname "$path")"
+                filename_tr="$(truncate_filename "$filename")"
+                dirname_tr="$(truncate_dirname "$dirname")"
+                tags_tr="$(truncate_tags "$tags")"
+
+                #menu_items+=("${i}:${path}" "T:${tags}")
+                menu_items+=("${i}:${dirname_tr}/${filename_tr}" "T:${tags_tr}")
+            done
+
+            if (( page > 0 )); then
+                menu_items+=("<< Prev Page" "")
+            fi
+            if (( page < max_page )); then
+                menu_items+=(">> Next Page" "")
+            fi
+
+            choice=$(whiptail --title "$title (Page $((page+1))/$((max_page+1)))" \
+                            --menu "Select a file:" 20 170 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3) || return 1
+
+            case "$choice" in
+                "<< Prev Page") ((page--)) ;;
+                ">> Next Page") ((page++)) ;;
+                *)
+                    local index="${choice%%:*}"
+                    echo "${lines[index]}"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
     # Get search term
     search=$(whiptail --inputbox "Enter tag search string (literal substring match; empty means wildcard):" 10 40 3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then return; fi
@@ -1518,10 +1631,14 @@ search_tags() {
     done
     # END FIX.
 
-    # Select tag
-    tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
-        "${matching_tags_whip[@]}" 3>&1 1>&2 2>&3)		# menu items must come in pairs!!!!
-    if [[ $? -ne 0 ]]; then return; fi
+    # # Select tag
+    # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
+    #     "${matching_tags_whip[@]}" 3>&1 1>&2 2>&3)		# menu items must come in pairs!!!!
+    # if [[ $? -ne 0 ]]; then return; fi
+
+    # FIX: PAGINATE TAG SELECTION.
+    local tag
+    tag="$(paginate_tags_menu "Choose a tag:" "${matching_tags_whip[@]}")" || return 1
     
     # Find ebooks with this tag
     # First, escape regex metacharacters in $tag
@@ -1532,9 +1649,19 @@ search_tags() {
     if [[ -z "$result" ]]; then
         whiptail --msgbox "No ebooks found with this tag!" 8 40
     else
-        generate_ebooks_result_list <(echo "$result") >/tmp/search_result.txt
-        whiptail --scrolltext --textbox /tmp/search_result.txt 20 80
-        rm /tmp/search_result.txt
+        # generate_ebooks_result_list <(echo "$result") >/tmp/search_result.txt
+        # whiptail --scrolltext --textbox /tmp/search_result.txt 20 80
+        # rm /tmp/search_result.txt
+
+        # FIX: DISPLAY IN MENU.
+        # Format file info and display it.
+        local selected_line
+        while :; do
+            selected_line="$(paginate_result_menu "Search Results" "$result")" || return 1
+            local formatted_str
+            formatted_str="$(format_file_info "$selected_line")"
+            whiptail --scrolltext --msgbox "$formatted_str" 25 80
+        done
     fi
 }
 
