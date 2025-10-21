@@ -7917,7 +7917,7 @@ get_ebooks() {
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 100 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 170 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
