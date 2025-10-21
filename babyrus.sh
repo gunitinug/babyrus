@@ -1566,8 +1566,8 @@ search_tags() {
                 local filename_tr dirname_tr tags_tr filename dirname
                 filename="$(basename "$path")"
                 dirname="$(dirname "$path")"
-                filename_tr="$(truncate_filename "$filename")"
-                dirname_tr="$(truncate_dirname "$dirname")"
+                filename_tr="$(truncate_filename "$filename" 80)"
+                dirname_tr="$(truncate_dirname "$dirname" 45)"
                 tags_tr="$(truncate_tags "$tags")"
 
                 #menu_items+=("${i}:${path}" "T:${tags}")
