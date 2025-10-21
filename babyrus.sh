@@ -10249,6 +10249,60 @@ delete_project() {
 }
 
 associate_note_to_project() {
+    paginate_tags_menu() {
+        local title="$1"
+        shift
+        local items=("$@")
+        local per_page=20
+        local total_items=$(( ${#items[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local current_page=1
+        local choice start_index end_index menu_items tag desc
+
+        while true; do
+            # Calculate start and end indices for current page
+            start_index=$(( (current_page - 1) * per_page * 2 ))
+            end_index=$(( start_index + per_page * 2 ))
+            menu_items=()
+
+            # Add items for current page
+            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                tag="${items[i]}"
+                desc="${items[i+1]}"
+                menu_items+=("$tag" "$desc")
+            done
+
+            # Add navigation options
+            if (( current_page > 1 )); then
+                menu_items+=("<< Prev" "")
+            fi
+            if (( current_page < total_pages )); then
+                menu_items+=(">> Next" "")
+            fi
+
+            # Show whiptail menu
+            choice=$(whiptail --title "$title" \
+                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+            case "$choice" in
+                ">> Next")
+                    (( current_page++ ))
+                    ;;
+                "<< Prev")
+                    (( current_page-- ))
+                    ;;
+                *)
+                    # Return selected tag
+                    printf '%s\n' "$choice"
+                    return 0
+                    ;;
+            esac
+        done
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     local temp_file line_updated duplicate_detected project_found
@@ -10320,10 +10374,31 @@ associate_note_to_project() {
     #    25 150 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
     #[[ -z "$selected_project_path" ]] && return 1  # User canceled
 
+    # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
+    local note_tag_options=("ANY TAG" "Any tag (no filter)")    
+
+    while IFS= read -r tag; do
+        [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
+    done < "$NOTES_TAGS_DB"
+
+    local selected_note_tag
+    selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
+
     # Read notes into menu
     local note_menu_options=()
+    local note_tags_arr selected_tag
     while IFS='|' read -r note_title note_path note_tags rest; do
-        note_menu_options+=("$note_path" "[${note_tags}]")
+        # FIX: FILTER BY NOTE TAG
+        IFS=',' read -r -a note_tags_arr <<< "$note_tags"
+
+        for tag in "${note_tags_arr[@]}"; do
+            if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
+                note_menu_options+=("$note_path" "[${note_tags}]")
+                break
+            fi
+        done
+
+        #note_menu_options+=("$note_path" "[${note_tags}]")
     done < "$NOTES_DB"
     if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
         whiptail --msgbox "No notes available in the database." 20 50
