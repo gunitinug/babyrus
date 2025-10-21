@@ -10386,7 +10386,7 @@ associate_note_to_project() {
 
     # Read notes into menu
     local note_menu_options=()
-    local note_tags_arr selected_tag
+    local note_tags_arr
     while IFS='|' read -r note_title note_path note_tags rest; do
         # FIX: FILTER BY NOTE TAG
         IFS=',' read -r -a note_tags_arr <<< "$note_tags"
