@@ -233,10 +233,12 @@ check_bash_ver() {
 check_bash_ver || exit 1
 
 # Check dependencies
-if ! command -v whiptail &> /dev/null || ! command -v wmctrl &> /dev/null; then
-    echo "Error: Both whiptail and wmctrl are required, but at least one is not installed." >&2
-    exit 1
-fi
+for cmd in whiptail wmctrl dialog; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: $cmd is required but not installed." >&2
+        exit 1
+    fi
+done
 
 # Try to maximize the current terminal window
 if ! wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz &> /dev/null; then
@@ -10724,7 +10726,11 @@ do_stuff_with_project_file() {
     case "$action" in
         "1")
             IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-            whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
+            #whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
+            # FIX: ESCAPTE BACK SLASHES
+            # Using dialog - may handle this better            
+            dialog --colors --title "$note_title" --textbox "$note_path" 35 150
+            clear
             ;;
         "2")
             open_note_ebook_page_from_project "$selected_note_line"
