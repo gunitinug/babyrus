@@ -10729,8 +10729,15 @@ do_stuff_with_project_file() {
             #whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
             
             # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
-            # Specifically, \n \t etc gets translated.                        
-            dialog --scrollbar --title "$note_title" --textbox "$note_path" 35 150
+            # Specifically, \n \t etc gets translated.
+            # Match the colors with whiptail as best as possible.
+            DIALOG_CONFIG="use_colors = ON
+            screen_color = (BLACK,MAGENTA,OFF)
+            dialog_color = (BLACK,WHITE,OFF)
+            title_color = (RED,WHITE,OFF)
+            border_color = (WHITE,WHITE,OFF)
+            button_active_color = (WHITE,RED,OFF)"                                    
+            DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --title "$note_title" --textbox "$note_path" 35 150
             clear
             ;;
         "2")
