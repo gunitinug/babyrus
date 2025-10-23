@@ -54,11 +54,12 @@ Babyrus requires the following dependencies:
   * `bash >= 5.2.21`
   * `whiptail`
   * `wmctrl`
+  * dialog
 
 **To install on Ubuntu/Debian:**
 
 ```bash
-sudo apt install whiptail wmctrl
+sudo apt install whiptail wmctrl dialog
 ```
 
 ### Installation
