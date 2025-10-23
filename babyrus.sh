@@ -10727,9 +10727,10 @@ do_stuff_with_project_file() {
         "1")
             IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
             #whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
-            # FIX: ESCAPTE BACK SLASHES
-            # Using dialog - may handle this better            
-            dialog --colors --title "$note_title" --textbox "$note_path" 35 150
+            
+            # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
+            # Specifically, \n \t etc gets translated.                        
+            dialog --scrollbar --title "$note_title" --textbox "$note_path" 35 150
             clear
             ;;
         "2")
