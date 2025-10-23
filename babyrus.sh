@@ -10737,7 +10737,7 @@ do_stuff_with_project_file() {
             title_color = (RED,WHITE,OFF)
             border_color = (WHITE,WHITE,OFF)
             button_active_color = (WHITE,RED,OFF)"                                    
-            DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --title "$note_title" --textbox "$note_path" 35 150
+            DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
             clear
             ;;
         "2")
