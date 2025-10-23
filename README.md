@@ -54,7 +54,7 @@ Babyrus requires the following dependencies:
   * `bash >= 5.2.21`
   * `whiptail`
   * `wmctrl`
-  * dialog
+  * `dialog`
 
 **To install on Ubuntu/Debian:**
 
