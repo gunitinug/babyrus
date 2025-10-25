@@ -7618,68 +7618,68 @@ list_notes() {
         echo "$selected_tag__"
     }
 
-    while true; do
-        local db_file="$NOTES_DB"
-        [ ! -f "$db_file" ] && {
-            whiptail --msgbox "No notes database found" 8 40
-            return 1
-        }
+    local db_file="$NOTES_DB"
+    [ ! -f "$db_file" ] && {
+        whiptail --msgbox "No notes database found" 8 40
+        return 1
+    }
 
-        # FIX: POPULATE LINES BY LETTING USER SELECT TAG FIRST.
-        # Read all tags into a bash array for whiptail menu
-        local -a tags lines
+    # FIX: POPULATE LINES BY LETTING USER SELECT TAG FIRST.
+    # Read all tags into a bash array for whiptail menu
+    local -a tags lines
 
-        mapfile -t tags < "$NOTES_TAGS_DB"
+    mapfile -t tags < "$NOTES_TAGS_DB"
 
-        if [[ "${#tags[@]}" -eq 0 ]]; then
+    if [[ "${#tags[@]}" -eq 0 ]]; then
+        mapfile -t lines < "$NOTES_DB"
+    else
+        # Build tag options for whiptail (needs tag and description pairs)
+        local TAG_OPTIONS=()
+        TAG_OPTIONS+=("ANY TAG" "")
+        for tag in "${tags[@]}"; do
+            TAG_OPTIONS+=("$tag" "")
+        done
+
+        # ADDITIONAL FIX: PAGINATE SELECT TAG.
+        local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
+
+        # # Show menu and let user choose a tag
+        # local selected_tag
+        # selected_tag=$(whiptail --title "Filter by Tag" \
+        #                         --menu "Choose a tag to find linked notes:" 20 60 10 \
+        #                         "${TAG_OPTIONS[@]}" \
+        #                         3>&1 1>&2 2>&3) || return 1
+
+        if [[ "$selected_tag" == "ANY TAG" ]]; then
             mapfile -t lines < "$NOTES_DB"
         else
-            # Build tag options for whiptail (needs tag and description pairs)
-            local TAG_OPTIONS=()
-            TAG_OPTIONS+=("ANY TAG" "")
-            for tag in "${tags[@]}"; do
-                TAG_OPTIONS+=("$tag" "")
-            done
-
-            # ADDITIONAL FIX: PAGINATE SELECT TAG.
-            local selected_tag=$(show_tag_menu "${TAG_OPTIONS[@]}")
-
-            # # Show menu and let user choose a tag
-            # local selected_tag
-            # selected_tag=$(whiptail --title "Filter by Tag" \
-            #                         --menu "Choose a tag to find linked notes:" 20 60 10 \
-            #                         "${TAG_OPTIONS[@]}" \
-            #                         3>&1 1>&2 2>&3) || return 1
-
-            if [[ "$selected_tag" == "ANY TAG" ]]; then
-                mapfile -t lines < "$NOTES_DB"
-            else
-                # Populate array with lines that have exact match for selected tag
-                mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
-                    {
-                        n = split($3, tags, ",")
-                        for (i = 1; i <= n; i++) {
-                            if (tags[i] == tag) {
-                                print $0
-                                next
-                            }
+            # Populate array with lines that have exact match for selected tag
+            mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
+                {
+                    n = split($3, tags, ",")
+                    for (i = 1; i <= n; i++) {
+                        if (tags[i] == tag) {
+                            print $0
+                            next
                         }
-                    }' "$NOTES_DB")
-            fi
+                    }
+                }' "$NOTES_DB")
         fi
-        # END FIX.    
+    fi
+    # END FIX.    
 
-        # local lines=()
-        # while IFS= read -r line; do
-        #     lines+=("$line")
-        # done < "$NOTES_DB"
+    # local lines=()
+    # while IFS= read -r line; do
+    #     lines+=("$line")
+    # done < "$NOTES_DB"
 
-        if [[ ${#lines[@]} -eq 0 ]]; then
-            # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
-            # echo ""
-            return 1
-        fi        
+    if [[ ${#lines[@]} -eq 0 ]]; then
+        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        # echo ""
+        return 1
+    fi        
 
+    while true; do
         # Reset arrays and index for fresh load each iteration
         local -a menu_entries=()
         local -a MENU_PATH_ENTRIES=()
