@@ -8305,7 +8305,7 @@ open_note_ebook_page_from_filtered() {
 do_note_filter_by_tag() {
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
-by their associated tag and do stuff with them. You can edit note or open associated ebooks." 10 60
+by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks." 10 60
 
     local chosen_tag
     chosen_tag=$(get_note_tag_from_global_list) || { whiptail --msgbox "No registered tags found." 8 40 >/dev/tty; return 1; }
