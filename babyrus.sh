@@ -7255,6 +7255,11 @@ add_note() {
     ebook_entries=()
     local choice
 
+    # Add note with same tag functionality requires this.
+    if [[ -n "$1" ]]; then
+        current_tags+=("$1")
+    fi
+
     # Main loop
     while true; do
         # Truncate Note Title.
@@ -8314,10 +8319,13 @@ by their associated tag and do stuff with them. You can edit note or open associ
 
     local choice
     choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-        15 50 4 "Edit note" "" "Open associated ebook" "" \
+        15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" \
         3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
     case "$choice" in
+        "Add note with same tag")
+            add_note "$chosen_tag"
+            ;;
         "Edit note")
             list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
             ;;
