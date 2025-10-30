@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99l'
+BABYRUS_VERSION='v.0.99m'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -10642,6 +10642,47 @@ open_note_ebook_page_from_project() {
 }
 
 do_stuff_with_project_file() {
+    show_note_menu() {
+        local note_menu_options=("$@")
+        local page=0
+        local per_page=50    # adjust this to my liking
+        local total_items=$(( ${#note_menu_options[@]} / 2 ))
+        local total_pages=$(( (total_items + per_page - 1) / per_page ))
+        local selected_note_tag=""
+
+        while true; do
+            local start=$(( page * per_page ))
+            local end=$(( start + per_page ))
+            if (( end > total_items )); then end=$total_items; fi
+
+            # Build current page menu items
+            local menu_items=()
+            for ((i=start; i<end; i++)); do
+                local idx=$(( i * 2 ))
+                menu_items+=( "${note_menu_options[idx]}" "${note_menu_options[idx+1]}" )
+            done
+
+            # Add navigation options
+            if (( page > 0 )); then
+                menu_items+=( "<< Prev" "" )
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=( ">> Next" "" )
+            fi
+
+            # Display menu
+            selected_note_tag=$(whiptail --title "Linked Notes (Page $((page+1))/$total_pages)" \
+                --menu "Select a linked note:" 20 70 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+            # Handle navigation
+            case "$selected_note_tag" in
+                "<< Prev") ((page--));;
+                ">> Next") ((page++));;
+                *) echo "$selected_note_tag"; return 0;;
+            esac
+        done
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
@@ -10716,10 +10757,14 @@ do_stuff_with_project_file() {
         return 1
     fi
 
-    # Show note selection
+    # # Show note selection
+    # local selected_note_tag
+    # selected_note_tag=$(whiptail --menu "Select Note" 20 78 12 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+    # [ $? -ne 0 ] && return 1
+
+    # FIX: PAGINATE LINKED NOTE SELECTION
     local selected_note_tag
-    selected_note_tag=$(whiptail --menu "Select Note" 20 78 12 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 1
+    selected_note_tag="$(show_note_menu "${note_menu_options[@]}")" || return 1
 
     local selected_note_index=$((selected_note_tag - 1))
     local selected_note_line="${note_lines[$selected_note_index]}"
@@ -11852,9 +11897,10 @@ During the restoration process, existing database files will be overwritten with
 ################################
 # Main Menu
 ################################
-
-MAIN_MENU_STR="'Taking a first step towards achievement.'
-
+msg="'Knowledge is Power.'"
+padding=$(( (50 - ${#msg}) / 2 ))
+padded_msg="$(printf "%*s%s" $padding "" "$msg")"
+MAIN_MENU_STR="${padded_msg}
 Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3"
 
 # Main menu function
