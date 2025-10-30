@@ -10762,46 +10762,49 @@ do_stuff_with_project_file() {
     # selected_note_tag=$(whiptail --menu "Select Note" 20 78 12 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
     # [ $? -ne 0 ] && return 1
 
-    # FIX: PAGINATE LINKED NOTE SELECTION
-    local selected_note_tag
-    selected_note_tag="$(show_note_menu "${note_menu_options[@]}")" || return 1
+    # FIX: WHILE LOOP TO ALLOW MULTIPLE LINKED NOTE SELECTIONS
+    while :; do
+        # FIX: PAGINATE LINKED NOTE SELECTION
+        local selected_note_tag
+        selected_note_tag="$(show_note_menu "${note_menu_options[@]}")" || return 1
 
-    local selected_note_index=$((selected_note_tag - 1))
-    local selected_note_line="${note_lines[$selected_note_index]}"
+        local selected_note_index=$((selected_note_tag - 1))
+        local selected_note_line="${note_lines[$selected_note_index]}"
 
-    # Action selection
-    local action
-    action=$(whiptail --menu "Note Action" 15 50 5 \
-        "1" "View Note" \
-        "2" "Open ebooks" 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return 1
+        # Action selection
+        local action
+        action=$(whiptail --menu "Note Action" 15 50 5 \
+            "1" "View Note" \
+            "2" "Open ebooks" 3>&1 1>&2 2>&3)
+        [ $? -ne 0 ] && return 1
 
-    case "$action" in
-        "1")
-            IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-            #whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
-            
-            # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
-            # Specifically, \n \t etc gets translated.
-            # Match the colors with whiptail as best as possible.
-            DIALOG_CONFIG="use_colors = ON
-            screen_color = (BLACK,MAGENTA,OFF)
-            dialog_color = (BLACK,WHITE,OFF)
-            title_color = (RED,WHITE,OFF)
-            border_color = (WHITE,WHITE,OFF)
-            button_active_color = (WHITE,RED,OFF)"                                    
-            #DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
-            # Word wrap width 145
-            local tmpfile=$(mktemp)
-            fold -s -w 145 "$note_path" > "$tmpfile"
-            DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
-            rm -f "$tmpfile"
-            clear
-            ;;
-        "2")
-            open_note_ebook_page_from_project "$selected_note_line"
-            ;;
-    esac
+        case "$action" in
+            "1")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                #whiptail --scrolltext --title "$note_title" --textbox "$note_path" 35 150
+                
+                # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
+                # Specifically, \n \t etc gets translated.
+                # Match the colors with whiptail as best as possible.
+                DIALOG_CONFIG="use_colors = ON
+                screen_color = (BLACK,MAGENTA,OFF)
+                dialog_color = (BLACK,WHITE,OFF)
+                title_color = (RED,WHITE,OFF)
+                border_color = (WHITE,WHITE,OFF)
+                button_active_color = (WHITE,RED,OFF)"                                    
+                #DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
+                # Word wrap width 145
+                local tmpfile=$(mktemp)
+                fold -s -w 145 "$note_path" > "$tmpfile"
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
+                rm -f "$tmpfile"
+                clear
+                ;;
+            "2")
+                open_note_ebook_page_from_project "$selected_note_line"
+                ;;
+        esac
+    done
 }
 
 open_url_assoc_to_note_from_project() {
