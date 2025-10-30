@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99m'
+BABYRUS_VERSION='v.0.99n'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -11070,6 +11070,37 @@ backup_db() {
 # restore_db
 # Lets user choose a backup archive to restore into $PWD
 restore_db() {
+    show_menu() {
+        local menu_items=("$@")   # copy array elements
+        local total_items=${#menu_items[@]}
+        local items_per_page=10
+        local total_pages=$(( (total_items + items_per_page*2 - 1) / (items_per_page*2) ))  # ceil division
+        local page=0
+        local choice
+
+        while true; do
+            local start=$((page * items_per_page * 2))
+            local end=$((start + items_per_page * 2))
+            local page_items=("${menu_items[@]:$start:$((items_per_page * 2))}")
+
+            local menu_list=()
+            menu_list+=("${page_items[@]}")            
+            (( end < total_items )) && menu_list+=(">> Next" "")
+            (( page > 0 )) && menu_list+=("<< Prev" "")
+
+            choice=$(whiptail --title "Restore Database (Page $((page+1))/$total_pages)" \
+                --menu "Choose an archive to restore:" 20 78 12 \
+                "${menu_list[@]}" \
+                3>&1 1>&2 2>&3) || return 1            
+
+            case "$choice" in
+                ">> Next") ((page++)) ;;
+                "<< Prev") ((page--)) ;;
+                *) echo "$choice"; return 0 ;;
+            esac
+        done
+    }
+
   # Inform user about restore
   whiptail --title "Restore Database" --msgbox \
     "This function will let you choose a backup file to restore." \
@@ -11090,11 +11121,15 @@ restore_db() {
     menu_items+=("$idx" "${archives[$idx]}")
   done
 
-  # Show menu
+#   # Show menu
+#   local choice
+#   choice=$(whiptail --title "Restore Database" --menu \
+#     "Select an archive to restore:" 15 60 6 \
+#     "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+  # FIX: PAGINATE SELECT ARCHIVE
   local choice
-  choice=$(whiptail --title "Restore Database" --menu \
-    "Select an archive to restore:" 15 60 6 \
-    "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+  choice="$(show_menu "${menu_items[@]}")" || return 1
 
   local selected_archive="${archives[$choice]}"
 
@@ -11103,6 +11138,10 @@ restore_db() {
     "Are you sure you want to restore the selected backup file?" \
     10 60 || return 1
     
+  # DEBUG
+  #echo tar -xzvf "$selected_archive" -C .
+  #exit
+
   # Perform restore
   if tar -xzvf "$selected_archive" -C . &> /dev/null; then
     whiptail --title "Restore Database" --msgbox \
@@ -11903,8 +11942,10 @@ During the restoration process, existing database files will be overwritten with
 msg="'Knowledge is Power.'"
 padding=$(( (50 - ${#msg}) / 2 ))
 padded_msg="$(printf "%*s%s" $padding "" "$msg")"
-MAIN_MENU_STR="${padded_msg}
-Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3"
+MAIN_MENU_STR="
+${padded_msg}
+Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3
+"
 
 # Main menu function
 show_main_menu() {
