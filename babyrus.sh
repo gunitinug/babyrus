@@ -8308,7 +8308,7 @@ do_note_filter_by_tag() {
 by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks." 10 60
 
     local chosen_tag
-    chosen_tag=$(get_note_tag_from_global_list) || { whiptail --msgbox "No registered tags found." 8 40 >/dev/tty; return 1; }
+    chosen_tag=$(get_note_tag_from_global_list) || return 1
     filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
     
     # Check if any notes were actually filtered
