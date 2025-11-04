@@ -6748,9 +6748,14 @@ manage_tags() {
             menu_options+=("Add new tag" "")
         fi
 
+        # truncate $current_tags first
+        local current_tags_tr tr_menu_str
+        current_tags_tr="$(IFS=','; echo "${current_tags[*]}")"
+        (( ${#current_tags[@]} > 1 )) && tr_menu_str="${current_tags_tr:0:37}..." || tr_menu_str="${current_tags_tr[*]:0:40}"
+
         local selection
         selection=$(whiptail --title "Manage Tags (Page $((current_page + 1))/$total_pages)" \
-            --cancel-button "Back" --menu "Current tags: ${current_tags[*]}" 20 60 10 \
+            --cancel-button "Back" --menu "Current tags: $tr_menu_str" 20 60 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -eq 0 ] || return
 
@@ -6762,10 +6767,11 @@ manage_tags() {
                 # ANY TAG is banned word
                 [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name." 8 40 && continue
 
-		# FIX: DELETE BANNED CHARS - MORE EFFICIENT.
-		new_tag=${new_tag//[|,#]/}
+                # FIX: DELETE BANNED CHARS - MORE EFFICIENT.
+                new_tag=${new_tag//[|,#:;]/}
+                #new_tag=${new_tag//[|,#;]/}
                 #new_tag=$(echo "$new_tag" | tr -d '|,')
-		# END FIX.
+                # END FIX.
 
                 if [ -n "$new_tag" ]; then
 #                    # Add to global tags list
