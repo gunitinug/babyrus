@@ -6759,6 +6759,8 @@ manage_tags() {
                 local new_tag
                 new_tag=$(whiptail --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty)
                 [ $? -eq 0 ] || continue
+                # ANY TAG is banned word
+                [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name." 8 40 && continue
 
 		# FIX: DELETE BANNED CHARS - MORE EFFICIENT.
 		new_tag=${new_tag//[|,#]/}
