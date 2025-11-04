@@ -8708,7 +8708,7 @@ delete_global_tag_of_notes() {
         # Show tag selection menu
         local selected_tag
         selected_tag=$(whiptail --menu "Choose a tag to delete (Page $((current_page + 1))/$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page )))" \
-            25 50 15 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+            25 100 15 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
         
         [[ $? -ne 0 ]] && return 1  # User canceled
 
