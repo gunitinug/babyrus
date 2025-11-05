@@ -10423,86 +10423,95 @@ associate_note_to_project() {
         return 1
     fi
 
-    # Note selection
-    paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
-    local selected_note_path
-    selected_note_path="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_note_path" ]] && return 1
+    while :; do
+        # Note selection
+        paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
+        local selected_note_path
+        selected_note_path="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_note_path" ]] && return 1
 
-    #local selected_note_path
-    #selected_note_path=$(whiptail --title "Select Note" \
-    #    --menu "Choose a note to associate:" \
-    #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-    #[[ -z "$selected_note_path" ]] && return 1  # User canceled
+        #local selected_note_path
+        #selected_note_path=$(whiptail --title "Select Note" \
+        #    --menu "Choose a note to associate:" \
+        #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+        #[[ -z "$selected_note_path" ]] && return 1  # User canceled
 
-    # Process PROJECTS_DB
-    while IFS= read -r line; do
-        if [[ -z "$line" ]]; then
-            #echo >> "$temp_file"
-            continue
-        fi
+        # Process PROJECTS_DB
+        while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+                #echo >> "$temp_file"
+                continue
+            fi
 
-        IFS='|' read -r title path notes <<< "$line"
-        # If there is matched line...
-        if [[ "$path" == "$selected_project_path" ]]; then
-            project_found=1
-            current_notes="$notes"
-            local notes_array=()
+            IFS='|' read -r title path notes <<< "$line"
+            # If there is matched line...
+            if [[ "$path" == "$selected_project_path" ]]; then
+                project_found=1
+                current_notes="$notes"
+                local notes_array=()
 
-            # Check for duplicates
-            IFS=',' read -ra notes_array <<< "$current_notes"
-            local duplicate=0	# Reset for each iteration.
-            # If duplicate found then break out of for loop here.
-            for note in "${notes_array[@]}"; do
-                [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
-            done
+                # Check for duplicates
+                IFS=',' read -ra notes_array <<< "$current_notes"
+                local duplicate=0	# Reset for each iteration.
+                # If duplicate found then break out of for loop here.
+                for note in "${notes_array[@]}"; do
+                    [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                done
 
-            if (( duplicate )); then
-                whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
-                duplicate_detected=1
-                # Rebuild original line
-                new_line="$title|$path|$current_notes"
-                # There is no fourth field!!!!
-                # [[ -n "$rest" ]] && new_line+="|$rest"
-                echo "$new_line" >> "$temp_file"	# No change.
-            else
-                # Update notes
-                # If there is no previously associated note...
-                if [[ -z "$current_notes" ]]; then
-                    new_notes="$selected_note_path"
+                if (( duplicate )); then
+                    whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                    # reset
+                    line_updated=0
+
+                    duplicate_detected=1
+                    # Rebuild original line
+                    new_line="$title|$path|$current_notes"
+                    # There is no fourth field!!!!
+                    # [[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# No change.
                 else
-                    new_notes="$current_notes,$selected_note_path"
+                    # reset
+                    duplicate_detected=0
+
+                    # Update notes
+                    # If there is no previously associated note...
+                    if [[ -z "$current_notes" ]]; then
+                        new_notes="$selected_note_path"
+                    else
+                        new_notes="$current_notes,$selected_note_path"
+                    fi
+                    new_line="$title|$path|$new_notes"
+                    #[[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# Changes made.
+                    line_updated=1
                 fi
-                new_line="$title|$path|$new_notes"
-                #[[ -n "$rest" ]] && new_line+="|$rest"
-                echo "$new_line" >> "$temp_file"	# Changes made.
-                line_updated=1
+            else
+                # Just leave the line unchanged.
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$PROJECTS_DB"
+
+        # Handle processing results
+        if (( project_found )); then
+            if (( line_updated && !duplicate_detected )); then
+                mv "$temp_file" "$PROJECTS_DB"
+                whiptail --msgbox "Note successfully associated with the project." 10 50
+            elif (( duplicate_detected )); then
+                rm "$temp_file"
+                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                continue
+            else
+                rm "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                continue
             fi
         else
-			# Just leave the line unchanged.
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$PROJECTS_DB"
-
-    # Handle processing results
-    if (( project_found )); then
-        if (( line_updated )); then
-            mv "$temp_file" "$PROJECTS_DB"
-            whiptail --msgbox "Note successfully associated with the project." 10 50
-        elif (( duplicate_detected )); then
             rm "$temp_file"
-            whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
-            return 1
-        else
-            rm "$temp_file"
-            whiptail --msgbox "No changes were made to the project entry." 10 50
-            return 1
+            whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+            continue
         fi
-    else
-        rm "$temp_file"
-        whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
-        return 1
-    fi
+    done
 }
 
 dissociate_note_from_project() {
