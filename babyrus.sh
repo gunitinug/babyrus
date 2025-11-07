@@ -10515,120 +10515,217 @@ associate_note_to_project() {
 }
 
 dissociate_note_from_project() {
-    #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
-    
+    #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}
+
     # Check if database exists
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
         whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
         return 1
     fi
 
-    # FIX: FILTER BY PROJECT NAME.
-    # Read all lines from database
-#    local -a lines
-#    mapfile -t lines < "$PROJECTS_DB"
+    # Read filtered projects (null-delimited)
     local lines=()
-    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
+    mapfile -d '' -t lines < <(filter_projects_by_name)
 
-    # if [[ ${#lines[@]} -eq 0 ]]; then
-    #     whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
-    #     return 1
-    # fi
-
-    # Generate project selection menu options
-#    local -a project_options
-#    local index title path notes
-#    for index in "${!lines[@]}"; do
-#        IFS='|' read -r title path notes <<< "${lines[index]}"
-#        project_options+=("$index" "$path")
-#    done
     local project_options=("<< Back" "")
     local title path notes line lineno
     for line in "${lines[@]}"; do
         IFS='|' read -r title path notes <<< "$line"
         lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-	# Store matching index from PROJECTS_DB file.
         [[ -n "$lineno" ]] && project_options+=($((lineno-1)) "$path")
     done
 
-    mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
-    # END FIX.
+    # Load full DB lines for editing later
+    mapfile -t lines < "$PROJECTS_DB"
 
     # Show project selection menu
     paginate_get_projects "Select Project" "${project_options[@]}"
-    local selected_project
-    selected_project="$SELECTED_ITEM_PROJECT"
+    local selected_project="$SELECTED_ITEM_PROJECT"
     [[ -z "$selected_project" || "$selected_project" == "<< Back" ]] && return 1
 
-    #local selected_project
-    #selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
-    #    20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-    #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
-
-    # Get selected project details
     local line="${lines[selected_project]}"
     IFS='|' read -r title path notes <<< "$line"
 
-    # Check for existing notes
-    if [[ -z "$notes" ]]; then
-        whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
-        return 1
-    fi
-
-    # Split notes into array
-    local -a notes_arr
-    IFS=',' read -ra notes_arr <<< "$notes"
-    if [[ ${#notes_arr[@]} -eq 0 ]]; then
-        whiptail --msgbox "Selected project has no associated notes" 10 60 >/dev/tty
-        return 1
-    fi
-
-    # Generate note selection menu options
-    local -a note_options
-    local note_index
-    for note_index in "${!notes_arr[@]}"; do
-        note_options+=("$note_index" "${notes_arr[note_index]}")
-    done
-
-    # Show note selection menu
-    paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
-    local selected_note
-    selected_note="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_note" ]] && return 1
-
-    #local selected_note
-    #selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
-    #    20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-    #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
-
-    # Remove selected note from array
-    local -a new_notes
-    for note_index in "${!notes_arr[@]}"; do
-        if [[ $note_index -ne $selected_note ]]; then
-            new_notes+=("${notes_arr[note_index]}")
+    # Begin dissociation loop
+    while true; do
+        if [[ -z "$notes" ]]; then
+            whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+            return 1
         fi
+
+        # Split notes into array
+        local -a notes_arr
+        IFS=',' read -ra notes_arr <<< "$notes"
+
+        if [[ ${#notes_arr[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes left to dissociate." 10 60 >/dev/tty
+            return 1
+        fi
+
+        # Build menu options (add << Back at top)
+        local -a note_options=("<< Back" "")
+        local note_index
+        for note_index in "${!notes_arr[@]}"; do
+            note_options+=("$note_index" "${notes_arr[note_index]}")
+        done
+
+        # Show note selection menu
+        paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
+        local selected_note="$SELECTED_ITEM_PROJECT"
+
+        # If user chooses << Back, stop loop
+        [[ -z "$selected_note" || "$selected_note" == "<< Back" ]] && break
+
+        # Remove selected note from list
+        local -a new_notes=()
+        for note_index in "${!notes_arr[@]}"; do
+            if [[ $note_index -ne $selected_note ]]; then
+                new_notes+=("${notes_arr[note_index]}")
+            fi
+        done
+
+        # Join remaining notes into CSV
+        local new_notes_str=""
+        if [[ ${#new_notes[@]} -gt 0 ]]; then
+            new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
+        fi
+
+        # Update database entry in memory
+        lines[selected_project]="$title|$path|$new_notes_str"
+        notes="$new_notes_str"  # Update current project notes for next loop
+
+        # Write database back to file
+        local tmp_db
+        tmp_db=$(mktemp) || return 1
+        printf "%s\n" "${lines[@]}" > "$tmp_db"
+        mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+
+        whiptail --msgbox "Note successfully dissociated from project." 10 60 >/dev/tty
+
+        # If no notes left, exit loop automatically
+        [[ -z "$notes" ]] && {
+            whiptail --msgbox "All notes have been dissociated from this project." 10 60 >/dev/tty
+            break
+        }
     done
-
-    # Update the database entry
-    local new_notes_str
-    # If after removing selected note there is a note left over in entry...
-    if [[ ${#new_notes[@]} -gt 0 ]]; then
-        new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
-    else
-        new_notes_str=""
-    fi
-
-    lines[selected_project]="$title|$path|$new_notes_str"
-
-    # Write updated database
-    local tmp_db
-    tmp_db=$(mktemp) || return 1
-    printf "%s\n" "${lines[@]}" > "$tmp_db"
-    mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
-
-    whiptail --msgbox "Note successfully dissociated from project." 10 60
 }
+
+# OLD VERSION - JUST FOR RECORD (NEW VERSION ALLOWS MULTIPLE DISSOCIATE NOTE SELECTION)
+# dissociate_note_from_project() {
+#     #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
+    
+#     # Check if database exists
+#     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+#         whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+#         return 1
+#     fi
+
+#     # FIX: FILTER BY PROJECT NAME.
+#     # Read all lines from database
+# #    local -a lines
+# #    mapfile -t lines < "$PROJECTS_DB"
+#     local lines=()
+#     mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
+
+#     # if [[ ${#lines[@]} -eq 0 ]]; then
+#     #     whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
+#     #     return 1
+#     # fi
+
+#     # Generate project selection menu options
+# #    local -a project_options
+# #    local index title path notes
+# #    for index in "${!lines[@]}"; do
+# #        IFS='|' read -r title path notes <<< "${lines[index]}"
+# #        project_options+=("$index" "$path")
+# #    done
+#     local project_options=("<< Back" "")
+#     local title path notes line lineno
+#     for line in "${lines[@]}"; do
+#         IFS='|' read -r title path notes <<< "$line"
+#         lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
+# 	# Store matching index from PROJECTS_DB file.
+#         [[ -n "$lineno" ]] && project_options+=($((lineno-1)) "$path")
+#     done
+
+#     mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
+#     # END FIX.
+
+#     # Show project selection menu
+#     paginate_get_projects "Select Project" "${project_options[@]}"
+#     local selected_project
+#     selected_project="$SELECTED_ITEM_PROJECT"
+#     [[ -z "$selected_project" || "$selected_project" == "<< Back" ]] && return 1
+
+#     #local selected_project
+#     #selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
+#     #    20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+#     #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+
+#     # Get selected project details
+#     local line="${lines[selected_project]}"
+#     IFS='|' read -r title path notes <<< "$line"
+
+#     # Check for existing notes
+#     if [[ -z "$notes" ]]; then
+#         whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+#         return 1
+#     fi
+
+#     # Split notes into array
+#     local -a notes_arr
+#     IFS=',' read -ra notes_arr <<< "$notes"
+#     if [[ ${#notes_arr[@]} -eq 0 ]]; then
+#         whiptail --msgbox "Selected project has no associated notes" 10 60 >/dev/tty
+#         return 1
+#     fi
+
+#     # Generate note selection menu options
+#     local -a note_options
+#     local note_index
+#     for note_index in "${!notes_arr[@]}"; do
+#         note_options+=("$note_index" "${notes_arr[note_index]}")
+#     done
+
+#     # Show note selection menu
+#     paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
+#     local selected_note
+#     selected_note="$SELECTED_ITEM_PROJECT"
+#     [[ -z "$selected_note" ]] && return 1
+
+#     #local selected_note
+#     #selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
+#     #    20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+#     #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
+
+#     # Remove selected note from array
+#     local -a new_notes
+#     for note_index in "${!notes_arr[@]}"; do
+#         if [[ $note_index -ne $selected_note ]]; then
+#             new_notes+=("${notes_arr[note_index]}")
+#         fi
+#     done
+
+#     # Update the database entry
+#     local new_notes_str
+#     # If after removing selected note there is a note left over in entry...
+#     if [[ ${#new_notes[@]} -gt 0 ]]; then
+#         new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
+#     else
+#         new_notes_str=""
+#     fi
+
+#     lines[selected_project]="$title|$path|$new_notes_str"
+
+#     # Write updated database
+#     local tmp_db
+#     tmp_db=$(mktemp) || return 1
+#     printf "%s\n" "${lines[@]}" > "$tmp_db"
+#     mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+
+#     whiptail --msgbox "Note successfully dissociated from project." 10 60
+# }
 
 open_note_ebook_page_from_project() {
     local selected_line="$1"
