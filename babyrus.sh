@@ -10515,6 +10515,22 @@ associate_note_to_project() {
 }
 
 dissociate_note_from_project() {
+    find_tags_for_linked_note() {
+        local path_to_note_file="$1"
+        local matching_tags_str=""
+
+        # Ensure NOTES_DB is defined and exists
+        if [[ -z "$NOTES_DB" || ! -f "$NOTES_DB" ]]; then
+            echo "Error: NOTES_DB not defined or file not found." >&2
+            return 1
+        fi
+
+        # Extract the tags (3rd field) for the matching note
+        matching_tags_str=$(awk -F'|' -v path="$path_to_note_file" '$2 == path {print $3}' "$NOTES_DB")
+
+        echo "$matching_tags_str"
+    }
+
     #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}
 
     # Check if database exists
@@ -10564,9 +10580,10 @@ dissociate_note_from_project() {
 
         # Build menu options (add << Back at top)
         local -a note_options=("<< Back" "")
-        local note_index
+        local note_index note_matching_tags
         for note_index in "${!notes_arr[@]}"; do
-            note_options+=("$note_index" "${notes_arr[note_index]}")
+            note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
+            note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
         done
 
         # Show note selection menu
