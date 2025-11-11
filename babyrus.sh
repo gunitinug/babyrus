@@ -12073,11 +12073,11 @@ During the restoration process, existing database files will be overwritten with
 msg1="'Labor of love and hope"
 msg2="in our Lord Jesus Christ.'"
 msg3="1 Thessalonians 1:3"
-padding1=$(( (50 - ${#msg1}) / 2 ))
+padding1=$(( (53 - ${#msg1}) / 2 ))
 padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
-padding2=$(( (50 - ${#msg2}) / 2 ))
+padding2=$(( (55 - ${#msg2}) / 2 ))
 padded_msg2="$(printf "%*s%s" $padding2 "" "$msg2")"
-padding3=$(( (50 - ${#msg3}) / 2 ))
+padding3=$(( (53 - ${#msg3}) / 2 ))
 padded_msg3="$(printf "%*s%s" $padding3 "" "$msg3")"
 padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}"
 MAIN_MENU_STR="
