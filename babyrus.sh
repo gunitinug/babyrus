@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99n'
+BABYRUS_VERSION='v.0.99o'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -12070,9 +12070,16 @@ During the restoration process, existing database files will be overwritten with
 ################################
 # Main Menu
 ################################
-msg="'Knowledge is Power.'"
-padding=$(( (50 - ${#msg}) / 2 ))
-padded_msg="$(printf "%*s%s" $padding "" "$msg")"
+msg1="'Labor of love and hope"
+msg2="in our Lord Jesus Christ.'"
+msg3="1 Thessalonians 1:3"
+padding1=$(( (50 - ${#msg1}) / 2 ))
+padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
+padding2=$(( (50 - ${#msg2}) / 2 ))
+padded_msg2="$(printf "%*s%s" $padding2 "" "$msg2")"
+padding3=$(( (50 - ${#msg3}) / 2 ))
+padded_msg3="$(printf "%*s%s" $padding3 "" "$msg3")"
+padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}"
 MAIN_MENU_STR="
 ${padded_msg}
 Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3
@@ -12081,7 +12088,7 @@ Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 50 8 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 25 55 8 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
