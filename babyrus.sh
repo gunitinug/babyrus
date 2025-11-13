@@ -2515,16 +2515,17 @@ open_file_search_by_filename() {
     # gawk: write NUL-separated matches to $out1 and progress to fifo1
     "$AWK_BIN" -v search="$search_term" -v total="$total" '
     # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }    
+    function glob2re(g,    i, ch, out) {
+        out = ""
+        for (i = 1; i <= length(g); i++) {
+            ch = substr(g, i, 1)
+            if (ch == "*")      out = out ".*"
+            else if (ch == "?") out = out "."
+            else if (ch ~ /[.^$+(){}|\\]/) out = out "\\" ch
+            else                 out = out ch
+        }
+        return "^" out "$"
+    }
     BEGIN { FS = OFS = "|"; idx = 1 }
     {
       tags = $NF
@@ -2541,6 +2542,7 @@ open_file_search_by_filename() {
       }
     
       pattern = glob2re(tolower(search))
+      #print "Pattern is:" pattern > "/dev/stderr"
       if (search == "*" || tolower(file) ~ pattern) {
       #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
         printf("%s\0\0", path)
@@ -2569,16 +2571,17 @@ open_file_search_by_filename() {
     
     "$AWK_BIN" -v search="$search_term" -v total="$total" '
     # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }    
+    function glob2re(g,    i, ch, out) {
+        out = ""
+        for (i = 1; i <= length(g); i++) {
+            ch = substr(g, i, 1)
+            if (ch == "*")      out = out ".*"
+            else if (ch == "?") out = out "."
+            else if (ch ~ /[.^$+(){}|\\]/) out = out "\\" ch
+            else                 out = out ch
+        }
+        return "^" out "$"
+    }
     BEGIN {
       FS = OFS = "|"
       idx = 1
@@ -2600,6 +2603,7 @@ open_file_search_by_filename() {
         dir  = "."
       }
       pattern = glob2re(tolower(search))
+      #print "Pattern is:" pattern
       if (search == "*" || tolower(file) ~ pattern) {
       #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
         # truncate dir
