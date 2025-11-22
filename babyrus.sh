@@ -10777,6 +10777,46 @@ open_note_ebook_page_from_project() {
 }
 
 do_stuff_with_project_file() {
+    truncate_tag() {
+        local tags="$1"
+        local max_len=60    # tweak this!
+
+        # If already within limit, print unchanged
+        if (( ${#tags} <= max_len )); then
+            echo "$tags"
+            return
+        fi
+
+        # Split into an array (preserve tags with spaces)
+        IFS=',' read -r -a arr <<< "$tags"
+
+        local latest_tag="${arr[-1]}"
+        local result=""
+        local sep=""
+
+        # Try adding tags until adding another exceeds limit
+        for (( i=0; i<${#arr[@]}-1; i++ )); do
+            local t="${arr[$i]}"
+            local candidate="${result}${sep}${t}"
+
+            # If not enough room even if we later add ", ..., latest_tag", stop
+            local future="${candidate}, ..., ${latest_tag}"
+            if (( ${#future} > max_len )); then
+                break
+            fi
+
+            result="$candidate"
+            sep=", "
+        done
+
+        # If we couldn't include any tags (very tight width), result may be empty
+        if [[ -z "$result" ]]; then
+            echo "... , ${latest_tag}"
+        else
+            echo "${result}, ..., ${latest_tag}"
+        fi
+    }
+
     show_note_menu() {
         local note_menu_options=("$@")
         local page=0
@@ -10876,12 +10916,17 @@ do_stuff_with_project_file() {
     local note_lines=() 
     local note_menu_options=()
 
+    local trunc_tag
     for np in "${note_paths[@]}"; do
         while IFS= read -r line; do
             IFS='|' read -r title path tags _ <<< "$line"
             if [ "$path" = "$np" ]; then
                 note_lines+=("$line")
-                note_menu_options+=("${#note_lines[@]}" "$title [${tags}]")
+
+                # truncate tag string
+                trunc_tag="$(truncate_tag "$tags")"
+
+                note_menu_options+=("${#note_lines[@]}" "$title [${trunc_tag}]")
                 break
             fi
         done < "$NOTES_DB"
