@@ -10807,7 +10807,7 @@ do_stuff_with_project_file() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:" 20 70 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -10878,10 +10878,10 @@ do_stuff_with_project_file() {
 
     for np in "${note_paths[@]}"; do
         while IFS= read -r line; do
-            IFS='|' read -r title path _ _ <<< "$line"
+            IFS='|' read -r title path tags _ <<< "$line"
             if [ "$path" = "$np" ]; then
                 note_lines+=("$line")
-                note_menu_options+=("${#note_lines[@]}" "$title")
+                note_menu_options+=("${#note_lines[@]}" "$title [${tags}]")
                 break
             fi
         done < "$NOTES_DB"
