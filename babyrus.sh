@@ -8314,10 +8314,177 @@ open_note_ebook_page_from_filtered() {
     fi
 }
 
+associate_new_note_to_project() {
+    (
+        ask() {
+            choice=$(whiptail --title "Next action" \
+                            --menu "Choose an option:" \
+                            15 60 2 \
+                            "associate" "Associate this note with project file" \
+                            "continue"  "Do nothing further" \
+                            3>&1 1>&2 2>&3)
+
+            exit_status=$?
+
+            # Handle Cancel or ESC
+            if [[ $exit_status -ne 0 ]]; then
+                return 1
+            fi
+
+            case "$choice" in
+                continue)
+                    return 1
+                    ;;
+                associate)
+                    return 0
+                    ;;
+            esac
+        }
+        
+        ask
+    ) || return 1
+
+    # accept note path as arg
+    local NEW_NOTE_PATH="$1"
+
+    local temp_file line_updated duplicate_detected project_found
+    temp_file=$(mktemp) || return 1
+    line_updated=0
+    duplicate_detected=0
+    project_found=0
+
+    # Check if databases exist
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+        return 1
+    fi
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+        return 1
+    fi
+
+    # FIX: ALLOW FILTERING BY GLOB.
+    # Get pattern from user using whiptail
+    local pattern
+    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    : "${pattern:=*}"	# default to * if unset.
+
+    # Enable case-insensitive glob matching
+    shopt -s nocasematch
+    
+    local project_menu_options=()
+    local filename title path rest
+    while IFS='|' read -r title path rest; do
+        # Extract filename from path
+        filename=$(basename "$path")
+        
+        # Check if filename matches the pattern (now case-insensitive)
+        if [[ "$filename" == $pattern ]]; then
+            project_menu_options+=("$path" "")
+        fi
+    done < "$PROJECTS_DB"
+    
+    # Restore default case sensitivity
+    shopt -u nocasematch
+
+    # If no matches found, show message and exit
+    if [ ${#project_menu_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
+        return 1
+    fi
+    # END FIX.
+
+    # Project selection
+    paginate_get_projects "Select Project" "${project_menu_options[@]}"
+    local selected_project_path
+    selected_project_path="$SELECTED_ITEM_PROJECT"
+    [[ -z "$selected_project_path" ]] && return 1
+
+    # WE'VE SELECTED PROJECT FILE AT THIS POINT!!!!
+
+    local selected_note_path="$NEW_NOTE_PATH"
+
+    # Process PROJECTS_DB - update each line (only change line of selected project file)
+    while IFS= read -r line; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        IFS='|' read -r title path notes <<< "$line"
+        # If there is matched line...
+        if [[ "$path" == "$selected_project_path" ]]; then
+            project_found=1
+            current_notes="$notes"
+            local notes_array=()
+
+            # Check for duplicates
+            IFS=',' read -ra notes_array <<< "$current_notes"
+            local duplicate=0	# Reset for each iteration.
+            # If duplicate found then set duplicate and break out of for loop here.
+            for note in "${notes_array[@]}"; do
+                [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+            done
+
+            if (( duplicate )); then
+                whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                # reset
+                line_updated=0
+
+                duplicate_detected=1
+                # Rebuild original line
+                new_line="$title|$path|$current_notes"
+                # There is no fourth field!!!!
+                # [[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# No change.
+            else
+                # reset
+                duplicate_detected=0
+
+                # Update notes
+                # If there is no previously associated note...
+                if [[ -z "$current_notes" ]]; then
+                    new_notes="$selected_note_path"
+                else
+                    new_notes="$current_notes,$selected_note_path"
+                fi
+                new_line="$title|$path|$new_notes"
+                #[[ -n "$rest" ]] && new_line+="|$rest"
+                echo "$new_line" >> "$temp_file"	# Changes made.
+                line_updated=1
+            fi
+        else
+            # Just leave the line unchanged.
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$PROJECTS_DB"
+
+    # Handle processing results
+    if (( project_found )); then
+        if (( line_updated && !duplicate_detected )); then
+            mv "$temp_file" "$PROJECTS_DB"
+            whiptail --msgbox "Note successfully associated with the project." 10 50
+        elif (( duplicate_detected )); then
+            rm "$temp_file"
+            #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+            return 1
+        else
+            rm "$temp_file"
+            whiptail --msgbox "No changes were made to the project entry." 10 50
+            return 1
+        fi
+    else
+        rm "$temp_file"
+        whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+        return 1
+    fi
+}
+
 do_note_filter_by_tag() {
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
-by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks." 10 60
+by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks. \n\n\
+After creating a new note, you can choose to associate it to a project file." 20 70
 
     local chosen_tag
     chosen_tag=$(get_note_tag_from_global_list) || return 1
@@ -8336,7 +8503,8 @@ by their associated tag and do stuff with them. You can add a new note with the 
 
     case "$choice" in
         "Add note with same tag")
-            add_note "$chosen_tag"
+            add_note "$chosen_tag" || return 1
+            [[ -n "$note_path" ]] && associate_new_note_to_project "$note_path"
             ;;
         "Edit note")
             list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
