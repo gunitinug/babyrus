@@ -8484,7 +8484,7 @@ do_note_filter_by_tag() {
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
 by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks. \n\n\
-After creating a new note, you can choose to associate it to a project file." 20 70
+After creating a new note, you can choose to associate it to a project file. Afterwards, you can do stuff with it from Manage Goals section such as View Note or Open ebooks." 20 70
 
     local chosen_tag
     chosen_tag=$(get_note_tag_from_global_list) || return 1
