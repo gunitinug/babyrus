@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99p'
+BABYRUS_VERSION='v.0.99q'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -11123,7 +11123,8 @@ do_stuff_with_project_file() {
         local action
         action=$(whiptail --menu "Note Action" 15 50 5 \
             "1" "View Note" \
-            "2" "Open ebooks" 3>&1 1>&2 2>&3)
+            "2" "Open ebooks linked to note" \
+            "3" "Edit Note" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && return 1
 
         case "$action" in
@@ -11150,6 +11151,10 @@ do_stuff_with_project_file() {
                 ;;
             "2")
                 open_note_ebook_page_from_project "$selected_note_line"
+                ;;
+            "3")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                edit_note "$note_path"
                 ;;
         esac
     done
