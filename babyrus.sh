@@ -11026,6 +11026,66 @@ do_stuff_with_project_file() {
         done
     }
 
+    open_url_assoc_to_chosen_note() {
+        touch "$URLS_DB"
+        
+        #local URLS_DB="$URLS_DB"
+        local GS=$'\x1D'  # separates note path and rest
+        local US=$'\x1F'  # separates url and url title
+        local RS=$'\x1E'  # separates urls            
+
+        # Check if URLs database exists
+        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
+            whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
+            return 1
+        fi
+
+        while true; do
+            local selected_path
+            [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
+
+            # Extract URLs for selected note
+            local urls=()
+            local titles=()
+            while IFS= read -r line; do
+                # Only for the matched line...
+                if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
+                    for entry in "${entries[@]}"; do
+                        IFS="$US" read -r url title <<< "$entry"
+                        urls+=("$url")
+                        titles+=("$title")
+                    done
+                    break
+                fi
+            done < "$URLS_DB"
+
+            if [[ ${#urls[@]} -eq 0 ]]; then
+                whiptail --msgbox "No URLs found for selected note!" 8 50 >/dev/tty
+                continue
+            fi
+
+            # URL selection loop
+            while true; do
+                local url_menu_items=("<< Back" "")
+                for i in "${!urls[@]}"; do
+                    url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                done
+
+                local choice
+                choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+                    20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
+                [[ -z "$choice" ]] && return 1
+
+                if [[ "$choice" == "<< Back" ]]; then
+                    return 1
+                elif [[ -n "${urls[$choice]}" ]]; then                
+                    nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
+                fi
+            done
+        done
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
@@ -11124,7 +11184,8 @@ do_stuff_with_project_file() {
         action=$(whiptail --menu "Note Action" 15 50 5 \
             "1" "View Note" \
             "2" "Open ebooks linked to note" \
-            "3" "Edit Note" 3>&1 1>&2 2>&3)
+            "3" "Edit Note" \
+            "4" "Open linked URL" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && return 1
 
         case "$action" in
@@ -11155,6 +11216,10 @@ do_stuff_with_project_file() {
             "3")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 edit_note "$note_path"
+                ;;
+            "4")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                open_url_assoc_to_chosen_note "$note_path"
                 ;;
         esac
     done
