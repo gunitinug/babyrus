@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99q'
+BABYRUS_VERSION='v.0.99r'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -12633,8 +12633,17 @@ padded_msg3="$(printf "%*s%s" $padding3 "" "$msg3")"
 padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}"
 MAIN_MENU_STR="
 ${padded_msg}
-Copyleft © 2025 ${BABYRUS_AUTHOR} — Licensed under GNU GPL v3
 "
+
+# About message
+about_babyrus() {
+    whiptail --title "About BABYRUS" --msgbox \
+"BABYRUS — a simple, fast, terminal-based productivity tool.
+Version: ${BABYRUS_VERSION}
+
+Copyleft © 2025 Logan Lee — GPLv3." \
+    12 60
+}
 
 # Main menu function
 show_main_menu() {
@@ -12647,6 +12656,7 @@ show_main_menu() {
             "Help" "Read Help" \
 	        "Backup" "Backup Everything" \
 	        "Restore" "Restore from File" \
+            "About" "About BABYRUS" \
             3>&1 1>&2 2>&3)
 
         if [ $? != 0 ]; then
@@ -12675,6 +12685,9 @@ show_main_menu() {
 	        "Restore")
 		        restore_db
 		        ;;
+            "About")
+                about_babyrus
+                ;;
         esac
     done
 }
