@@ -11234,6 +11234,112 @@ do_stuff_with_project_file() {
         done
     }    
 
+    dissoc_url_from_chosen_note() {
+        touch "$URLS_DB"
+        
+        #local URLS_DB="$URLS_DB"
+        local GS=$'\x1D'  # separates note path and rest
+        local US=$'\x1F'  # separates url and url title
+        local RS=$'\x1E'  # separates urls
+
+        # Check URL database existence
+        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
+            whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+            return 1
+        fi
+
+        local selected_path
+        [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
+
+        # Load existing URLs
+        local urls=()
+        local titles=()
+        while IFS= read -r line; do
+            if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                IFS="$RS" read -ra entries <<< "${line#*$GS}"
+                for entry in "${entries[@]}"; do
+                    IFS="$US" read -r url title <<< "$entry"
+                    urls+=("$url")
+                    titles+=("$title")
+                done
+                break
+            fi
+        done < "$URLS_DB"
+
+        # URL removal loop
+        while true; do
+            local menu_options=("Remove URL" "" "Save and return" "")
+            for i in "${!urls[@]}"; do
+                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+            done
+
+            local choice
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+                "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            [[ -z "$choice" ]] && continue
+
+            case "$choice" in
+                "Remove URL")
+                    if [[ ${#urls[@]} -eq 0 ]]; then
+                        whiptail --msgbox "No URLs to remove!" 8 50 >/dev/tty
+                        continue
+                    fi
+
+                    # Create removal submenu
+                    local remove_menu=()
+                    for i in "${!urls[@]}"; do
+                        remove_menu+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                    done
+
+                    local remove_index
+                    remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                        "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
+                    [[ -z "$remove_index" ]] && continue
+
+                    # Validate and remove selected URL
+                    if [[ -v "urls[$remove_index]" ]]; then
+                        unset 'urls[$remove_index]'
+                        unset 'titles[$remove_index]'
+                        urls=("${urls[@]}")  # Reindex array
+                        titles=("${titles[@]}")
+                    else
+                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
+                    fi
+                    ;;
+
+                "Save and return")
+                    # Prepare new entry
+                    local new_entry="${selected_path}${GS}"
+                    for i in "${!urls[@]}"; do
+                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
+                    done
+                    new_entry="${new_entry%$RS}"
+
+                    # Update database
+                    local temp_file=$(mktemp) || return 1
+                    {
+                        # Copy existing entries except current note
+                        while IFS= read -r line; do
+                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
+                        done < "$URLS_DB"
+                        
+                        # Add updated entry if URLs remain
+                        [[ -n "$new_entry" ]] && echo "$new_entry"
+                    } > "$temp_file"
+
+                    mv "$temp_file" "$URLS_DB"
+                    whiptail --msgbox "URL associations updated!" 8 50 >/dev/tty
+                    return 0
+                    ;;
+
+                *)
+                    # Ignore URL index selections
+                    continue
+                    ;;
+            esac
+        done
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
@@ -11329,12 +11435,13 @@ do_stuff_with_project_file() {
 
         # Action selection
         local action
-        action=$(whiptail --menu "Note Action" 15 50 5 \
+        action=$(whiptail --menu "Note Action" 20 50 8 \
             "1" "View Note" \
             "2" "Open ebooks linked to note" \
             "3" "Edit Note" \
             "4" "Open linked URL" \
-            "5" "Associate URL to note" 3>&1 1>&2 2>&3)
+            "5" "Associate URL to note" \
+            "6" "Dissociate URL from note" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && return 1
 
         case "$action" in
@@ -11373,6 +11480,10 @@ do_stuff_with_project_file() {
             "5")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 assoc_url_to_chosen_note
+                ;;
+            "6")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                dissoc_url_from_chosen_note
                 ;;
         esac
     done
