@@ -11442,7 +11442,7 @@ do_stuff_with_project_file() {
             "4" "Open linked URL" \
             "5" "Associate URL to note" \
             "6" "Dissociate URL from note" 3>&1 1>&2 2>&3)
-        [ $? -ne 0 ] && return 1
+        [ $? -ne 0 ] && continue    # i want to return to list of linked note files so continue
 
         case "$action" in
             "1")
