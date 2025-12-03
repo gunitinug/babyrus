@@ -8480,6 +8480,169 @@ associate_new_note_to_project() {
     fi
 }
 
+associate_notes_by_tag_to_project() {
+    select_filtered_note_by_tag() {
+        local menu_items=()
+        local line
+
+        # Build menu items from arguments
+        local _title note_path _tags _rest
+        for line in "$@"; do
+            IFS='|' read -r _title note_path _tags _rest <<< "$line"
+            menu_items+=("$note_path" "")
+        done
+
+        # Show menu
+        local selected_note
+        selected_note=$(whiptail --title "Select Note" \
+            --menu "Select a note by tag:" 20 170 10 \
+            "${menu_items[@]}" \
+            3>&1 1>&2 2>&3)
+
+        # Handle user cancel
+        [[ -z "$selected_note" ]] && return 1
+
+        echo "$selected_note"
+    }    
+
+    # let user select note from list
+    local selected_note_path
+    selected_note_path="$(select_filtered_note_by_tag "$@")" || return 1
+    [[ -z "$selected_note_path" ]] && return 1
+
+    local temp_file line_updated duplicate_detected project_found
+    temp_file=$(mktemp) || return 1
+    line_updated=0
+    duplicate_detected=0
+    project_found=0
+
+    # Check if databases exist
+    if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+        whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+        return 1
+    fi
+    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+        whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+        return 1
+    fi
+
+    # FIX: ALLOW FILTERING BY GLOB.
+    # Get pattern from user using whiptail
+    local pattern
+    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    : "${pattern:=*}"	# default to * if unset.
+
+    # Enable case-insensitive glob matching
+    shopt -s nocasematch
+    
+    local project_menu_options=()
+    local filename title path rest
+    while IFS='|' read -r title path rest; do
+        # Extract filename from path
+        filename=$(basename "$path")
+        
+        # Check if filename matches the pattern (now case-insensitive)
+        if [[ "$filename" == $pattern ]]; then
+            project_menu_options+=("$path" "")
+        fi
+    done < "$PROJECTS_DB"
+    
+    # Restore default case sensitivity
+    shopt -u nocasematch
+
+    # If no matches found, show message and exit
+    if [ ${#project_menu_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
+        return 1
+    fi
+    # END FIX.
+
+    while :; do
+        # Project selection
+        paginate_get_projects "Select Project to Associate With" "${project_menu_options[@]}"
+        local selected_project_path
+        selected_project_path="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_project_path" ]] && return 1
+
+        # Process PROJECTS_DB - we are rewriting each line to temp_file.
+        while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+                #echo >> "$temp_file"
+                continue
+            fi
+
+            IFS='|' read -r title path notes <<< "$line"
+            # If there is matched line...
+            if [[ "$path" == "$selected_project_path" ]]; then
+                project_found=1
+                local current_notes
+                current_notes="$notes"
+                local notes_array=()
+
+                # Check for duplicates
+                IFS=',' read -ra notes_array <<< "$current_notes"
+                local duplicate=0	# Reset for each iteration.
+                # If duplicate found then break out of for loop here.
+                for note in "${notes_array[@]}"; do
+                    [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                done
+
+                if (( duplicate )); then
+                    whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                    # reset
+                    line_updated=0
+
+                    duplicate_detected=1
+                    # Rebuild original line
+                    new_line="$title|$path|$current_notes"
+                    # There is no fourth field!!!!
+                    # [[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# No change.
+                else
+                    # reset
+                    duplicate_detected=0
+
+                    # Update notes
+                    # If there is no previously associated note...
+                    if [[ -z "$current_notes" ]]; then
+                        new_notes="$selected_note_path"
+                    else
+                        new_notes="$current_notes,$selected_note_path"
+                    fi
+                    new_line="$title|$path|$new_notes"
+                    #[[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# Changes made.
+                    line_updated=1
+                fi
+            else
+                # Just leave the line unchanged.
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$PROJECTS_DB"
+
+        # Handle processing results
+        if (( project_found )); then
+            if (( line_updated && !duplicate_detected )); then
+                mv "$temp_file" "$PROJECTS_DB"
+                whiptail --msgbox "Note successfully associated with the project." 10 50
+            elif (( duplicate_detected )); then
+                rm "$temp_file"
+                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                continue
+            else
+                rm "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                continue
+            fi
+        else
+            rm "$temp_file"
+            whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+            continue
+        fi
+    done
+}
+
 do_note_filter_by_tag() {
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
@@ -8498,7 +8661,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
     local choice
     choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-        15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" \
+        15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
         3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
     case "$choice" in
@@ -8511,6 +8674,9 @@ After creating a new note, you can choose to associate it to a project file. Aft
             ;;
         "Open associated ebook")
             open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+            ;;
+        "Associate note to project")
+            associate_notes_by_tag_to_project "${FILTERED_NOTES_BY_TAG[@]}"
             ;;
     esac
 }
@@ -11062,27 +11228,29 @@ do_stuff_with_project_file() {
 
             if [[ ${#urls[@]} -eq 0 ]]; then
                 whiptail --msgbox "No URLs found for selected note!" 8 50 >/dev/tty
-                continue
+                return 1                
             fi
 
             # URL selection loop
-            while true; do
-                local url_menu_items=("<< Back" "")
-                for i in "${!urls[@]}"; do
-                    url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+            [[ ${#urls[@]} -gt 0 ]] && {
+                while true; do
+                    local url_menu_items=("<< Back" "")
+                    for i in "${!urls[@]}"; do
+                        url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                    done
+
+                    local choice
+                    choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+                        20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
+                    [[ -z "$choice" ]] && return 1
+
+                    if [[ "$choice" == "<< Back" ]]; then
+                        return 1
+                    elif [[ -n "${urls[$choice]}" ]]; then                
+                        nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
+                    fi
                 done
-
-                local choice
-                choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                    20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
-                [[ -z "$choice" ]] && return 1
-
-                if [[ "$choice" == "<< Back" ]]; then
-                    return 1
-                elif [[ -n "${urls[$choice]}" ]]; then                
-                    nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
-                fi
-            done
+            }
         done
     }
 
@@ -11517,23 +11685,23 @@ open_url_assoc_to_note_from_project() {
 
     while true; do
 		# FIX: FILTER CONTINUES HERE.
-                # Enable case-insensitive glob matching
-                shopt -s nocasematch
-    
-                local projects_menu_items=()
-                local filename title proj_path notes
-                while IFS='|' read -r title proj_path notes; do
-                    # Extract filename from path
-                    filename=$(basename "$proj_path")
-        
-                    # Check if filename matches the pattern (now case-insensitive)
-                    if [[ "$filename" == $pattern ]]; then
-                        projects_menu_items+=("$proj_path" "")
-                    fi
-                done < "$PROJECTS_DB"
-    
-                # Restore default case sensitivity
-                shopt -u nocasematch
+        # Enable case-insensitive glob matching
+        shopt -s nocasematch
+
+        local projects_menu_items=()
+        local filename title proj_path notes
+        while IFS='|' read -r title proj_path notes; do
+            # Extract filename from path
+            filename=$(basename "$proj_path")
+
+            # Check if filename matches the pattern (now case-insensitive)
+            if [[ "$filename" == $pattern ]]; then
+                projects_menu_items+=("$proj_path" "")
+            fi
+        done < "$PROJECTS_DB"
+
+        # Restore default case sensitivity
+        shopt -u nocasematch
 
 		# If $projects_menu_items is empty then inform user and return from function.
 		[[ ${#projects_menu_items} -eq 0 ]] && {
