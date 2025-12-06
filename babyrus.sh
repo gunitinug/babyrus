@@ -4684,8 +4684,15 @@ and physically on drive. You can also revert the changes later." 15 80
     # is this necessary? it's giving no such file error if user selects not to go ahead with renaming.
     touch /tmp/changes.tmp /tmp/new_lines.tmp 2>/dev/null
 
-    # Create backup of original database
-    cp -- "$EBOOKS_DB" "$EBOOKS_DB_BACKUP" || return 1
+    # If ebooks.db and ebooks.db.backup files are equal content
+    # then we shouldn't proceed!    
+    if [[ -f "$EBOOKS_DB_BACKUP" ]] && cmp -s "$EBOOKS_DB" "$EBOOKS_DB_BACKUP"; then
+        echo "ebooks db and ebooks db backup files are the same!" >&2   # debug
+        return 1
+    fi
+
+    # Create new backup of original database
+    cp -- "$EBOOKS_DB" "${EBOOKS_DB_BACKUP}_" || return 1
 
     # Display whiptail message telling user to wait
     TERM=ansi whiptail --title "Processing" \
@@ -4734,7 +4741,7 @@ and physically on drive. You can also revert the changes later." 15 80
             print $0 > "/tmp/new_lines.tmp"
         }
     }
-    ' "$EBOOKS_DB_BACKUP"
+    ' "${EBOOKS_DB_BACKUP}_"
 
     # Read back into bash arrays and associative array
     while IFS='|' read -r old new; do
@@ -4765,11 +4772,17 @@ and physically on drive. You can also revert the changes later." 15 80
         if ! whiptail --title "Confirmation" --yesno "Proceed with these changes?" 10 80; then
             rm -f "$TEMP_DB"
             #echo "Operation cancelled by user" >&2
+            rm -f "${EBOOKS_DB_BACKUP}_"
             return 1
         fi
+
+        # Only create ebooks db backup file if renaming has occurred.
+        cp "${EBOOKS_DB_BACKUP}_" "${EBOOKS_DB_BACKUP}"
+        rm -f "${EBOOKS_DB_BACKUP}_"
     else
         whiptail --title "No changes needed" --msgbox "No files with illegal characters found" 8 50
         rm -f "$TEMP_DB"
+        rm -f "${EBOOKS_DB_BACKUP}_"
         return 0
     fi
 
