@@ -6658,33 +6658,61 @@ filter_by_filename() {
 
   in_operation_msg
 
-  # Process each line in EBOOKS_DB
-  while IFS= read -r line; do
-    local filepath="${line%|*}"
-    local filename
-    filename=$(basename "$filepath")
-    local tags_part="${line#*|}"
+  # Process each line in EBOOKS_DB and populate $FILTERED_EBOOKS
+  # where the items are in pairs: ($filepath, "")
+mapfile -t FILTERED_EBOOKS < <(
+  awk -F'\\|' \
+      -v tag="$selected_tag" \
+      -v glob="$search_term" '
+    # Convert shell glob → regex (case-insensitive)
+    function glob_to_regex(g, r, i, c) {
+      r = "^"
+      for (i = 1; i <= length(g); i++) {
+        c = substr(g, i, 1)
+        if (c == "*")        r = r ".*"
+        else if (c == "?")   r = r "."
+        else if (c == ".")   r = r "\\."
+        else if (c == "[")   r = r "["
+        else if (c == "]")   r = r "]"
+        else if (c == "\\")  r = r "\\\\"
+        else                 r = r c
+      }
+      return r "$"
+    }
 
-    # Tag filter
-    if [ "$selected_tag" != "ANY TAG" ]; then
-      # Check if selected_tag is in the tags_part
-      if [[ ! ",${tags_part}," =~ ",${selected_tag}," ]]; then
-        continue
-      fi
-    fi
+    BEGIN {
+      IGNORECASE = 1   # case-insensitive filename and glob match
+      if (length(glob) > 0)
+        regex = glob_to_regex(glob)
+      else
+        regex = ""     # no filename filter
+    }
 
-    shopt -s nocasematch    # preserves spaces in search_term
-    # Filename filter
-    if [ -n "$search_term" ]; then
-      # Perform case-insensitive substring match
-      if [[ "${filename,,}" != ${search_term,,} ]]; then
-        continue
-      fi
-    fi
-    shopt -u nocasematch
+    {
+      filepath = $1
+      tags     = $2
 
-    FILTERED_EBOOKS+=("$filepath" "")
-  done < "$EBOOKS_DB"
+      # --- Tag filter ---
+      if (tag != "ANY TAG") {
+        tags2 = "," tags ","
+        pat   = "," tag ","
+        if (index(tags2, pat) == 0) next
+      }
+
+      # --- Filename filter ---
+      if (regex != "") {
+        n = split(filepath, arr, "/")
+        filename = arr[n]
+
+        if (filename !~ regex)
+          next
+      }
+
+      print filepath
+      print ""
+    }
+  ' "$EBOOKS_DB"
+)
 
   # Show result count
   whiptail --msgbox "Found $(( ${#FILTERED_EBOOKS[@]} / 2 )) matching entries." 8 60 --title "Filter Results" >/dev/tty
