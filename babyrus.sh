@@ -4681,6 +4681,9 @@ and physically on drive. You can also revert the changes later." 15 80
     local -a changes=()
     local -a new_lines=()
 
+    # is this necessary? it's giving no such file error if user selects not to go ahead with renaming.
+    touch /tmp/changes.tmp /tmp/new_lines.tmp 2>/dev/null
+
     # Create backup of original database
     cp -- "$EBOOKS_DB" "$EBOOKS_DB_BACKUP" || return 1
 
@@ -4689,39 +4692,62 @@ and physically on drive. You can also revert the changes later." 15 80
          --infobox "Collecting information about illegal filenames registered inside ebooks database.\n\nPlease wait..." 10 60
 
     # First pass: collect changes and prepare new database
+    # Process in awk
+    awk -F'|' -v OFS='|' '
+    function sanitize(name) {
+        gsub(/[,:#;]/, "_", name)
+        return name
+    }
+
+    {
+        path = $1
+        tags = $2
+
+        dir = path
+        sub(/\/[^\/]*$/, "", dir)  # dirname
+        old_basename = path
+        sub(/^.*\//, "", old_basename)  # basename
+
+        new_basename = sanitize(old_basename)
+        new_path = dir "/" new_basename
+
+        # Only rename if old file name and sanitized version differs
+        if (new_basename != old_basename) {
+            counter = 1
+            while (new_path in used || system("[ -e \"" new_path "\" ]") == 0) {
+                split(new_basename, parts, /\./)
+                if (length(parts) == 1) {
+                    new_basename = parts[1] "_" counter
+                } else {
+                    ext = parts[length(parts)]
+                    name_part = substr(new_basename, 1, length(new_basename) - length(ext) - 1)
+                    new_basename = name_part "_" counter "." ext
+                }
+                new_path = dir "/" new_basename
+                counter++
+            }
+            used[new_path] = 1
+            print path "|" new_path > "/tmp/changes.tmp"
+            print new_path "|" tags > "/tmp/new_lines.tmp"
+        } else {
+            # Name unchanged; keep line as-is
+            print $0 > "/tmp/new_lines.tmp"
+        }
+    }
+    ' "$EBOOKS_DB_BACKUP"
+
+    # Read back into bash arrays and associative array
+    while IFS='|' read -r old new; do
+        changes+=("$old|$new")
+        used_paths["$new"]=1
+    done < /tmp/changes.tmp
+
     while IFS= read -r line; do
-        IFS='|' read -r path tags <<< "$line"
-        local dir old_basename new_basename new_path
+        new_lines+=("$line")
+    done < /tmp/new_lines.tmp
 
-        dir=$(dirname -- "$path")
-        old_basename=$(basename -- "$path")
-        new_basename=$(tr ',#:;' '_' <<< "$old_basename")
-
-        if [[ "$new_basename" != "$old_basename" ]]; then
-            # Generate unique filename
-            new_path="$dir/$new_basename"
-            local counter=1
-            
-            # Check both existing files and planned changes
-            while [[ -e "$new_path" || -n "${used_paths[$new_path]}" ]]; do
-                local name_part="${new_basename%.*}"
-                local ext_part="${new_basename##*.}"
-                if [[ "$name_part" == "$ext_part" ]]; then
-                    new_basename="${new_basename}_$counter"
-                else
-                    new_basename="${name_part}_$counter.${ext_part}"
-                fi
-                new_path="$dir/$new_basename"
-                ((counter++))
-            done
-
-            used_paths["$new_path"]=1
-            changes+=("$path|$new_path")
-            new_lines+=("$new_path|$tags")
-        else
-            new_lines+=("$line")
-        fi
-    done < "$EBOOKS_DB_BACKUP"
+    # Cleanup temp files
+    rm -f /tmp/changes.tmp /tmp/new_lines.tmp 2>/dev/null
 
     # Show confirmation dialog if changes needed
     if [[ ${#changes[@]} -gt 0 ]]; then
@@ -4733,12 +4759,12 @@ and physically on drive. You can also revert the changes later." 15 80
             echo "  $old -> $new" >> "$change_list"
         done
 
-        whiptail --title "Files to be renamed" --scrolltext --textbox "$change_list" 20 80
+        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 80
         rm -f "$change_list"
 
         if ! whiptail --title "Confirmation" --yesno "Proceed with these changes?" 10 80; then
             rm -f "$TEMP_DB"
-            echo "Operation cancelled by user" >&2
+            #echo "Operation cancelled by user" >&2
             return 1
         fi
     else
