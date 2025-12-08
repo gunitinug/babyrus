@@ -4817,7 +4817,33 @@ and physically on drive. You can also revert the changes later." 15 80
     whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 80
 }
 
-revert_rename_illegal_ebook_filenames() {    
+revert_rename_illegal_ebook_filenames() {  
+    check_backup_and_log() {
+        # 1. Check line counts equal
+        if [[ $(wc -l < "$EBOOKS_DB") -ne $(wc -l < "$EBOOKS_DB_BACKUP") ]]; then
+            echo "Line count mismatch between DB and backup" >&2
+            return 1
+        fi
+
+        # 2. Check every new_path exists, but don't exit early
+        local missing=0
+
+        awk -F'|' '
+            {
+                new_path = $2
+                if (system("[ -f \"" new_path "\" ]") != 0) {
+                    printf("Missing file in filesystem: %s\n", new_path) > "/dev/stderr"
+                    missing = 1
+                }
+            }
+            END {
+                exit missing
+            }
+        ' "$LOG_FILE" || return 1
+
+        return 0
+    }
+  
     # Info msgbox about what this function does
     whiptail --title "Info" --msgbox \
 "This function reverts changes made by Rename and Reregister Illegal Ebook Filenames function. \
@@ -4830,6 +4856,9 @@ It reverts both ebooks database and physical file names on drive." 10 80
         whiptail --title "Error" --msgbox "Backup or log file missing. Cannot revert." 8 50
         return 1
     fi
+
+    # Extra check to see if ebooks db backup file and log file's integrity holds - test this at the next opportunity!
+    check_backup_and_log || return 1
 
     # Show confirmation dialog
     if ! whiptail --title "Confirmation" --yesno "This will restore original filenames and database. Proceed?" 10 80; then
