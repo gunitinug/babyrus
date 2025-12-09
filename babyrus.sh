@@ -8902,7 +8902,39 @@ delete_notes() {
     # Read the file lines into an array.
     local -a lines
     mapfile -t lines < "$NOTES_DB"
-    local total=${#lines[@]}
+
+    # FEATURE: ASK FOR GLOB AND FILTER BY FILE NAME.
+    local glob
+    glob=$(whiptail --inputbox "Enter glob to filter by file name(empty for *):" 10 60 3>&1 1>&2 2>&3) || return 1
+
+    # default to *
+    : ${glob:=*}
+
+    # 3. Filter lines by FILENAME of second field
+    local filtered_lines=()
+    local -A map_idx   # associative array mapping filtered index → original index
+
+    local i line path filename
+    local fidx=0
+
+    for i in "${!lines[@]}"; do
+        line=${lines[$i]}
+
+        # Extract second field: /path/to/note/note title.txt
+        IFS='|' read -r _ path _ <<< "$line"
+
+        # Extract FILENAME only (basename)
+        filename=${path##*/}
+
+        # Match filename against user-provided glob
+        if [[ "${filename,,}" == ${glob,,} ]]; then
+            filtered_lines+=("$line")
+            map_idx[$fidx]=$i
+            ((fidx++))
+        fi
+    done
+
+    local total=${#filtered_lines[@]}
     # Calculate number of pages (ITEMS_PER_PAGE items per page).
     local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
     local current_page=0
@@ -8930,7 +8962,7 @@ delete_notes() {
 
             # Truncate note path
             local note_path
-            note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
+            note_path=$(cut -d'|' -f2 <<< "${filtered_lines[$i]}")
 
             local dir_tr filename_tr note_path_tr
             dir_tr="$(dirname "$note_path")"
@@ -9020,10 +9052,11 @@ delete_notes() {
         # If no navigation option was chosen, re-display the current page.
     done
 
-    # Build a final selection list from global_selected.
+    # Build a final selection list that contains corresponding $idx from $fidx.
     local -a final_selection=()
-    local idx
-    for idx in "${!global_selected[@]}"; do
+    local fidx idx
+    for fidx in "${!global_selected[@]}"; do
+        idx="${map_idx[$fidx]}"
         final_selection+=("$idx")
     done
 
@@ -9040,18 +9073,18 @@ delete_notes() {
         # Truncate note path
         note_path=$(cut -d'|' -f2 <<< "${lines[$idx]}")
 
-	# FIX. IF CONFLICT THEN BUILD ERROR MSG.
-	local proj_path 
-	if ! proj_path="$(note_safe_to_delete "$note_path")"; then
-		if [[ -n "$proj_path" ]]; then
-			((proj_found == 0)) && c_msg+="'${proj_path}':\n\n"
+        # FIX. IF CONFLICT THEN BUILD ERROR MSG.
+        local proj_path 
+        if ! proj_path="$(note_safe_to_delete "$note_path")"; then
+            if [[ -n "$proj_path" ]]; then
+                ((proj_found == 0)) && c_msg+="'${proj_path}':\n\n"
 
-			conflicted=1
-			proj_found=1
-			c_msg+="Has associated note $note_path.\n"
-			continue
-		fi
-	fi
+                conflicted=1
+                proj_found=1
+                c_msg+="Has associated note $note_path.\n"
+                continue
+            fi
+        fi
 
         local dir_tr filename_tr note_path_tr
         dir_tr="$(dirname "$note_path")"
