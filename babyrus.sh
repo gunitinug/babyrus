@@ -4126,6 +4126,69 @@ remove_broken_entries() {
 
 # Lookup by choosing a file path from registered files first.
 lookup_by_filepath() {
+    select_dir_paginated_lookup() {
+        local page_size=80   # number of items per page
+        local page=0
+        local choice=""
+        local dirs
+        local total_pages
+        local menu_items=()
+        
+        # Extract unique directories
+        dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
+        
+        # Convert dirs to array
+        IFS=$'\n' read -rd '' -a dirs_array <<< "$dirs"
+        
+        if (( ${#dirs_array[@]} == 0 )); then
+            whiptail --title "Attention" \
+                    --msgbox "No directories found! Perhaps ebooks db is empty." \
+                    10 60
+            return 1
+        fi
+
+        # Calculate total pages
+        total_pages=$(( (${#dirs_array[@]} + page_size - 1) / page_size ))
+        
+        while true; do
+            menu_items=()
+            # Slice array for current page
+            start=$(( page * page_size ))
+            end=$(( start + page_size ))
+            (( end > ${#dirs_array[@]} )) && end=${#dirs_array[@]}
+            
+            for (( i=start; i<end; i++ )); do
+                menu_items+=( "${dirs_array[i]}" "" )
+            done
+            
+            # Add navigation options if needed
+            (( page > 0 )) && menu_items+=( "<< Prev" "" )
+            (( page < total_pages - 1 )) && menu_items+=( "Next >>" "" )
+            
+            # Show menu
+            local sel
+            sel=$(whiptail --title "Select Directory" \
+                        --menu "Choose a directory for registered files:" \
+                        20 170 10 \
+                        "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1            
+            
+            case "$sel" in
+                "Next >>")
+                    ((page++))
+                    ;;
+                "<< Prev")
+                    ((page--))
+                    ;;
+                *)
+                    choice="$sel"
+                    break
+                    ;;
+            esac
+        done
+        
+        echo "$choice"
+    }
+
     # Initial message.
     whiptail --title "Lookup By File Path" --msgbox \
 "This feature allows you to query files by first choosing a file path among registered files:\n\
@@ -4133,28 +4196,32 @@ After choosing a path from the list, you can further narrow the search by both f
 
     # First, choose the path among registered files.
 
-    # Extract unique directories (full path minus file name) from ebooks.db
-    local dirs
-    dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
+    # # Extract unique directories (full path minus file name) from ebooks.db
+    # local dirs
+    # dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
 
-    # Edge case when there are no registered files (so dirs is empty).
-    [[ -z "$dirs" ]] && whiptail --title "Error" --msgbox "No registered files!" 10 40 && return 1
+    # # Edge case when there are no registered files (so dirs is empty).
+    # [[ -z "$dirs" ]] && whiptail --title "Error" --msgbox "No registered files!" 10 40 && return 1
 
-    # Build menu items for whiptail (each item appears as "tag description")
-    local menu_items=()
-    while IFS= read -r dir; do
-        menu_items+=( "$dir" "" )
-    done <<< "$dirs"
+    # # Build menu items for whiptail (each item appears as "tag description")
+    # local menu_items=()
+    # while IFS= read -r dir; do
+    #     menu_items+=( "$dir" "" )
+    # done <<< "$dirs"
 
-    # Prompt user to choose a directory with whiptail
+    # # Prompt user to choose a directory with whiptail
+    # local choice
+    # choice=$(whiptail --title "Select Directory" --menu "Choose a directory for registered files:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+    # # If user cancels, exit the function
+    # if [ $? -ne 0 ]; then
+    #     whiptail --msgbox "User canceled." 8 60
+    #     return 1
+    # fi
+
+    # FEATURE: PAGINATE PATH SEL.
     local choice
-    choice=$(whiptail --title "Select Directory" --menu "Choose a directory for registered files:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-    # If user cancels, exit the function
-    if [ $? -ne 0 ]; then
-        whiptail --msgbox "User canceled." 8 60
-        return 1
-    fi
+    choice="$(select_dir_paginated_lookup)" || return 1
 
     # Display all lines in ebooks.db that match the chosen directory
     local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" "${EBOOKS_DB}")"
