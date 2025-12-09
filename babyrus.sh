@@ -8905,7 +8905,7 @@ delete_notes() {
 
     # FEATURE: ASK FOR GLOB AND FILTER BY FILE NAME.
     local glob
-    glob=$(whiptail --inputbox "Enter glob to filter by file name(empty for *):" 10 60 3>&1 1>&2 2>&3) || return 1
+    glob=$(whiptail --inputbox "Enter glob to filter by file name (empty for wildcard):" 10 60 3>&1 1>&2 2>&3) || return 1
 
     # default to *
     : ${glob:=*}
