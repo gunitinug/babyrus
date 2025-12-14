@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99r'
+BABYRUS_VERSION='v.0.99s'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -11771,6 +11771,147 @@ do_stuff_with_project_file() {
         done
     }
 
+    associate_chosen_note_to_project() {
+        # Get note path from arg
+        local note_path="$1"
+        [[ -z "$note_path" ]] && return 1
+
+        local temp_file line_updated duplicate_detected project_found
+        temp_file=$(mktemp) || return 1
+        line_updated=0
+        duplicate_detected=0
+        project_found=0
+
+        # Check if databases exist
+        if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+            whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+            return 1
+        fi
+        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+            whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+            return 1
+        fi
+
+        # FIX: ALLOW FILTERING BY GLOB.
+        # Get pattern from user using whiptail
+        local pattern
+        pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+        : "${pattern:=*}"	# default to * if unset.
+
+        # Enable case-insensitive glob matching
+        shopt -s nocasematch
+        
+        local project_menu_options=()
+        local filename title path rest
+        while IFS='|' read -r title path rest; do
+            # Extract filename from path
+            filename=$(basename "$path")
+            
+            # Check if filename matches the pattern (now case-insensitive)
+            if [[ "$filename" == $pattern ]]; then
+                project_menu_options+=("$path" "")
+            fi
+        done < "$PROJECTS_DB"
+        
+        # Restore default case sensitivity
+        shopt -u nocasematch
+
+        # If no matches found, show message and exit
+        if [ ${#project_menu_options[@]} -eq 0 ]; then
+            whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
+            return 1
+        fi
+        # END FIX.
+
+        # Project selection
+        paginate_get_projects "Select Project" "${project_menu_options[@]}"
+        local selected_project_path
+        selected_project_path="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_project_path" ]] && return 1
+
+        # User already chosen $note_path as chosen note file.
+        local selected_note_path
+        selected_note_path="$note_path"
+
+        [[ -z "$selected_note_path" ]] && return 1
+
+        # Process PROJECTS_DB
+        while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+                #echo >> "$temp_file"
+                continue
+            fi
+
+            IFS='|' read -r title path notes <<< "$line"
+            # If there is matched line...
+            if [[ "$path" == "$selected_project_path" ]]; then
+                project_found=1
+                current_notes="$notes"
+                local notes_array=()
+
+                # Check for duplicates
+                IFS=',' read -ra notes_array <<< "$current_notes"
+                local duplicate=0	# Reset for each iteration.
+                # If duplicate found then break out of for loop here.
+                for note in "${notes_array[@]}"; do
+                    [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                done
+
+                if (( duplicate )); then
+                    whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                    # reset
+                    line_updated=0
+
+                    duplicate_detected=1
+                    # Rebuild original line
+                    new_line="$title|$path|$current_notes"
+                    # There is no fourth field!!!!
+                    # [[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# No change.
+                else
+                    # reset
+                    duplicate_detected=0
+
+                    # Update notes
+                    # If there is no previously associated note...
+                    if [[ -z "$current_notes" ]]; then
+                        new_notes="$selected_note_path"
+                    else
+                        new_notes="$current_notes,$selected_note_path"
+                    fi
+                    new_line="$title|$path|$new_notes"
+                    #[[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# Changes made.
+                    line_updated=1
+                fi
+            else
+                # Just leave the line unchanged.
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$PROJECTS_DB"
+
+        # Handle processing results
+        if (( project_found )); then
+            if (( line_updated && !duplicate_detected )); then
+                mv "$temp_file" "$PROJECTS_DB"
+                whiptail --msgbox "Note successfully associated with the project." 10 50
+            elif (( duplicate_detected )); then
+                rm "$temp_file"
+                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                return 1
+            else
+                rm "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                return 1
+            fi
+        else
+            rm "$temp_file"
+            whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+            return 1
+        fi
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
@@ -11872,7 +12013,8 @@ do_stuff_with_project_file() {
             "3" "Edit Note" \
             "4" "Open linked URL" \
             "5" "Associate URL to note" \
-            "6" "Dissociate URL from note" 3>&1 1>&2 2>&3)
+            "6" "Dissociate URL from note" \
+            "7" "Associate Note to Project" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && continue    # i want to return to list of linked note files so continue
 
         case "$action" in
@@ -11915,6 +12057,10 @@ do_stuff_with_project_file() {
             "6")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 dissoc_url_from_chosen_note
+                ;;
+            "7")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                associate_chosen_note_to_project "$note_path"
                 ;;
         esac
     done
