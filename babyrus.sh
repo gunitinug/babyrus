@@ -8889,26 +8889,38 @@ After creating a new note, you can choose to associate it to a project file. Aft
         return 1
     fi
 
-    local choice
-    choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-        15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
-        3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
+    # TASK: need to update $FILTERED_NOTES_BY_TAG when new note with same tag is added!
+    while :; do
+        # Update $FILTERED_NOTES_BY_TAG array.
+        filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
+        
+        # Check if any notes were actually filtered
+        if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
+            return 1
+        fi
 
-    case "$choice" in
-        "Add note with same tag")
-            add_note "$chosen_tag" || return 1
-            [[ -n "$note_path" ]] && associate_new_note_to_project "$note_path"
-            ;;
-        "Edit note")
-            list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
-            ;;
-        "Open associated ebook")
-            open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
-            ;;
-        "Associate note to project")
-            associate_notes_by_tag_to_project "${FILTERED_NOTES_BY_TAG[@]}"
-            ;;
-    esac
+        local choice
+        choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
+            15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
+            3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
+
+        case "$choice" in
+            "Add note with same tag")
+                add_note "$chosen_tag" || return 1
+                [[ -n "$note_path" ]] && associate_new_note_to_project "$note_path"
+                ;;
+            "Edit note")
+                list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Open associated ebook")
+                open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Associate note to project")
+                associate_notes_by_tag_to_project "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+        esac
+    done
 }
 
 # The following code section is about opening an ebook file in global list NOTES_EBOOKS_DB.
