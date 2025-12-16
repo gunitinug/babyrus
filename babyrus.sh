@@ -10309,7 +10309,7 @@ add_project() {
     while true; do
         rebuild_heading_menu
         local heading_action
-        heading_action=$(whiptail --menu "Project: ${project_title}" 20 150 10 \
+        heading_action=$(whiptail --menu "Project: ${project_title}" 20 150 10 -- \
             "${heading_menu[@]}" "Save and return" "" 3>&1 1>&2 2>&3) || return 1
 
         case $heading_action in
