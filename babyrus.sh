@@ -10075,21 +10075,250 @@ open_url_assoc_to_note() {
     done
 }
 
+# allows print note files from main manage notes menu.
+print_notes() {
+    # SUB FUNCTION FOR PAGINATE SELECT TAG.
+    show_tag_menu_for_print() {
+        local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
+        local PAGE_SIZE=10
+        local page=0
+        local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+        local selected_tag__=""
+        local choice start end menu_items
+
+        while true; do
+            start=$(( page * PAGE_SIZE * 2 ))
+            end=$(( start + PAGE_SIZE * 2 ))
+            menu_items=("${TAG_OPTIONS__[@]:$start:$((PAGE_SIZE * 2))}")
+
+            # Add navigation items
+            if (( page > 0 )); then
+                menu_items+=("<< Previous Page" "")
+            fi
+            if (( page < total_pages - 1 )); then
+                menu_items+=("Next Page >>" "")
+            fi
+
+            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+                            --menu "Choose a tag to find notes to print:" 20 60 12 \
+                            "${menu_items[@]}" \
+                            3>&1 1>&2 2>&3)
+
+            # Handle user action
+            exit_status=$?
+            if [[ $exit_status -ne 0 ]]; then
+                # User pressed Cancel or Esc
+                return 1
+            fi
+
+            case "$choice" in
+                "Next Page >>")
+                    ((page++))
+                    ;;
+                "<< Previous Page")
+                    ((page--))
+                    ;;
+                *)
+                    selected_tag__="$choice"
+                    break
+                    ;;
+            esac
+        done
+
+        echo "$selected_tag__"
+    }
+
+    print_file_from_print_notes() {
+        # Check if file argument is provided
+        if [ -z "$1" ]; then
+            return 1
+        fi
+
+        local file_to_print="$1"
+
+        # Check if file exists
+        if [ ! -f "$file_to_print" ]; then
+            echo "Error: File '$file_to_print' does not exist." >&2
+            return 1
+        fi
+
+        # Get list of printers
+        local printers
+        printers=$(lpstat -p | awk '/^printer/ && /enabled/ {print $2}')
+
+        # Edge case: no printers found.
+        [[ -z "$printers" ]] && { whiptail --title "Attention" --msgbox "No printers found." 8 40; return 1; }
+
+        # Convert printer list into whiptail menu format
+        local menu_items=()
+        for p in $printers; do
+            menu_items+=("$p" "")
+        done
+
+        # Show whiptail menu to select printer
+        local selected_printer
+        selected_printer=$(whiptail --title "Select Printer" \
+            --menu "Choose a printer:" 20 60 10 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+        # Check if user cancelled
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+
+        # Print the file
+        if whiptail --title "Print Note" --yesno "Send '$file_to_print' to printer '$selected_printer'?" 12 80; then
+            lpr -P "$selected_printer" "$file_to_print"
+            if [ $? -eq 0 ]; then
+                whiptail --title "Success" --msgbox "File '$file_to_print' sent to printer '$selected_printer'." 12 80
+            else
+                whiptail --title "Error" --msgbox "Failed to print '$file_to_print'." 12 80
+                return 1
+            fi            
+        else
+            :  # do nothing if No or Cancel
+        fi
+    }
+
+    local db_file="$NOTES_DB"
+    [ ! -f "$db_file" ] && {
+        whiptail --msgbox "No notes database found" 8 40
+        return 1
+    }
+
+    # FIX: POPULATE LINES BY LETTING USER SELECT TAG FIRST.
+    # Read all tags into a bash array for whiptail menu
+    local -a tags lines
+
+    mapfile -t tags < "$NOTES_TAGS_DB"
+
+    if [[ "${#tags[@]}" -eq 0 ]]; then
+        mapfile -t lines < "$NOTES_DB"
+    else
+        # Build tag options for whiptail (needs tag and description pairs)
+        local TAG_OPTIONS=()
+        TAG_OPTIONS+=("ANY TAG" "")
+        for tag in "${tags[@]}"; do
+            TAG_OPTIONS+=("$tag" "")
+        done
+
+        # ADDITIONAL FIX: PAGINATE SELECT TAG.
+        local selected_tag=$(show_tag_menu_for_print "${TAG_OPTIONS[@]}")
+
+        if [[ "$selected_tag" == "ANY TAG" ]]; then
+            mapfile -t lines < "$NOTES_DB"
+        else
+            # Populate array with lines that have exact match for selected tag
+            mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
+                {
+                    n = split($3, tags, ",")
+                    for (i = 1; i <= n; i++) {
+                        if (tags[i] == tag) {
+                            print $0
+                            next
+                        }
+                    }
+                }' "$NOTES_DB")
+        fi
+    fi
+    # END FIX.    
+
+    if [[ ${#lines[@]} -eq 0 ]]; then
+        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        # echo ""
+        return 1
+    fi        
+
+    while true; do
+        # Reset arrays and index for fresh load each iteration
+        local -a menu_entries=()
+        local -a MENU_PATH_ENTRIES=()
+        local idx=1
+
+        # Load current database state
+        while IFS='|' read -r title path tags _; do
+            # Truncate long title
+            title_tr="${title:0:50}"
+
+            local tag_display=""
+            [ -n "$tags" ] && tag_display=" [${tags}]"
+            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
+            MENU_PATH_ENTRIES+=("$path" "")
+            ((idx++))
+        done < <(printf '%s\n' "${lines[@]}")
+
+        [ ${#menu_entries[@]} -eq 0 ] && {
+            whiptail --msgbox "No notes found in database." 8 40
+            return 1
+        }
+
+        # Paginate menu entries instead.
+        CURRENT_PAGE=0
+        SELECTED_ITEM=""
+
+        ! paginate_get_notes "Print Note" "${menu_entries[@]}" && break
+
+        local selected_idx="$SELECTED_ITEM"
+
+        # If user cancels out of paginate menu then SELECTED_ITEM is empty.
+        [ -z "selected_idx" ] && break
+
+        # Process selection
+        selected_idx="$(echo "$selected_idx" | cut -d':' -f1)"
+        local m=$((2 * selected_idx - 1))
+        local array_index=$((m - 1))
+        local selected_path="${MENU_PATH_ENTRIES[$array_index]}"
+        
+        local action
+        action=$(whiptail --title "Actions" --menu "Choose an action:" 10 40 2 \
+                "View Note" "" \
+                "Print Note" "" \
+                3>&1 1>&2 2>&3) || :        
+
+        case "$action" in
+            "View Note")
+                DIALOG_CONFIG="use_colors = ON
+                screen_color = (BLACK,MAGENTA,OFF)
+                dialog_color = (BLACK,WHITE,OFF)
+                title_color = (RED,WHITE,OFF)
+                border_color = (WHITE,WHITE,OFF)
+                button_active_color = (WHITE,RED,OFF)"                                    
+
+                local tmpfile
+                tmpfile=$(mktemp)
+                fold -s -w 145 "$selected_path" > "$tmpfile"
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
+                rm -f "$tmpfile"
+                clear
+                ;;
+            "Print Note")
+                print_file_from_print_notes "$selected_path"
+                ;;
+            *)
+                :
+                ;;
+
+        esac        
+    done
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 20 50 10 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 20 50 12 \
             "1" "Add Note" \
             "2" "Edit Note" \
-            "3" "Open Associated eBook" \
-            "4" "Do Stuff by Tag" \
-	    "5" "Associate URL to Note" \
-	    "6" "Dissociate URL from Note" \
-	    "7" "Open URL from Note" \
-            "8" "Open an eBook From Global List" \
-            "9" "Delete Notes" \
-	    "10" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
+            "3" "Print Note Using Printer" \
+            "4" "Open Associated eBook" \
+            "5" "Do Stuff by Tag" \
+            "6" "Associate URL to Note" \
+            "7" "Dissociate URL from Note" \
+	        "8" "Open URL from Note" \
+            "9" "Open an eBook From Global List" \
+            "10" "Delete Notes" \
+	        "11" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -10099,14 +10328,15 @@ manage_notes() {
         case $option in
             1) add_note ;;
             2) list_notes ;;
-            3) open_note_ebook_page ;;
-            4) do_note_filter_by_tag ;;
-	    5) assoc_url_to_note ;;
-	    6) dissoc_url_from_note ;;
-	    7) open_url_assoc_to_note ;;
-            8) open_ebook_note_from_global_list ;;
-            9) delete_notes ;;
-	    10) delete_global_tag_of_notes ;;
+            3) print_notes ;;
+            4) open_note_ebook_page ;;
+            5) do_note_filter_by_tag ;;
+            6) assoc_url_to_note ;;
+            7) dissoc_url_from_note ;;
+            8) open_url_assoc_to_note ;;
+            9) open_ebook_note_from_global_list ;;
+            10) delete_notes ;;
+    	    11) delete_global_tag_of_notes ;;
             *) return ;;
         esac
     done
