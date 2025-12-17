@@ -11019,9 +11019,16 @@ associate_note_to_project() {
     local note_menu_options=()
     local note_tags_arr
     while IFS='|' read -r note_title note_path note_tags rest; do
+        # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
+        if [[ "$selected_note_tag" == "ANY TAG" ]]; then
+            note_menu_options+=("$note_path" "[${note_tags}]")
+            continue
+        fi
+
         # FIX: FILTER BY NOTE TAG
         IFS=',' read -r -a note_tags_arr <<< "$note_tags"
 
+        # only enters here if line already has a tag
         for tag in "${note_tags_arr[@]}"; do
             if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
                 note_menu_options+=("$note_path" "[${note_tags}]")
