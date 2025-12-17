@@ -10288,6 +10288,7 @@ print_notes() {
                 local tmpfile
                 tmpfile=$(mktemp)
                 fold -s -w 145 "$selected_path" > "$tmpfile"
+                # NOTE: NOTE_TITLE IS NOT EXTRACTED YET!
                 DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
