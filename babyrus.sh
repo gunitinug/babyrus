@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99s'
+BABYRUS_VERSION='v.0.99t'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -12162,6 +12162,63 @@ do_stuff_with_project_file() {
         fi
     }
 
+    print_chosen_note() {
+        print_file_from_do_stuff_project() {
+            # Check if file argument is provided
+            if [ -z "$1" ]; then
+                return 1
+            fi
+
+            local file_to_print="$1"
+
+            # Check if file exists
+            if [ ! -f "$file_to_print" ]; then
+                echo "Error: File '$file_to_print' does not exist." >&2
+                return 1
+            fi
+
+            # Get list of printers
+            local printers
+            printers=$(lpstat -p | awk '/^printer/ && /enabled/ {print $2}')            
+
+            # Edge case: no printers found.
+            [[ -z "$printers" ]] && { whiptail --title "Attention" --msgbox "No printers found." 8 40; return 1; }
+
+            # Convert printer list into whiptail menu format
+            local menu_items=()
+            for p in $printers; do
+                menu_items+=("$p" "")
+            done
+
+            # Show whiptail menu to select printer
+            local selected_printer
+            selected_printer=$(whiptail --title "Select Printer" \
+                --menu "Choose a printer:" 20 60 10 \
+                "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+            # Check if user cancelled
+            if [ $? -ne 0 ]; then
+                return 1
+            fi
+
+            # Print the file
+            if whiptail --title "Print Note" --yesno "Send '$file_to_print' to printer '$selected_printer'?" 12 80; then
+                lpr -P "$selected_printer" "$file_to_print"
+                if [ $? -eq 0 ]; then
+                    whiptail --title "Success" --msgbox "File '$file_to_print' sent to printer '$selected_printer'." 12 80
+                else
+                    whiptail --title "Error" --msgbox "Failed to print '$file_to_print'." 12 80
+                    return 1
+                fi            
+            else
+                :  # do nothing if No or Cancel
+            fi
+        }
+
+        local selected_path="$1"       
+        print_file_from_do_stuff_project "$selected_path"
+    }
+
     #local PROJECTS_DB="$PROJECTS_DB"
     #local NOTES_DB="$NOTES_DB"
     
@@ -12264,7 +12321,8 @@ do_stuff_with_project_file() {
             "4" "Open linked URL" \
             "5" "Associate URL to note" \
             "6" "Dissociate URL from note" \
-            "7" "Associate Note to Project" 3>&1 1>&2 2>&3)
+            "7" "Associate Note to Project" \
+            "8" "Print Note using Printer" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && continue    # i want to return to list of linked note files so continue
 
         case "$action" in
@@ -12311,6 +12369,10 @@ do_stuff_with_project_file() {
             "7")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 associate_chosen_note_to_project "$note_path"
+                ;;
+            "8")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                print_chosen_note "$note_path"
                 ;;
         esac
     done
