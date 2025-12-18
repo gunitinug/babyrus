@@ -10983,13 +10983,13 @@ print_project() {
         IFS='|' read -r title_ path_ _ <<< "$line_"
 
         if [ ! -e "$path_" ]; then
-            whiptail --msgbox "Error: Project file '$path' not found." 10 50 >/dev/tty
+            whiptail --msgbox "Error: Project file '$path_' not found." 10 50 >/dev/tty
             return 1
         elif [ -d "$path_" ]; then
-            whiptail --msgbox "Error: '$path' is a directory, not a file." 10 50 >/dev/tty
+            whiptail --msgbox "Error: '$path_' is a directory, not a file." 10 50 >/dev/tty
             return 1
         elif [ ! -r "$path_" ]; then
-            whiptail --msgbox "Error: Cannot read project file '$path'." 10 50 >/dev/tty
+            whiptail --msgbox "Error: Cannot read project file '$path_'." 10 50 >/dev/tty
             return 1
         fi
 
@@ -12533,18 +12533,167 @@ open_url_assoc_to_note_from_project() {
     done
 }
 
+print_project_to_printer_from_main() {
+    print_file_from_do_stuff_project_from_main() {
+        # Check if file argument is provided
+        if [ -z "$1" ]; then
+            return 1
+        fi
+
+        local file_to_print="$1"
+
+        # Check if file exists
+        if [ ! -f "$file_to_print" ]; then
+            echo "Error: File '$file_to_print' does not exist." >&2
+            return 1
+        fi
+
+        # Get list of printers
+        local printers
+        printers=$(lpstat -p | awk '/^printer/ && /enabled/ {print $2}')            
+
+        # Edge case: no printers found.
+        [[ -z "$printers" ]] && { whiptail --title "Attention" --msgbox "No printers found." 8 40; return 1; }
+
+        # Convert printer list into whiptail menu format
+        local menu_items=()
+        for p in $printers; do
+            menu_items+=("$p" "")
+        done
+
+        # Show whiptail menu to select printer
+        local selected_printer
+        selected_printer=$(whiptail --title "Select Printer" \
+            --menu "Choose a printer:" 20 60 10 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+        # Check if user cancelled
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+
+        # Print the file
+        if whiptail --title "Print Note" --yesno "Send '$file_to_print' to printer '$selected_printer'?" 12 80; then
+            lpr -P "$selected_printer" "$file_to_print"
+            if [ $? -eq 0 ]; then
+                whiptail --title "Success" --msgbox "File '$file_to_print' sent to printer '$selected_printer'." 12 80
+            else
+                whiptail --title "Error" --msgbox "Failed to print '$file_to_print'." 12 80
+                return 1
+            fi            
+        else
+            :  # do nothing if No or Cancel
+        fi
+    }
+    
+    #local line_num=0		# can't use this any more.
+    local options=("<< Back" "")
+
+    # Check if database file exists and is valid
+    if [ ! -f "$PROJECTS_DB" ]; then
+        whiptail --msgbox "Error: Project database '$PROJECTS_DB' not found." 10 50 >/dev/tty
+        return 1
+    elif [ ! -s "$PROJECTS_DB" ]; then
+        whiptail --msgbox "Error: Project database '$PROJECTS_DB' is empty." 10 50 >/dev/tty
+        return 1
+    fi
+
+    # FIX: ADD FILTER BY GLOBBING
+    local line title path
+
+    # Parse project entries
+    local lineno
+    while IFS= read -r -d '' line; do
+        #((line_num++))
+	lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1) || echo "No exact match for '$match' found." >&2 # use this instead!
+
+        [ -z "$line" ] && continue
+
+        IFS='|' read -r title path _ <<< "$line"
+        if [ -z "$title" ] || [ -z "$path" ]; then
+            whiptail --msgbox "Skipping invalid entry (line $line_num): Missing field(s)" 10 50 >/dev/tty
+            continue
+        fi
+        options+=("$lineno" "$title")
+    done < <(filter_projects_by_name)
+    # END FIX.
+
+    # Continuous selection loop added here
+    while true; do
+    	# Paginate options
+        paginate_get_projects "Print Project using Printer" "${options[@]}"
+        local selected_line
+        selected_line="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_line" || "$selected_line" == "<< Back" ]] && return 1
+        
+        # Rest of the original processing logic
+        local line_=$(sed -n "${selected_line}p" "$PROJECTS_DB")
+        if [ -z "$line_" ]; then
+            whiptail --msgbox "Error: Selected project no longer exists." 10 50 >/dev/tty
+            return 1
+        fi
+
+        local title_ path_
+        IFS='|' read -r title_ path_ _ <<< "$line_"
+
+        if [ ! -e "$path_" ]; then
+            whiptail --msgbox "Error: Project file '$path_' not found." 10 50 >/dev/tty
+            return 1
+        elif [ -d "$path_" ]; then
+            whiptail --msgbox "Error: '$path_' is a directory, not a file." 10 50 >/dev/tty
+            return 1
+        elif [ ! -r "$path_" ]; then
+            whiptail --msgbox "Error: Cannot read project file '$path_'." 10 50 >/dev/tty
+            return 1
+        fi
+
+        local action
+        action=$(whiptail --title "Actions" --menu "Choose an action:" 10 40 2 \
+                "View Project" "" \
+                "Print Project" "" \
+                3>&1 1>&2 2>&3) || :        
+
+        case "$action" in
+            "View Project")
+                DIALOG_CONFIG="use_colors = ON
+                screen_color = (BLACK,MAGENTA,OFF)
+                dialog_color = (BLACK,WHITE,OFF)
+                title_color = (RED,WHITE,OFF)
+                border_color = (WHITE,WHITE,OFF)
+                button_active_color = (WHITE,RED,OFF)"                                    
+
+                local tmpfile
+                tmpfile=$(mktemp)
+                fold -s -w 145 "$path_" > "$tmpfile"
+                # NOTE: NOTE_TITLE IS NOT EXTRACTED YET!
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
+                rm -f "$tmpfile"
+                clear
+                ;;
+            "Print Project")
+                print_file_from_do_stuff_project_from_main "$path_"
+                ;;
+            *)
+                :
+                ;;
+
+        esac              
+    done
+}
+
 show_projects_menu() {
     while true; do
 	local choice
-        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 15 50 8 \
+        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 20 60 10 \
             "1" "Add New Project" \
             "2" "Edit Existing Project" \
-	    "3" "Print Project Content on Screen" \
-	    "4" "Associate Note with Project" \
-	    "5" "Dissociate Note with Project" \
-	    "6" "Do Stuff with Linked Notes in Project File" \
-	    "7" "Open URL from Linked Notes in Project File" \
-	    "8" "Delete Project" 3>&1 1>&2 2>&3) || return 1
+            "3" "Print Project Content on Screen" \
+            "4" "Associate Note with Project" \
+            "5" "Dissociate Note with Project" \
+            "6" "Do Stuff with Linked Notes in Project File" \
+            "7" "Open URL from Linked Notes in Project File" \
+            "8" "Delete Project" \
+            "9" "Print Project using Printer" 3>&1 1>&2 2>&3) || return 1
 
         case $choice in
             1)
@@ -12553,24 +12702,27 @@ show_projects_menu() {
             2)
                 edit_project
                 ;;
-	    3)
-		print_project
-		;;
-	    4)
-		associate_note_to_project
-		;;
-	    5)
-		dissociate_note_from_project
-		;;
-	    6)
-		do_stuff_with_project_file
-		;;
-	    7)
-		open_url_assoc_to_note_from_project
-		;;
-	    8)
-		delete_project
-		;;
+            3)
+                print_project
+                ;;
+            4)
+                associate_note_to_project
+                ;;
+            5)
+                dissociate_note_from_project
+                ;;
+            6)
+                do_stuff_with_project_file
+                ;;
+            7)
+                open_url_assoc_to_note_from_project
+                ;;
+            8)
+                delete_project
+                ;;
+            9)
+                print_project_to_printer_from_main
+                ;;
             *)
                 return 1
                 ;;
