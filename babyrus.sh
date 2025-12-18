@@ -10181,6 +10181,20 @@ print_notes() {
         fi
     }
 
+    get_note_title_from_note_path_() {
+        local note_path="$1"
+        local note_title
+
+        note_title=$(awk -F'|' -v path="$note_path" '
+            $2 == path {
+                print $1
+                exit
+            }
+        ' "$NOTES_DB")
+
+        echo "$note_title"
+    }
+
     local db_file="$NOTES_DB"
     [ ! -f "$db_file" ] && {
         whiptail --msgbox "No notes database found" 8 40
@@ -10288,7 +10302,8 @@ print_notes() {
                 local tmpfile
                 tmpfile=$(mktemp)
                 fold -s -w 145 "$selected_path" > "$tmpfile"
-                # NOTE: NOTE_TITLE IS NOT EXTRACTED YET!
+                # NOTE: NOTE_TITLE IS NOT EXTRACTED YET! -- FIXED?
+                local note_title="$(get_note_title_from_note_path_ "$selected_path")"
                 DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
@@ -12585,6 +12600,20 @@ print_project_to_printer_from_main() {
             :  # do nothing if No or Cancel
         fi
     }
+
+    get_project_title_from_project_path() {
+        local project_path="$1"
+        local project_title
+
+        project_title=$(awk -F'|' -v path="$project_path" '
+            $2 == path {
+                print $1
+                exit
+            }
+        ' "$PROJECTS_DB")
+
+        echo "$project_title"
+    }
     
     #local line_num=0		# can't use this any more.
     local options=("<< Back" "")
@@ -12665,8 +12694,9 @@ print_project_to_printer_from_main() {
                 local tmpfile
                 tmpfile=$(mktemp)
                 fold -s -w 145 "$path_" > "$tmpfile"
-                # NOTE: NOTE_TITLE IS NOT EXTRACTED YET!
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
+                # NOTE: PROJECT_TITLE IS NOT EXTRACTED YET! -- FIXED?
+                local project_title="$(get_project_title_from_project_path "$path_")"
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$project_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
                 ;;
