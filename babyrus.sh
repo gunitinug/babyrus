@@ -8735,10 +8735,174 @@ associate_notes_by_tag_to_project() {
         echo "$selected_note"
     }    
 
-    # let user select note from list
-    local selected_note_path
-    selected_note_path="$(select_filtered_note_by_tag "$@")" || return 1
-    [[ -z "$selected_note_path" ]] && return 1
+    select_filtered_notes_by_tag_checklist() {
+        local PAGE_SIZE=5
+
+        # ---- convert input paths → (tag, empty-desc) pairs ----
+        local -a all_items=()
+        local line
+        for line in "$@"; do
+            local path
+            path=$(echo "$line" | cut -d'|' -f2)
+            all_items+=( "$path" "" )
+        done
+
+        local total_items=$(( ${#all_items[@]} / 2 ))
+        local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
+
+        local current_page=0
+        declare -A selected_map
+
+        while :; do
+            local options=()
+            local start=$(( current_page * PAGE_SIZE ))
+            local end=$(( start + PAGE_SIZE ))
+
+            # Page items
+            for ((i=start; i<end && i<total_items; i++)); do
+                local tag="${all_items[i*2]}"
+                local state=OFF
+                [[ ${selected_map["$tag"]} ]] && state=ON
+                options+=( "$tag" "" "$state" )
+            done
+
+            # Navigation
+            (( current_page > 0 )) && options+=( "<< Prev page" "Go to previous page" OFF )
+            (( current_page < total_pages - 1 )) && options+=( ">> Next page" "Go to next page" OFF )
+            options+=( "SUBMIT" "Finish selection" OFF )
+
+            local choice
+            choice=$(whiptail --title "Select Notes (Page $((current_page+1))/$total_pages)" \
+                            --checklist "Select notes by tag" 20 170 10 \
+                            "${options[@]}" \
+                            3>&1 1>&2 2>&3
+            )
+
+            [[ $? -ne 0 ]] && return 1
+
+            # Convert choice string to array
+            readarray -t chosen < <(echo "$choice" | xargs -n1)
+
+            local go_prev=0 go_next=0 do_submit=0
+
+            for item in "${chosen[@]}"; do
+                case "$item" in
+                    "<< Prev page") go_prev=1 ;;
+                    ">> Next page") go_next=1 ;;
+                    "SUBMIT")       do_submit=1 ;;
+                    *) selected_map["$item"]=1 ;;
+                esac
+            done
+
+            # Remove unchecked items from current page
+            for ((i=start; i<end && i<total_items; i++)); do
+                local tag="${all_items[i*2]}"
+                local found=0
+                for item in "${chosen[@]}"; do
+                    [[ "$item" == "$tag" ]] && found=1
+                done
+                [[ $found -eq 0 ]] && unset selected_map["$tag"]
+            done
+
+            # ---- safeguards ----
+            if (( go_prev && go_next )); then
+                whiptail --msgbox "You cannot select both Prev and Next at the same time." 8 60 >/dev/tty
+                continue
+            fi
+
+            if (( do_submit )); then
+                if (( go_prev || go_next )); then
+                    whiptail --msgbox "Submit cannot be combined with page navigation." 8 60 >/dev/tty
+                    continue
+                fi
+
+                if (( ${#selected_map[@]} == 0 )); then
+                    whiptail --msgbox "Please select at least one note before submitting." 8 60 >/dev/tty
+                    continue
+                fi
+
+                break
+            fi
+
+            (( go_next )) && ((current_page++))
+            (( go_prev )) && ((current_page--))
+        done
+
+        # Output selected file paths (newline-delimited)
+        local p
+        for p in "${!selected_map[@]}"; do
+            echo "$p"
+        done
+    }
+
+    update_proj_db_file_by_notes_checklist() {
+        local selected_project_path="$1"
+        local temp_file="$2"
+        shift 2
+
+        # assign the rest to an array - what user has selected from whiptail checklist.
+        local sel_note_paths_checklist=("$@")
+
+        # Empty temp_file
+        > "$temp_file"
+
+        local title path current_notes new_notes note
+        local current_array=()
+        # Read PROJECTS_DB line by line
+        while IFS='|' read -r title path current_notes; do
+            if [[ "$path" == "$selected_project_path" ]]; then
+                # Prepare new notes string
+                if [[ -z "$current_notes" ]]; then
+                    # No current notes, just join selected notes
+                    new_notes="$(printf '%s,' "${sel_note_paths_checklist[@]}")"
+                    new_notes=${new_notes%,}   # remove trailing comma
+                else
+                    # Merge current notes with selected notes, remove duplicates
+                    IFS=',' read -ra current_array <<< "$current_notes"
+                    declare -A seen
+                    local new_array=()
+
+                    # Add current notes first
+                    for note in "${current_array[@]}"; do
+                        seen["$note"]=1
+                        new_array+=("$note")
+                    done
+
+                    # Add selected notes if not already present
+                    for note in "${sel_note_paths_checklist[@]}"; do
+                        if [[ -z "${seen[$note]}" ]]; then
+                            new_array+=("$note")
+                        fi
+                    done
+                    
+                    new_notes="$(printf '%s,' "${new_array[@]}")"
+                    new_notes=${new_notes%,}  # remove trailing comma
+                fi
+
+                # Construct new line
+                echo "$title|$path|$new_notes" >> "$temp_file"
+            else
+                # Keep line unchanged
+                echo "$title|$path|$current_notes" >> "$temp_file"
+            fi
+        done < "$PROJECTS_DB"
+
+        # Compare temp_file and PROJECTS_DB
+        if cmp -s "$temp_file" "$PROJECTS_DB"; then
+            return 1  # Files are the same
+        else
+            return 0  # Files differ
+        fi
+    }
+
+    whiptail --title "Attention" \
+         --msgbox "Step 1: Select the note files.\nStep 2: Select the project files to associate them with.\n\nYou can associate multiple note files to multiple project files in this function." \
+         20 80
+
+    # let user select notes from whiptai checklist.
+    local selected_notes_chk
+    mapfile -t selected_notes_chk < <(select_filtered_notes_by_tag_checklist "$@")
+    [[ ${#selected_notes_chk[@]} -eq 0 ]] && return 1
 
     local temp_file line_updated duplicate_detected project_found
     temp_file=$(mktemp) || return 1
@@ -8794,81 +8958,13 @@ associate_notes_by_tag_to_project() {
         selected_project_path="$SELECTED_ITEM_PROJECT"
         [[ -z "$selected_project_path" ]] && return 1
 
-        # Process PROJECTS_DB - we are rewriting each line to temp_file.
-        while IFS= read -r line; do
-            if [[ -z "$line" ]]; then
-                #echo >> "$temp_file"
-                continue
-            fi
-
-            IFS='|' read -r title path notes <<< "$line"
-            # If there is matched line...
-            if [[ "$path" == "$selected_project_path" ]]; then
-                project_found=1
-                local current_notes
-                current_notes="$notes"
-                local notes_array=()
-
-                # Check for duplicates
-                IFS=',' read -ra notes_array <<< "$current_notes"
-                local duplicate=0	# Reset for each iteration.
-                # If duplicate found then break out of for loop here.
-                for note in "${notes_array[@]}"; do
-                    [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
-                done
-
-                if (( duplicate )); then
-                    whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
-
-                    # reset
-                    line_updated=0
-
-                    duplicate_detected=1
-                    # Rebuild original line
-                    new_line="$title|$path|$current_notes"
-                    # There is no fourth field!!!!
-                    # [[ -n "$rest" ]] && new_line+="|$rest"
-                    echo "$new_line" >> "$temp_file"	# No change.
-                else
-                    # reset
-                    duplicate_detected=0
-
-                    # Update notes
-                    # If there is no previously associated note...
-                    if [[ -z "$current_notes" ]]; then
-                        new_notes="$selected_note_path"
-                    else
-                        new_notes="$current_notes,$selected_note_path"
-                    fi
-                    new_line="$title|$path|$new_notes"
-                    #[[ -n "$rest" ]] && new_line+="|$rest"
-                    echo "$new_line" >> "$temp_file"	# Changes made.
-                    line_updated=1
-                fi
-            else
-                # Just leave the line unchanged.
-                echo "$line" >> "$temp_file"
-            fi
-        done < "$PROJECTS_DB"
-
-        # Handle processing results
-        if (( project_found )); then
-            if (( line_updated && !duplicate_detected )); then
-                mv "$temp_file" "$PROJECTS_DB"
-                whiptail --msgbox "Note successfully associated with the project." 10 50
-            elif (( duplicate_detected )); then
-                rm "$temp_file"
-                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
-                continue
-            else
-                rm "$temp_file"
-                whiptail --msgbox "No changes were made to the project entry." 10 50
-                continue
-            fi
+        # Update PROJECTS_DB file and check if changes are made.
+        if update_proj_db_file_by_notes_checklist "$selected_project_path" "$temp_file" "${selected_notes_chk[@]}"; then
+            mv "$temp_file" "$PROJECTS_DB"
+            whiptail --msgbox "Notes successfully associated with the project." 10 50            
         else
             rm "$temp_file"
-            whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
-            continue
+            whiptail --msgbox "No changes were made to the project entry. This may mean that your chosen notes are already associated with chosen project." 10 50
         fi
     done
 }
