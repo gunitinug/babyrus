@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99t'
+BABYRUS_VERSION='v.0.99u'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -10419,7 +10419,7 @@ add_note_tag_main() {
     local new_tag
     new_tag=$(whiptail --title "Add New Note Tag" --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty) || return 1
 
-    # ANY TAG is banned word
+    # ANY TAG is banned word - ban it case-insensitive?
     [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name. Try again." 8 40 && return 1
 
     # FIX: DELETE BANNED CHARS - MORE EFFICIENT.
