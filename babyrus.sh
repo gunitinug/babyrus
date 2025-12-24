@@ -10415,6 +10415,35 @@ print_notes() {
     done
 }
 
+add_note_tag_main() {
+    local new_tag
+    new_tag=$(whiptail --title "Add New Note Tag" --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty) || return 1
+
+    # ANY TAG is banned word
+    [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name. Try again." 8 40 && return 1
+
+    # FIX: DELETE BANNED CHARS - MORE EFFICIENT.
+    new_tag=${new_tag//[|,#:;]/}
+    # END FIX.
+
+    if [ -n "$new_tag" ]; then
+        # FIX: CHECK FOR DUPLICATE BEFORE ADDING TAG.
+        # Check if tag already exists
+        if grep -qiFx "$new_tag" "$NOTES_TAGS_DB"; then
+            whiptail --msgbox "Tag '${new_tag}' already exists!" 8 40   # case-insensitive
+            return 1
+        else
+            # Add to global tags list
+            echo "$new_tag" >> "$NOTES_TAGS_DB"
+            sort -u "$NOTES_TAGS_DB" -o "$NOTES_TAGS_DB"    # sort notes_tags_db file
+            whiptail --msgbox "Tag '${new_tag}' has been added to notes tags db." 8 40
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 # Main menu function
 manage_notes() {
     while true; do
@@ -10424,13 +10453,14 @@ manage_notes() {
             "2" "Edit Note" \
             "3" "Print Note Using Printer" \
             "4" "Open Associated eBook" \
-            "5" "Do Stuff by Tag" \
-            "6" "Associate URL to Note" \
-            "7" "Dissociate URL from Note" \
-	        "8" "Open URL from Note" \
-            "9" "Open an eBook From Global List" \
-            "10" "Delete Notes" \
-	        "11" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
+            "5" "Add New Note Tag" \
+            "6" "Do Stuff by Tag" \
+            "7" "Associate URL to Note" \
+            "8" "Dissociate URL from Note" \
+	        "9" "Open URL from Note" \
+            "10" "Open an eBook From Global List" \
+            "11" "Delete Notes" \
+	        "12" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -10442,13 +10472,14 @@ manage_notes() {
             2) list_notes ;;
             3) print_notes ;;
             4) open_note_ebook_page ;;
-            5) do_note_filter_by_tag ;;
-            6) assoc_url_to_note ;;
-            7) dissoc_url_from_note ;;
-            8) open_url_assoc_to_note ;;
-            9) open_ebook_note_from_global_list ;;
-            10) delete_notes ;;
-    	    11) delete_global_tag_of_notes ;;
+            5) add_note_tag_main ;;
+            6) do_note_filter_by_tag ;;
+            7) assoc_url_to_note ;;
+            8) dissoc_url_from_note ;;
+            9) open_url_assoc_to_note ;;
+            10) open_ebook_note_from_global_list ;;
+            11) delete_notes ;;
+    	    12) delete_global_tag_of_notes ;;
             *) return ;;
         esac
     done
