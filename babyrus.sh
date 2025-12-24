@@ -8747,6 +8747,14 @@ associate_notes_by_tag_to_project() {
             all_items+=( "$path" "" )
         done
 
+        # # If no filtered notes to begin with then display the warning message.
+        # if [[ ${#all_items[@]} -eq 0 ]]; then
+        #     whiptail --title "Attention" \
+        #             --msgbox "There are no notes by that tag. Add at least one note file and try again." \
+        #             20 80
+        #     return 1
+        # fi        
+
         local total_items=$(( ${#all_items[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
 
@@ -8977,24 +8985,26 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
     local chosen_tag
     chosen_tag=$(get_note_tag_from_global_list) || return 1
-    filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
+    #filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
+    filter_notes_by_tag "$chosen_tag"
     
-    # Check if any notes were actually filtered
-    if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
-        whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
-        return 1
-    fi
+    # # Check if any notes were actually filtered
+    # if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
+    #     whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
+    #     return 1
+    # fi
 
     # TASK: need to update $FILTERED_NOTES_BY_TAG when new note with same tag is added!
     while :; do
         # Update $FILTERED_NOTES_BY_TAG array.
-        filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
+        #filter_notes_by_tag "$chosen_tag" || { whiptail --msgbox "No notes with tag ${chosen_tag} found." 8 40 >/dev/tty; return 1; }
+        filter_notes_by_tag "$chosen_tag"
         
-        # Check if any notes were actually filtered
-        if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
-            whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
-            return 1
-        fi
+        # # Check if any notes were actually filtered
+        # if [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]]; then
+        #     whiptail --msgbox "No notes found with tag: $chosen_tag" 8 40 >/dev/tty
+        #     return 1
+        # fi
 
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
@@ -9007,12 +9017,27 @@ After creating a new note, you can choose to associate it to a project file. Aft
                 [[ -n "$note_path" ]] && associate_new_note_to_project "$note_path"
                 ;;
             "Edit note")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }                
                 list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
             "Open associated ebook")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }                
                 open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
             "Associate note to project")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }                
                 associate_notes_by_tag_to_project "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
         esac
