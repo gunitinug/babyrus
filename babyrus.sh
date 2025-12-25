@@ -1223,78 +1223,80 @@ associate_tag() {
 
     CURRENT_PAGE=0
 
-    # Select ebook
-    # paginate here because trunc may be large.
-    paginate
-    if [[ $? -ne 0 ]]; then return; fi
-    ebook_trunc="$SELECTED_ITEM"
-    #ebook_trunc="$(paginate "${trunc[@]}")"
+    while :; do
+        # Select ebook
+        # paginate here because trunc may be large.
+        paginate
+        if [[ $? -ne 0 ]]; then return; fi
+        ebook_trunc="$SELECTED_ITEM"
+        #ebook_trunc="$(paginate "${trunc[@]}")"
 
-    local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
+        local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
+        local m=$((2 * n - 1))
 
-    # debug
-    #echo "ebook_trunc: " "$ebook_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
+        # debug
+        #echo "ebook_trunc: " "$ebook_trunc" >&2
+        #echo "n: " "$n" >&2
+        #echo "m: " "$m" >&2
 
-    # Remember we want ebooks_whip[m-1].
-    ebook="${ebooks_whip[$((m - 1))]}"
+        # Remember we want ebooks_whip[m-1].
+        ebook="${ebooks_whip[$((m - 1))]}"
 
-    # Get existing tags for the ebook
-    existing_tags="$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")"
-    
-    # Get list of all tags
-    mapfile -t tags < <(cat "$TAGS_DB")
-    if [[ ${#tags[@]} -eq 0 ]]; then
-        whiptail --msgbox "No tags registered!" 8 40
-        return
-    fi
+        # Get existing tags for the ebook
+        existing_tags="$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")"
 
-    # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
-    # Sort the array
-    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
-    unset IFS
-    
-    # Rebuild the original array
-    tags=("${sorted[@]}")
-    # END FIX.
-    
-    # convert tags array into whiptail friendly format.
-    mapfile -d $'\x1e' -t tags_whip < <(make_into_pairs "${tags[@]}")
+        # Get list of all tags
+        mapfile -t tags < <(cat "$TAGS_DB")
+        if [[ ${#tags[@]} -eq 0 ]]; then
+            whiptail --msgbox "No tags registered!" 8 40
+            return
+        fi
 
-    # FIX: PAGINATE TAG SELECTION
-    local tag
-    tag="$(paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || return 1
+        # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
+        # Sort the array
+        IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
+        unset IFS
 
-    # # Select tag
-    # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
-    #     "${tags_whip[@]}" 3>&1 1>&2 2>&3)					# again here menu items must come in pairs!
-    # if [[ $? -ne 0 ]]; then return; fi
+        # Rebuild the original array
+        tags=("${sorted[@]}")
+        # END FIX.
 
-    # Escape special regex characters in $tag
-    escaped_tag=$(sed 's/[.[\*^$(){}+?|]/\\&/g' <<< "$tag")
-    
-    # Check if tag already exists as a standalone tag
-    if [[ "$existing_tags" =~ (^|,)${escaped_tag}(,|$) ]]; then
-        whiptail --msgbox "Ebook already has this tag!" 8 40
-        return
-    fi
-    
-    whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 80 || return 1
+        # convert tags array into whiptail friendly format.
+        mapfile -d $'\x1e' -t tags_whip < <(make_into_pairs "${tags[@]}")
 
-    # Update ebook entry
-    tmpfile=$(mktemp)
-    awk -v ebook="$ebook" -v tag="$tag" '
-        BEGIN {FS=OFS="|"} 
-        $1 == ebook {
-            if ($2 == "") $2 = tag
-            else $2 = $2 "," tag
-        }
-        {print}
-    ' "$EBOOKS_DB" > "$tmpfile" && mv "$tmpfile" "$EBOOKS_DB"
-    
-    whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 80
+        # FIX: PAGINATE TAG SELECTION
+        local tag
+        tag="$(paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || continue
+
+        # # Select tag
+        # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
+        #     "${tags_whip[@]}" 3>&1 1>&2 2>&3)					# again here menu items must come in pairs!
+        # if [[ $? -ne 0 ]]; then return; fi
+
+        # Escape special regex characters in $tag
+        escaped_tag=$(sed 's/[.[\*^$(){}+?|]/\\&/g' <<< "$tag")
+
+        # Check if tag already exists as a standalone tag
+        if [[ "$existing_tags" =~ (^|,)${escaped_tag}(,|$) ]]; then
+            whiptail --msgbox "Ebook already has this tag!" 8 40
+            continue
+        fi
+
+        whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 80 || continue
+
+        # Update ebook entry
+        tmpfile=$(mktemp)
+        awk -v ebook="$ebook" -v tag="$tag" '
+            BEGIN {FS=OFS="|"} 
+            $1 == ebook {
+                if ($2 == "") $2 = tag
+                else $2 = $2 "," tag
+            }
+            {print}
+        ' "$EBOOKS_DB" > "$tmpfile" && mv "$tmpfile" "$EBOOKS_DB"
+
+        whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 80
+    done
 }
 
 # Orphaned
