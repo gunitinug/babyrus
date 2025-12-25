@@ -8547,6 +8547,13 @@ open_note_ebook_page_from_filtered() {
     if [[ -n "$chapters_part" ]]; then
         # Chapters are present, prompt user to select one
         local selected_chapter=$(get_chapters "$selected_ebook")
+
+        # >> Just open
+        if [[ "$selected_chapter" == ">> Just open" ]]; then
+            handle_no_chapters "$selected_ebook"
+            return
+        fi
+
         if [ -n "$selected_chapter" ]; then
             local page=$(extract_page "$selected_chapter")
             [[ -z "$page" ]] && return 1
