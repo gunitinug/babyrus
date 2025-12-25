@@ -8182,12 +8182,16 @@ get_chapters() {
     [[ -z "$selected_ebook" ]] && { echo ""; return 1; }
 
     local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
-    [[ -z "$chapters_part" ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
+    #[[ -z "$chapters_part" ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
 
     IFS=',' read -ra chapters <<< "$chapters_part"
-    [[ ${#chapters[@]} -eq 0 ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
+    #[[ ${#chapters[@]} -eq 0 ]] && { whiptail --msgbox "No chapters associated with the ebook." 20 80; echo ""; return 1; }
 
     local chapter_options=()
+
+    # Open with no bookmark
+    chapter_options+=(">> Just open" "")
+
     for i in "${!chapters[@]}"; do
         chapter_options+=("$((i+1))" "${chapters[$i]}")
     done
@@ -8195,6 +8199,11 @@ get_chapters() {
     local selected_chapter_tag
     selected_chapter_tag=$(whiptail --menu "Select a chapter" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
+
+    if [[ "$selected_chapter_tag" == ">> Just open" ]]; then
+        echo ">> Just open"
+        return
+    fi
 
     local chapter_index=$((selected_chapter_tag - 1))
     [[ $chapter_index -lt 0 || $chapter_index -ge ${#chapters[@]} ]] && { echo ""; return 1; }
@@ -8287,6 +8296,13 @@ open_note_ebook_page() {
     if [[ -n "$chapters_part" ]]; then
         # Chapters are present, prompt user to select one
         local selected_chapter=$(get_chapters "$selected_ebook")
+
+        # >> Just open
+        if [[ "$selected_chapter" == ">> Just open" ]]; then
+            handle_no_chapters "$selected_ebook"
+            return
+        fi
+
         if [ -n "$selected_chapter" ]; then
             local page=$(extract_page "$selected_chapter")
             [[ -z "$page" ]] && return 1
