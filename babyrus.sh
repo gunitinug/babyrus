@@ -26,6 +26,7 @@ NOTES_TAGS_DB="${NOTES_METADATA_PATH}/notes-tags.db"
 NOTES_EBOOKS_DB="${NOTES_METADATA_PATH}/notes-ebooks.db"
 EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
 PROJECTS_DB_SHORTLISTED="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted"
+SHORTLISTED_HISTORY="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted.history"
 
 # DO NOT DELETE OR ALTER BETWEEN THESE MARKERS(INCLUDING MARKERS)!!!
 #+++ CONFIGURATION +++#
@@ -12889,6 +12890,22 @@ print_project_to_printer_from_main() {
     done
 }
 
+# Utility function used to record add/remove project file to shortlist so history can be viewed.
+save_action_shortlisted() {
+    local proj_path="$1"
+    local action="$2"
+
+    # Ensure $SHORTLISTED_HISTORY file exists
+    touch "$SHORTLISTED_HISTORY"
+
+    # Get current timestamp
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+
+    # Append timestamp, action, and project path to the history file
+    echo "[$timestamp] $action $proj_path" >> "$SHORTLISTED_HISTORY"
+}
+
 add_to_shortlist() {
     add_item_to_shortlist() {
         # Check if projects database exists and has entries
@@ -12972,6 +12989,7 @@ add_to_shortlist() {
                 continue
             else
                 echo "$new_item" >> "$PROJECTS_DB_SHORTLISTED"
+                save_action_shortlisted "$new_item" "ADDED"
             fi
         fi
     done
@@ -13009,6 +13027,7 @@ remove_from_shortlist() {
                 # Ask for confirmation
                 if whiptail --yesno "Are you sure you want to remove:\n$choice" 10 60; then
                     sed -i "\|^$(printf '%s' "$choice" | sed 's/[&/\]/\\&/g')\$|d" "$PROJECTS_DB_SHORTLISTED"
+                    save_action_shortlisted "$choice" "REMOVED"
                     whiptail --msgbox "Removed: $choice" 10 60
                 fi
                 ;;
@@ -13016,7 +13035,35 @@ remove_from_shortlist() {
     done
 }
 
+view_shortlist_history() {
+    # Ensure the history file exists
+    touch "$SHORTLISTED_HISTORY"
+
+    if [[ ! -s "$SHORTLISTED_HISTORY" ]]; then
+        # File is empty, show message
+        whiptail --title "Shortlisted History" --msgbox "No history yet." 10 50
+    else
+        # File has content, show in textbox
+        local tmp_file
+        tmp_file=$(mktemp)
+        cat "$SHORTLISTED_HISTORY" > "$tmp_file"
+        whiptail --title "Shortlisted History" --textbox "$tmp_file" 20 80
+        rm -f "$tmp_file"
+    fi
+}
+
+trim_shortlisted_history() {
+    # Ensure the file exists
+    [[ -f "$SHORTLISTED_HISTORY" ]] || return
+
+    # Keep only the last 200 lines
+    tail -n 200 "$SHORTLISTED_HISTORY" > "${SHORTLISTED_HISTORY}.tmp" && mv "${SHORTLISTED_HISTORY}.tmp" "$SHORTLISTED_HISTORY"
+}
+
 do_stuff_with_shortlisted() {
+    # Just keep the last 200 lines of history file.
+    trim_shortlisted_history
+
     while true; do
         local choice
         choice=$(whiptail --title "Shortlisted Projects Menu" \
@@ -13024,9 +13071,7 @@ do_stuff_with_shortlisted() {
             "1" "Do stuff" \
             "2" "Add to shortlist" \
             "3" "Remove from shortlist" \
-            "4" "View history" \
-            "5" "Exit" \
-            3>&1 1>&2 2>&3) || return 1
+            "4" "View history" 3>&1 1>&2 2>&3) || return 1
 
         case "$choice" in
             1)
@@ -13040,9 +13085,6 @@ do_stuff_with_shortlisted() {
                 ;;
             4)
                 view_shortlist_history
-                ;;
-            5)
-                break
                 ;;
         esac
     done
