@@ -12977,6 +12977,45 @@ add_to_shortlist() {
     done
 }
 
+remove_from_shortlist() {
+    # Ensure file exists
+    touch "$PROJECTS_DB_SHORTLISTED"
+
+    local choice
+    local menu_items
+
+    while true; do
+        # Always include "Back"
+        menu_items=( "Back" "" )
+
+        # Populate menu with current shortlist
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && menu_items+=( "$line" "" )
+        done < "$PROJECTS_DB_SHORTLISTED"
+
+        choice=$(whiptail \
+            --title "Shortlisted Projects" \
+            --cancel-button "Back" \
+            --menu "Select a project to remove:" \
+            20 170 10 \
+            "${menu_items[@]}" \
+            3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            "Back")
+                return 1
+                ;;
+            *)
+                # Ask for confirmation
+                if whiptail --yesno "Are you sure you want to remove:\n$choice" 10 60; then
+                    sed -i "\|^$(printf '%s' "$choice" | sed 's/[&/\]/\\&/g')\$|d" "$PROJECTS_DB_SHORTLISTED"
+                    whiptail --msgbox "Removed: $choice" 10 60
+                fi
+                ;;
+        esac
+    done
+}
+
 do_stuff_with_shortlisted() {
     while true; do
         local choice
