@@ -25,6 +25,7 @@ NOTES_DB="${NOTES_METADATA_PATH}/notes.db"
 NOTES_TAGS_DB="${NOTES_METADATA_PATH}/notes-tags.db"
 NOTES_EBOOKS_DB="${NOTES_METADATA_PATH}/notes-ebooks.db"
 EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
+PROJECTS_DB_SHORTLISTED="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted"
 
 # DO NOT DELETE OR ALTER BETWEEN THESE MARKERS(INCLUDING MARKERS)!!!
 #+++ CONFIGURATION +++#
@@ -12888,6 +12889,126 @@ print_project_to_printer_from_main() {
     done
 }
 
+add_to_shortlist() {
+    add_item_to_shortlist() {
+        # Check if projects database exists and has entries
+        [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]] && {
+            whiptail --msgbox "No projects found." 8 40
+            return 1
+        }
+
+        # FIX: ADD FILTERING
+        # Read all projects into array
+        local lines=()    
+        mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
+
+        local menu_options=()
+        local title line lineno
+        for line in "${lines[@]}"; do
+            IFS='|' read -r title _ _ <<< "$line"
+            lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+
+            # Store matching index from PROJECTS_DB file.
+            [[ -n "$lineno" ]] && menu_options+=($((lineno-1)) "$title")
+        done
+        # END FIX.
+
+        # Paginate menu options
+        paginate_get_projects "Select Project" "${menu_options[@]}"
+        local selected_index
+        selected_index="$SELECTED_ITEM_PROJECT"
+        [[ -z "$selected_index" ]] && return 1
+
+        # DIRTY FIX: OVERWRITE LINES TO CONTAIN ALL LINES FROM PROJECTS_DB.
+        mapfile -t lines < "$PROJECTS_DB"
+
+        # Parse selected project
+        local old_title old_path old_notes
+        IFS='|' read -r old_title old_path old_notes <<< "${lines[$selected_index]}"
+
+        echo "$old_path"
+    }
+
+    # Ensure file exists
+    touch "$PROJECTS_DB_SHORTLISTED"
+
+    local choice
+    local menu_items
+    local new_item
+
+    while true; do
+        # Always include "Add item"
+        menu_items=( "Add item" "" )
+
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && menu_items+=( "$line" "" )
+        done < "$PROJECTS_DB_SHORTLISTED"
+
+        choice=$(whiptail \
+            --title "Shortlisted Projects" \
+            --cancel-button "Back" \
+            --menu "Select an option:" \
+            20 170 10 \
+            "${menu_items[@]}" \
+            3>&1 1>&2 2>&3) || return 1
+
+        # Only act on "Add item"
+        if [[ "$choice" == "Add item" ]]; then
+            # Let user choose a project file to add.
+            new_item=$(add_item_to_shortlist)
+
+            # User cancelled add_item or empty result
+            [[ -z "$new_item" ]] && continue
+
+            if ! whiptail --title "Confirm" --yesno "Do you want to add this project?" 8 40; then
+                continue
+            fi
+
+            # Duplicate check
+            if grep -Fxq -- "$new_item" "$PROJECTS_DB_SHORTLISTED"; then
+                whiptail --title "Duplicate" \
+                         --msgbox "This project is already in the shortlist:\n\n$new_item" \
+                         10 70
+                continue
+            else
+                echo "$new_item" >> "$PROJECTS_DB_SHORTLISTED"
+            fi
+        fi
+    done
+}
+
+do_stuff_with_shortlisted() {
+    while true; do
+        local choice
+        choice=$(whiptail --title "Shortlisted Projects Menu" \
+            --menu "Choose an action:" 15 50 6 \
+            "1" "Do stuff" \
+            "2" "Add to shortlist" \
+            "3" "Remove from shortlist" \
+            "4" "View history" \
+            "5" "Exit" \
+            3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            1)
+                do_stuff_shortlisted
+                ;;
+            2)
+                add_to_shortlist
+                ;;
+            3)
+                remove_from_shortlist
+                ;;
+            4)
+                view_shortlist_history
+                ;;
+            5)
+                break
+                ;;
+        esac
+    done
+}
+
 show_projects_menu() {
     while true; do
 	local choice
@@ -12899,8 +13020,9 @@ show_projects_menu() {
             "5" "Dissociate Note with Project" \
             "6" "Do Stuff with Linked Notes in Project File" \
             "7" "Open URL from Linked Notes in Project File" \
-            "8" "Delete Project" \
-            "9" "Print Project using Printer" 3>&1 1>&2 2>&3) || return 1
+            "8" "Do Stuff with Shortlisted Projects" \
+            "9" "Delete Project" \
+            "10" "Print Project using Printer" 3>&1 1>&2 2>&3) || return 1
 
         case $choice in
             1)
@@ -12925,9 +13047,12 @@ show_projects_menu() {
                 open_url_assoc_to_note_from_project
                 ;;
             8)
-                delete_project
+                do_stuff_with_shortlisted
                 ;;
             9)
+                delete_project
+                ;;
+            10)
                 print_project_to_printer_from_main
                 ;;
             *)
