@@ -10452,7 +10452,7 @@ print_notes() {
                 fold -s -w 145 "$selected_path" > "$tmpfile"
                 # NOTE: NOTE_TITLE IS NOT EXTRACTED YET! -- FIXED?
                 local note_title="$(get_note_title_from_note_path_ "$selected_path")"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -12935,7 +12935,7 @@ do_stuff_with_project_file() {
                 # Word wrap width 145
                 local tmpfile=$(mktemp)
                 fold -s -w 145 "$note_path" > "$tmpfile"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -13273,7 +13273,7 @@ print_project_to_printer_from_main() {
                 fold -s -w 145 "$path_" > "$tmpfile"
                 # NOTE: PROJECT_TITLE IS NOT EXTRACTED YET! -- FIXED?
                 local project_title="$(get_project_title_from_project_path "$path_")"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$project_title" --textbox "$tmpfile" 35 150                
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$project_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -14591,7 +14591,7 @@ do_stuff_shortlisted() {
                 # Word wrap width 145
                 local tmpfile=$(mktemp)
                 fold -s -w 145 "$note_path" > "$tmpfile"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
+                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
                 rm -f "$tmpfile"
                 clear
                 ;;
