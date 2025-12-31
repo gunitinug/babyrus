@@ -14272,6 +14272,106 @@ do_stuff_shortlisted() {
         done
     }
 
+    dissociate_note_from_project_from_shortlist() {
+        find_tags_for_linked_note() {
+            local path_to_note_file="$1"
+            local matching_tags_str=""
+
+            # Ensure NOTES_DB is defined and exists
+            if [[ -z "$NOTES_DB" || ! -f "$NOTES_DB" ]]; then
+                echo "Error: NOTES_DB not defined or file not found." >&2
+                return 1
+            fi
+
+            # Extract the tags (3rd field) for the matching note
+            matching_tags_str=$(awk -F'|' -v path="$path_to_note_file" '$2 == path {print $3}' "$NOTES_DB")
+
+            echo "$matching_tags_str"
+        }
+
+        # Check if database exists
+        if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+            whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+            return 1
+        fi
+
+        # Load full DB lines for editing later
+        mapfile -t lines < "$PROJECTS_DB"
+
+        local selected_project_path="$1"
+
+        local selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
+        [[ -z "$selected_project" ]] && return 1
+        ((selected_project--))
+
+        local line="${lines[selected_project]}"
+        IFS='|' read -r title path notes <<< "$line"
+
+        # Begin dissociation loop
+        while true; do
+            if [[ -z "$notes" ]]; then
+                whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+                return 1
+            fi
+
+            # Split notes into array
+            local -a notes_arr
+            IFS=',' read -ra notes_arr <<< "$notes"
+
+            if [[ ${#notes_arr[@]} -eq 0 ]]; then
+                whiptail --msgbox "No notes left to dissociate." 10 60 >/dev/tty
+                return 1
+            fi
+
+            # Build menu options (add << Back at top)
+            local -a note_options=("<< Back" "")
+            local note_index note_matching_tags
+            for note_index in "${!notes_arr[@]}"; do
+                note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
+                note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
+            done
+
+            # Show note selection menu
+            paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
+            local selected_note="$SELECTED_ITEM_PROJECT"
+
+            # If user chooses << Back, stop loop
+            [[ -z "$selected_note" || "$selected_note" == "<< Back" ]] && return 1
+
+            # Remove selected note from list
+            local -a new_notes=()
+            for note_index in "${!notes_arr[@]}"; do
+                if [[ $note_index -ne $selected_note ]]; then
+                    new_notes+=("${notes_arr[note_index]}")
+                fi
+            done
+
+            # Join remaining notes into CSV
+            local new_notes_str=""
+            if [[ ${#new_notes[@]} -gt 0 ]]; then
+                new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
+            fi
+
+            # Update database entry in memory
+            lines[selected_project]="$title|$path|$new_notes_str"
+            notes="$new_notes_str"  # Update current project notes for next loop
+
+            # Write database back to file
+            local tmp_db
+            tmp_db=$(mktemp) || return 1
+            printf "%s\n" "${lines[@]}" > "$tmp_db"
+            mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+
+            whiptail --msgbox "Note successfully dissociated from project." 10 60 >/dev/tty
+
+            # If no notes left, exit loop automatically
+            [[ -z "$notes" ]] && {
+                whiptail --msgbox "All notes have been dissociated from this project." 10 60 >/dev/tty
+                break
+            }
+        done
+    }
+
     # Populate menu with current shortlist
     local projects=()
     mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
@@ -14317,6 +14417,7 @@ do_stuff_shortlisted() {
         # Add option 'Create new linked note' first
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Link note" "")
+        note_menu_options+=("Unlink note" "")
 
         local trunc_tag
         for np in "${note_paths[@]}"; do
@@ -14347,6 +14448,9 @@ do_stuff_shortlisted() {
         elif [[ "$selected_note_tag" == "Link note" ]]; then
             associate_note_to_project_from_shortlist "$selected_project_path" || continue
             continue    # Display list of linked notes again after associating a note.
+        elif [[ "$selected_note_tag" == "Unlink note" ]]; then
+            dissociate_note_from_project_from_shortlist "$selected_project_path" || continue
+            continue    # Display list of lined notes again after dissociating notes.
         fi
 
         local selected_note_index=$((selected_note_tag - 1))
