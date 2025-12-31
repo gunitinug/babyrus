@@ -12413,7 +12413,7 @@ do_stuff_with_project_file() {
         print_file_from_do_stuff_project "$selected_path"
     }
 
-    associate_new_note_to_project_from_shortlist() {
+    associate_new_note_to_project_from_do_stuff() {
         # note path is the new note you've just created from select notes menu.
         local NEW_NOTE_PATH="$note_path"
         [[ -z "$NEW_NOTE_PATH" ]] && return 1
@@ -12583,7 +12583,7 @@ do_stuff_with_project_file() {
         # Handle case when user selects "Create new lnked note".
         if [[ "$selected_note_tag" == "Create new linked note" ]]; then
             add_note || continue
-            associate_new_note_to_project_from_shortlist "$selected_project_path"
+            associate_new_note_to_project_from_do_stuff "$selected_project_path"
             continue    # Continue since we need to update the linked notes list now.
         fi
 
