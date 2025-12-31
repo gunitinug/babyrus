@@ -12518,6 +12518,212 @@ do_stuff_with_project_file() {
         fi
     }
 
+    associate_note_to_project_from_do_stuff() {
+        paginate_tags_menu() {
+            local title="$1"
+            shift
+            local items=("$@")
+            local per_page=20
+            local total_items=$(( ${#items[@]} / 2 ))
+            local total_pages=$(( (total_items + per_page - 1) / per_page ))
+            local current_page=1
+            local choice start_index end_index menu_items tag desc
+
+            while true; do
+                # Calculate start and end indices for current page
+                start_index=$(( (current_page - 1) * per_page * 2 ))
+                end_index=$(( start_index + per_page * 2 ))
+                menu_items=()
+
+                # Add items for current page
+                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                    tag="${items[i]}"
+                    desc="${items[i+1]}"
+                    menu_items+=("$tag" "$desc")
+                done
+
+                # Add navigation options
+                if (( current_page > 1 )); then
+                    menu_items+=("<< Prev" "")
+                fi
+                if (( current_page < total_pages )); then
+                    menu_items+=(">> Next" "")
+                fi
+
+                # Show whiptail menu
+                choice=$(whiptail --title "$title" \
+                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                case "$choice" in
+                    ">> Next")
+                        (( current_page++ ))
+                        ;;
+                    "<< Prev")
+                        (( current_page-- ))
+                        ;;
+                    *)
+                        # Return selected tag
+                        printf '%s\n' "$choice"
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
+        #local PROJECTS_DB="$PROJECTS_DB"
+        #local NOTES_DB="$NOTES_DB"
+        local temp_file line_updated duplicate_detected project_found
+        temp_file=$(mktemp) || return 1
+        line_updated=0
+        duplicate_detected=0
+        project_found=0
+
+        # Check if databases exist
+        if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+            whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+            return 1
+        fi
+        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+            whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+            return 1
+        fi
+
+        local selected_project_path
+        selected_project_path="$1"
+        [[ -z "$selected_project_path" ]] && return 1
+
+        # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
+        local note_tag_options=("ANY TAG" "Any tag (no filter)")    
+
+        while IFS= read -r tag; do
+            [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
+        done < "$NOTES_TAGS_DB"
+
+        local selected_note_tag
+        selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
+
+        # Read notes into menu
+        local note_menu_options=()
+        local note_tags_arr
+        while IFS='|' read -r note_title note_path note_tags rest; do
+            # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
+            if [[ "$selected_note_tag" == "ANY TAG" ]]; then
+                note_menu_options+=("$note_path" "[${note_tags}]")
+                continue
+            fi
+
+            # FIX: FILTER BY NOTE TAG
+            IFS=',' read -r -a note_tags_arr <<< "$note_tags"
+
+            # only enters here if line already has a tag
+            for tag in "${note_tags_arr[@]}"; do
+                if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
+                    note_menu_options+=("$note_path" "[${note_tags}]")
+                    break
+                fi
+            done
+
+            #note_menu_options+=("$note_path" "[${note_tags}]")
+        done < "$NOTES_DB"
+        if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
+            whiptail --msgbox "No notes available in the database." 20 50
+            return 1
+        fi
+
+        while :; do
+            # Note selection
+            paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
+            local selected_note_path
+            selected_note_path="$SELECTED_ITEM_PROJECT"
+            [[ -z "$selected_note_path" ]] && return 1
+
+            #local selected_note_path
+            #selected_note_path=$(whiptail --title "Select Note" \
+            #    --menu "Choose a note to associate:" \
+            #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
+            #[[ -z "$selected_note_path" ]] && return 1  # User canceled
+
+            # Process PROJECTS_DB
+            while IFS= read -r line; do
+                if [[ -z "$line" ]]; then
+                    #echo >> "$temp_file"
+                    continue
+                fi
+
+                IFS='|' read -r title path notes <<< "$line"
+                # If there is matched line...
+                if [[ "$path" == "$selected_project_path" ]]; then
+                    project_found=1
+                    current_notes="$notes"
+                    local notes_array=()
+
+                    # Check for duplicates
+                    IFS=',' read -ra notes_array <<< "$current_notes"
+                    local duplicate=0	# Reset for each iteration.
+                    # If duplicate found then break out of for loop here.
+                    for note in "${notes_array[@]}"; do
+                        [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                    done
+
+                    if (( duplicate )); then
+                        whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                        # reset
+                        line_updated=0
+
+                        duplicate_detected=1
+                        # Rebuild original line
+                        new_line="$title|$path|$current_notes"
+                        # There is no fourth field!!!!
+                        # [[ -n "$rest" ]] && new_line+="|$rest"
+                        echo "$new_line" >> "$temp_file"	# No change.
+                    else
+                        # reset
+                        duplicate_detected=0
+
+                        # Update notes
+                        # If there is no previously associated note...
+                        if [[ -z "$current_notes" ]]; then
+                            new_notes="$selected_note_path"
+                        else
+                            new_notes="$current_notes,$selected_note_path"
+                        fi
+                        new_line="$title|$path|$new_notes"
+                        #[[ -n "$rest" ]] && new_line+="|$rest"
+                        echo "$new_line" >> "$temp_file"	# Changes made.
+                        line_updated=1
+                    fi
+                else
+                    # Just leave the line unchanged.
+                    echo "$line" >> "$temp_file"
+                fi
+            done < "$PROJECTS_DB"
+
+            # Handle processing results
+            if (( project_found )); then
+                if (( line_updated && !duplicate_detected )); then
+                    mv "$temp_file" "$PROJECTS_DB"
+                    whiptail --msgbox "Note successfully associated with the project." 10 50
+                elif (( duplicate_detected )); then
+                    rm "$temp_file"
+                    #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                    continue
+                else
+                    rm "$temp_file"
+                    whiptail --msgbox "No changes were made to the project entry." 10 50
+                    continue
+                fi
+            else
+                rm "$temp_file"
+                whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+                continue
+            fi
+        done
+    }
+
     local projects=()
     mapfile -d '' -t projects < <(filter_projects_by_name)	
 
@@ -12558,6 +12764,7 @@ do_stuff_with_project_file() {
 
         # Add option 'Create new linked note' first
         note_menu_options+=("Create new linked note" "")
+        note_menu_options+=("Link note" "")
 
         local trunc_tag
         for np in "${note_paths[@]}"; do
@@ -12585,6 +12792,9 @@ do_stuff_with_project_file() {
             add_note || continue
             associate_new_note_to_project_from_do_stuff "$selected_project_path"
             continue    # Continue since we need to update the linked notes list now.
+        elif [[ "$selected_note_tag" == "Link note" ]]; then
+            associate_note_to_project_from_do_stuff "$selected_project_path" || continue
+            continue    # Display list of linked notes again after associating a note.            
         fi
 
         local selected_note_index=$((selected_note_tag - 1))
