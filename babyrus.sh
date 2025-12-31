@@ -13445,7 +13445,7 @@ view_shortlist_history() {
         local tmp_file
         tmp_file=$(mktemp)
         cat "$SHORTLISTED_HISTORY" > "$tmp_file"
-        whiptail --title "Shortlisted History" --textbox "$tmp_file" 20 80
+        whiptail --title "Shortlisted History" --textbox "$tmp_file" 20 80 --scrolltext
         rm -f "$tmp_file"
     fi
 }
