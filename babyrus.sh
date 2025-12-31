@@ -13667,6 +13667,111 @@ do_stuff_shortlisted() {
         echo "$line"
     }
 
+    associate_new_note_to_project_from_shortlist() {
+        # note path is the new note you've just created from select notes menu.
+        local NEW_NOTE_PATH="$note_path"
+        [[ -z "$NEW_NOTE_PATH" ]] && return 1
+
+        local temp_file line_updated duplicate_detected project_found
+        temp_file=$(mktemp) || return 1
+        line_updated=0
+        duplicate_detected=0
+        project_found=0
+
+        # Check if databases exist
+        if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
+            whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+            return 1
+        fi
+        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+            whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+            return 1
+        fi
+
+        local selected_project_path
+        selected_project_path="$1"
+        [[ -z "$selected_project_path" ]] && return 1
+
+        local selected_note_path="$NEW_NOTE_PATH"
+
+        # WE'VE SELECTED PROJECT FILE AND NOTE FILE AT THIS POINT!!!!
+
+        # Process PROJECTS_DB - update each line (only change line of selected project file)
+        while IFS= read -r line; do
+            if [[ -z "$line" ]]; then
+                continue
+            fi
+
+            IFS='|' read -r title path notes <<< "$line"
+            # If there is matched line...
+            if [[ "$path" == "$selected_project_path" ]]; then
+                project_found=1
+                current_notes="$notes"
+                local notes_array=()
+
+                # Check for duplicates
+                IFS=',' read -ra notes_array <<< "$current_notes"
+                local duplicate=0	# Reset for each iteration.
+                # If duplicate found then set duplicate and break out of for loop here.
+                for note in "${notes_array[@]}"; do
+                    [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                done
+
+                if (( duplicate )); then
+                    whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
+
+                    # reset
+                    line_updated=0
+
+                    duplicate_detected=1
+                    # Rebuild original line
+                    new_line="$title|$path|$current_notes"
+                    # There is no fourth field!!!!
+                    # [[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# No change.
+                else
+                    # reset
+                    duplicate_detected=0
+
+                    # Update notes
+                    # If there is no previously associated note...
+                    if [[ -z "$current_notes" ]]; then
+                        new_notes="$selected_note_path"
+                    else
+                        new_notes="$current_notes,$selected_note_path"
+                    fi
+                    new_line="$title|$path|$new_notes"
+                    #[[ -n "$rest" ]] && new_line+="|$rest"
+                    echo "$new_line" >> "$temp_file"	# Changes made.
+                    line_updated=1
+                fi
+            else
+                # Just leave the line unchanged.
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$PROJECTS_DB"
+
+        # Handle processing results
+        if (( project_found )); then
+            if (( line_updated && !duplicate_detected )); then
+                mv "$temp_file" "$PROJECTS_DB"
+                whiptail --msgbox "Note successfully associated with the project." 10 50
+            elif (( duplicate_detected )); then
+                rm "$temp_file"
+                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                return 1
+            else
+                rm "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                return 1
+            fi
+        else
+            rm "$temp_file"
+            whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
+            return 1
+        fi
+    }
+
     # Populate menu with current shortlist
     local projects=()
     mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
@@ -13693,51 +13798,52 @@ do_stuff_shortlisted() {
     selected_project_tag="$SELECTED_ITEM_PROJECT"
     [[ -z "$selected_project_tag" || "$selected_project_tag" == "<< Back" ]] && return 1
 
-    #local selected_project_tag
-    #selected_project_tag=$(whiptail --menu "Select Project" 20 78 12 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
-    #[ $? -ne 0 ] && return 1
-
-    local selected_project_index=$((selected_project_tag - 1))
-    local selected_project_line="${projects[$selected_project_index]}"
-    IFS='|' read -r _ _ associated_notes <<< "$selected_project_line"
-
-    # Process associated notes
-    local note_paths=()
-    IFS=',' read -ra note_paths <<< "$associated_notes"
-    local note_lines=() 
-    local note_menu_options=()
-
-    local trunc_tag
-    for np in "${note_paths[@]}"; do
-        while IFS= read -r line; do
-            IFS='|' read -r title path tags _ <<< "$line"
-            if [ "$path" = "$np" ]; then
-                note_lines+=("$line")
-
-                # truncate tag string
-                trunc_tag="$(truncate_tag "$tags")"
-
-                note_menu_options+=("${#note_lines[@]}" "$title [${trunc_tag}]")
-                break
-            fi
-        done < "$NOTES_DB"
-    done
-
-    if [ ${#note_menu_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No notes found for selected project." 8 50
-        return 1
-    fi
-
-    # # Show note selection
-    # local selected_note_tag
-    # selected_note_tag=$(whiptail --menu "Select Note" 20 78 12 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-    # [ $? -ne 0 ] && return 1
-
     # FIX: WHILE LOOP TO ALLOW MULTIPLE LINKED NOTE SELECTIONS
     while :; do
+        # Refresh linked notes list at the start of each iteration.
+        mapfile -t projects < "$PROJECTS_DB"    # Reload from PROJECTS DB file.
+        local selected_project_index=$((selected_project_tag - 1))
+        local selected_project_line="${projects[$selected_project_index]}"
+
+        local selected_project_path associated_notes
+        IFS='|' read -r _ selected_project_path associated_notes <<< "$selected_project_line"
+
+        # Process associated notes
+        local note_paths=()
+        IFS=',' read -ra note_paths <<< "$associated_notes"
+        local note_lines=() 
+        local note_menu_options=()
+
+        # Add option 'Create new linked note' first
+        note_menu_options+=("Create new linked note" "")
+
+        local trunc_tag
+        for np in "${note_paths[@]}"; do
+            while IFS= read -r line; do
+                IFS='|' read -r title path tags _ <<< "$line"
+                if [ "$path" = "$np" ]; then
+                    note_lines+=("$line")
+
+                    # truncate tag string
+                    trunc_tag="$(truncate_tag "$tags")"
+
+                    note_menu_options+=("${#note_lines[@]}" "$title [${trunc_tag}]")
+                    break
+                fi
+            done < "$NOTES_DB"
+        done        
+        # Refresh code end.
+
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
         selected_note_tag="$(show_note_menu "${note_menu_options[@]}")" || return 1
+
+        # Handle case when user selects "Create new lnked note".
+        if [[ "$selected_note_tag" == "Create new linked note" ]]; then
+            add_note || continue
+            associate_new_note_to_project_from_shortlist "$selected_project_path"
+            continue    # Continue since we need to update the linked notes list now.
+        fi
 
         local selected_note_index=$((selected_note_tag - 1))
         local selected_note_line="${note_lines[$selected_note_index]}"
