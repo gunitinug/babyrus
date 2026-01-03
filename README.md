@@ -107,6 +107,8 @@ readonly BACKUP_ENTRIES=(
   "notes/metadata/notes-tags.db"
   "projects/*.txt"
   "projects/metadata/projects.db"
+  "projects/metadata/projects.db.shortlisted"
+  "projects/metadata/projects.db.shortlisted.history"
   "urls/urls.db"
 )
 ```
