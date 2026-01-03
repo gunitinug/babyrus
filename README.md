@@ -137,7 +137,3 @@ We welcome contributions and feedback to improve Babyrus.
 ## License
 
 Babyrus is free software licensed under the [GNU General Public License, Version 3](https://www.gnu.org/licenses/gpl-3.0.html). A copy of the license is available in the repository as `LICENSE`.
-
------
-
-[See a demo video](https://www.youtube.com/watch?v=i6dbxa1750M)
