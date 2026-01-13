@@ -13375,14 +13375,14 @@ add_to_shortlist() {
             "Add item" ""
         )
 
+        # Navigation
+        (( page > 0 )) && menu_items+=( "<< Prev" "" )
+        (( page < max_page )) && menu_items+=( "Next >>" "" )
+
         # Paginated shortlisted items (4 per page)
         for ((i=start; i<end && i<total; i++)); do
             [[ -n "${shortlisted[i]}" ]] && menu_items+=( "${shortlisted[i]}" "" )
         done
-
-        # Navigation
-        (( page > 0 )) && menu_items+=( "<< Prev" "" )
-        (( page < max_page )) && menu_items+=( "Next >>" "" )
 
         choice=$(whiptail \
             --title "Shortlisted Projects" \
@@ -13425,25 +13425,36 @@ add_to_shortlist() {
 }
 
 remove_from_shortlist() {
-    # Ensure file exists
     touch "$PROJECTS_DB_SHORTLISTED"
 
+    local PAGE_SIZE=50
+    local offset=0
     local choice
-    local menu_items
+
+    mapfile -t all_items < "$PROJECTS_DB_SHORTLISTED"
+    local total=${#all_items[@]}
 
     while true; do
-        # Always include "Back"
-        menu_items=( "Back" "" )
+        local menu_items=()
+        menu_items+=( "Back" "" )
 
-        # Populate menu with current shortlist
-        while IFS= read -r line; do
-            [[ -n "$line" ]] && menu_items+=( "$line" "" )
-        done < "$PROJECTS_DB_SHORTLISTED"
+        # Navigation (does NOT count toward page size)
+        (( offset > 0 )) && menu_items+=( "<< Prev" "" )
+        (( offset + PAGE_SIZE < total )) && menu_items+=( "Next >>" "" )
+
+        # Paginated shortlist items
+        for (( i=offset; i<offset+PAGE_SIZE && i<total; i++ )); do
+            menu_items+=( "${all_items[i]}" "" )
+        done
+
+        # Page indicator
+        local current_page=$(( offset / PAGE_SIZE + 1 ))
+        local total_pages=$(( (total + PAGE_SIZE - 1) / PAGE_SIZE ))
 
         choice=$(whiptail \
             --title "Shortlisted Projects" \
             --cancel-button "Back" \
-            --menu "Select a project to remove:" \
+            --menu "Select a project to remove (Page ${current_page}/${total_pages}):" \
             20 170 10 \
             "${menu_items[@]}" \
             3>&1 1>&2 2>&3) || return 1
@@ -13452,12 +13463,24 @@ remove_from_shortlist() {
             "Back")
                 return 1
                 ;;
+            "<< Prev")
+                (( offset -= PAGE_SIZE ))
+                (( offset < 0 )) && offset=0
+                ;;
+            "Next >>")
+                (( offset += PAGE_SIZE ))
+                ;;
             *)
-                # Ask for confirmation
                 if whiptail --yesno "Are you sure you want to remove:\n$choice" 10 60; then
                     sed -i "\|^$(printf '%s' "$choice" | sed 's/[&/\]/\\&/g')\$|d" "$PROJECTS_DB_SHORTLISTED"
                     save_action_shortlisted "$choice" "REMOVED"
                     whiptail --msgbox "Removed: $choice" 10 60
+
+                    # Refresh list and clamp offset
+                    mapfile -t all_items < "$PROJECTS_DB_SHORTLISTED"
+                    total=${#all_items[@]}
+                    (( offset >= total )) && offset=$(( total - PAGE_SIZE ))
+                    (( offset < 0 )) && offset=0
                 fi
                 ;;
         esac
