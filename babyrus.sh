@@ -1,6 +1,6 @@
 #!/bin/bash
 # babyrus - A terminal productivity tool.
-# Copyright (C) 2025 Logan Lee
+# Copyright (C) 2025, 2026 Logan Lee
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15722,7 +15722,7 @@ about_babyrus() {
 "BABYRUS — a simple, fast, terminal-based productivity tool.
 Version: ${BABYRUS_VERSION}
 
-Copyleft © 2025 Logan Lee — GPLv3." \
+Copyleft © 2025, 2026 Logan Lee — GPLv3." \
     12 60
 }
 
