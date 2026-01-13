@@ -13352,49 +13352,75 @@ add_to_shortlist() {
     # Ensure file exists
     touch "$PROJECTS_DB_SHORTLISTED"
 
-    local choice
-    local menu_items
-    local new_item
+    local choice new_item
+    local page=0
+    local page_size=50 # a common optimal page size.
 
     while true; do
-        # Always include "Add item"
-        menu_items=( "Add item" "" )
+        # Read shortlisted projects
+        mapfile -t shortlisted < "$PROJECTS_DB_SHORTLISTED"
 
-        while IFS= read -r line; do
-            [[ -n "$line" ]] && menu_items+=( "$line" "" )
-        done < "$PROJECTS_DB_SHORTLISTED"
+        local total=${#shortlisted[@]}
+        local max_page=0
+        (( total > 0 )) && max_page=$(( (total - 1) / page_size ))
+
+        (( page < 0 )) && page=0
+        (( page > max_page )) && page=$max_page
+
+        local start=$(( page * page_size ))
+        local end=$(( start + page_size ))
+
+        # Build menu
+        local menu_items=(
+            "Add item" ""
+        )
+
+        # Paginated shortlisted items (4 per page)
+        for ((i=start; i<end && i<total; i++)); do
+            [[ -n "${shortlisted[i]}" ]] && menu_items+=( "${shortlisted[i]}" "" )
+        done
+
+        # Navigation
+        (( page > 0 )) && menu_items+=( "<< Prev" "" )
+        (( page < max_page )) && menu_items+=( "Next >>" "" )
 
         choice=$(whiptail \
             --title "Shortlisted Projects" \
             --cancel-button "Back" \
-            --menu "Select an option:" \
+            --menu "Page $((page+1)) of $((max_page+1))" \
             20 170 10 \
             "${menu_items[@]}" \
             3>&1 1>&2 2>&3) || return 1
 
-        # Only act on "Add item"
-        if [[ "$choice" == "Add item" ]]; then
-            # Let user choose a project file to add.
-            new_item=$(add_item_to_shortlist)
+        case "$choice" in
+            "Add item")
+                new_item=$(add_item_to_shortlist)
+                [[ -z "$new_item" ]] && continue
 
-            # User cancelled add_item or empty result
-            [[ -z "$new_item" ]] && continue
+                if ! whiptail --title "Confirm" --yesno "Do you want to add this project?" 8 40; then
+                    continue
+                fi
 
-            if ! whiptail --title "Confirm" --yesno "Do you want to add this project?" 8 40; then
-                continue
-            fi
-
-            # Duplicate check
-            if grep -Fxq -- "$new_item" "$PROJECTS_DB_SHORTLISTED"; then
-                whiptail --title "Duplicate" \
-                         --msgbox "This project is already in the shortlist:\n\n$new_item" \
-                         10 70
-                continue
-            else
-                echo "$new_item" >> "$PROJECTS_DB_SHORTLISTED"
-                save_action_shortlisted "$new_item" "ADDED"
-            fi
-        fi
+                if grep -Fxq -- "$new_item" "$PROJECTS_DB_SHORTLISTED"; then
+                    whiptail --title "Duplicate" \
+                             --msgbox "This project is already in the shortlist:\n\n$new_item" \
+                             10 70
+                else
+                    echo "$new_item" >> "$PROJECTS_DB_SHORTLISTED"
+                    save_action_shortlisted "$new_item" "ADDED"
+                fi
+                ;;
+            "<< Prev")
+                ((page--))
+                ;;
+            "Next >>")
+                ((page++))
+                ;;
+            *)
+                # shortlisted item selected — currently no-op (by design)
+                :
+                ;;
+        esac
     done
 }
 
