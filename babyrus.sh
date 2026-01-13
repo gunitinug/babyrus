@@ -11859,6 +11859,11 @@ do_stuff_with_project_file() {
     }
 
     show_note_menu() {
+        local selected_project_title="$1"
+        # might as well truncate it here.
+        (( ${#selected_project_title} > 50 )) && selected_project_title="${selected_project_title:0:50}..."
+        shift
+
         local note_menu_options=("$@")
         local page=0
         local per_page=50    # adjust this to my liking
@@ -11887,7 +11892,7 @@ do_stuff_with_project_file() {
             fi
 
             # Display menu
-            selected_note_tag=$(whiptail --title "Linked Notes (Page $((page+1))/$total_pages)" \
+            selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
                 --menu "Select a linked note:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
@@ -12853,8 +12858,8 @@ do_stuff_with_project_file() {
         local selected_project_index=$((selected_project_tag - 1))
         local selected_project_line="${projects[$selected_project_index]}"
 
-        local selected_project_path associated_notes
-        IFS='|' read -r _ selected_project_path associated_notes <<< "$selected_project_line"
+        local selected_project_title selected_project_path associated_notes
+        IFS='|' read -r selected_project_title selected_project_path associated_notes <<< "$selected_project_line"
 
         # Process associated notes
         local note_paths=()
@@ -12886,7 +12891,7 @@ do_stuff_with_project_file() {
 
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
-        selected_note_tag="$(show_note_menu "${note_menu_options[@]}")" || return 1
+        selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
 
         # Handle case when user selects "Create new lnked note".
         if [[ "$selected_note_tag" == "Create new linked note" ]]; then
