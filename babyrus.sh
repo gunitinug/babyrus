@@ -8255,7 +8255,7 @@ open_evince() {
 
 handle_no_chapters() {
     local selected_ebook="$1"
-    local choice exit_status
+    local choice exit_status    
 
     # Display whiptail menu and capture both output and exit status
     choice=$(whiptail --title "No Chapters Found" \
@@ -11791,17 +11791,34 @@ dissociate_note_from_project() {
 
 open_note_ebook_page_from_project() {
     local selected_line="$1"
+
+    #echo "selected_line: ${selected_line}"  # pass
+    #exit
+
     [[ -z "$selected_line" ]] && return 1
 
     local selected_ebook=$(get_ebooks "$selected_line")
+
+    #echo "selected_ebook: ${selected_ebook}"    # pass
+    #exit
+
     [[ -z "$selected_ebook" ]] && return 1
 
     # Extract the chapters part from the selected_ebook
     local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
 
+    #echo "chapters_part: ${chapters_part}"  #pass
+    #exit
+
     if [[ -n "$chapters_part" ]]; then
         # Chapters are present, prompt user to select one
         local selected_chapter=$(get_chapters "$selected_ebook")
+
+        if [[ "$selected_chapter" == ">> Just open" ]]; then
+            handle_no_chapters "$selected_ebook"
+            return
+        fi
+
         if [ -n "$selected_chapter" ]; then
             local page=$(extract_page "$selected_chapter")
             [[ -z "$page" ]] && return 1
