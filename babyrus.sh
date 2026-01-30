@@ -7275,6 +7275,153 @@ add_chapters() {
     done
 }
 
+paginate_n_checklist() {
+    # Initialize global array
+    SELECTED_ITEMS=()
+    # Temporary associative array to track indices (requires Bash 4+)
+    declare -A SELECTED_INDICES 
+
+    local chunk_size=50
+
+    if [ "$#" -gt 0 ]; then
+        FILTERED_EBOOKS=("$@")
+        CURRENT_PAGE=0
+    fi
+
+    [[ ${#FILTERED_EBOOKS[@]} -eq 0 ]] && return 1
+
+    local total_pages=$(( ( ${#FILTERED_EBOOKS[@]} + chunk_size - 1 ) / chunk_size ))
+    
+    # Ensure CURRENT_PAGE is within valid bounds
+    if (( CURRENT_PAGE >= total_pages )); then
+        CURRENT_PAGE=$(( total_pages - 1 ))
+    elif (( CURRENT_PAGE < 0 )); then
+        CURRENT_PAGE=0
+    fi
+
+    generate_trunc_manage_ebooks
+
+    while true; do
+        local start=$(( CURRENT_PAGE * chunk_size ))
+        local current_chunk=("${TRUNC_FILTERED_EBOOKS[@]:$start:$chunk_size}")
+        local menu_options=()
+
+        # 1. Add Navigation and Action items
+        # Format: Tag, Item, Status
+        
+        # --- Conditional Navigation Items ---
+        if (( CURRENT_PAGE > 0 )); then
+            menu_options+=("PREV" "" "OFF")
+        fi        
+        if (( CURRENT_PAGE < total_pages - 1 )); then
+            menu_options+=("NEXT" "" "OFF")
+        fi
+
+        # ADD item
+        menu_options+=("ADD"  "" "OFF")
+
+        # 2. Append the current page items with their current selection state
+        for (( i=0; i<${#current_chunk[@]}; i+=2 )); do
+            local tag="${current_chunk[$i]}"
+            local desc="${current_chunk[$i+1]}"
+            
+            # Determine if this item is already selected
+            local status="OFF"
+            [[ -n "${SELECTED_INDICES[$tag]}" ]] && status="ON"
+            
+            menu_options+=("$tag" "$desc" "$status")
+        done
+
+        # 3. Display Checklist
+        local choices
+        choices=$(whiptail --title "Ebook asset files to add" \
+            --separate-output \
+            --checklist "Select items (Page $((CURRENT_PAGE + 1))/$total_pages)" \
+            25 170 15 \
+            "${menu_options[@]}" \
+            3>&1 1>&2 2>&3)
+
+        # Exit if user cancels (Back/ESC)
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+
+        # 4. Process Selections
+        # First, clear current page selections from the tracker so we can re-sync
+        for (( i=0; i<${#current_chunk[@]}; i+=2 )); do
+            unset SELECTED_INDICES["${current_chunk[$i]}"]
+        done
+
+        local nav_next=false
+        local nav_prev=false
+        local action_add=false
+
+        # Read choices line by line
+        while read -r line; do
+            case "$line" in
+                "PREV") nav_prev=true ;;
+                "NEXT") nav_next=true ;;
+                "ADD")  action_add=true ;;
+                *)      
+                    SELECTED_INDICES["$line"]=1 # update selections from every page.
+                    ;;
+            esac
+        done <<< "$choices" # from every page
+
+        # 5. Validation Logic
+        if $action_add && ( $nav_next || $nav_prev ); then
+            whiptail --msgbox "You cannot select navigation items and 'Add' at the same time." 8 60
+            continue
+        fi
+
+        if $nav_next && $nav_prev; then
+            whiptail --msgbox "You cannot select both Next and Previous page simultaneously." 8 60
+            continue
+        fi
+
+        local line_count
+        line_count=$(grep -c '^' <<< "$choices")
+
+        if (( line_count < 2 )) && $action_add; then
+            whiptail --msgbox "Select at least one asset file before adding." 8 60
+            continue
+        fi
+
+        # 6. Navigation / Finalization Execution
+        if $action_add; then
+            # Convert indices back to original paths in FILTERED_EBOOKS
+            for idx_tag in "${!SELECTED_INDICES[@]}"; do
+                # Extract numeric index 'n' from 'n:path'
+                local n="$(echo "$idx_tag" | cut -d':' -f1)"
+                local m=$((2 * n - 1))
+                local item="${FILTERED_EBOOKS[$((m - 1))]}"
+                
+                # Check for illegal ebook name
+                if illegal_filename "$item"; then
+                    SELECTED_ITEMS+=("$item")
+                else
+                    return 2
+                fi
+            done
+            return 0
+        elif $nav_prev; then
+            if (( CURRENT_PAGE > 0 )); then
+                (( CURRENT_PAGE-- ))
+            else
+                #whiptail --msgbox "You are already on the first page." 8 40
+                :
+            fi
+        elif $nav_next; then
+            if (( CURRENT_PAGE < total_pages - 1 )); then
+                (( CURRENT_PAGE++ ))
+            else
+                #whiptail --msgbox "You are already on the last page." 8 40
+                :
+            fi
+        fi
+    done
+}
+
 # DEBUG
 #add_chapters
 #echo CHAPTER_PAGES: >&2
@@ -7325,55 +7472,50 @@ manage_ebooks() {
 
         case "$selection" in
             "Add new ebook")
-                local new_ebook
+                local new_ebooks=()
                 CURRENT_PAGE=0
-                SELECTED_ITEM=""
+                SELECTED_ITEMS=""
 
                 ! filter_by_filename && continue
 
-                paginate_n
+                paginate_n_checklist
 
                 # Illegal file name
                 [[ $? -eq 2 ]] && {
-                    whiptail --title "Error" --msgbox "Illegal file name contains | , # : ;. Rename file and try again." 10 60
+                    whiptail --title "Error" --msgbox "Some file names are illegal.  Contains | , # : ;. Rename file and try again." 10 60
                     return 1
                 }
 
-                new_ebook="$SELECTED_ITEM"
+                new_ebooks=("${SELECTED_ITEMS[@]}")
 
-                if [[ -z "$new_ebook" ]]; then
+                if (( ${#new_ebooks[@]} == 0 )); then
                     whiptail --msgbox "No ebook selected. Operation cancelled." 8 60 >/dev/tty
                     continue
                 fi
 
-                # Check if ebook already exists in ebook_entries
-                local exists=0
-                for entry in "${ebook_entries[@]}"; do
-                    if [[ "$entry" == "${new_ebook}#"* ]]; then
-                        exists=1
-                        break
+                # Iterate through each newly selected ebook
+                for new_ebook in "${new_ebooks[@]}"; do
+                    local exists=0
+                    
+                    # Check if this specific ebook already exists in ebook_entries
+                    for entry in "${ebook_entries[@]}"; do
+                        # Matches the ebook name followed by the # delimiter
+                        if [[ "$entry" == "${new_ebook}#"* ]]; then
+                            exists=1
+                            break
+                        fi
+                    done
+
+                    if [[ $exists -eq 1 ]]; then
+                        # Optional: Notify user, or simply skip to keep the UI clean
+                        :
+                    else
+                        # If unique, add it to the ebook_entries array with the # suffix
+                        local chapters=""
+                        ebook_entries+=("${new_ebook}#${chapters}")
                     fi
                 done
-                if [ $exists -eq 1 ]; then
-                    whiptail --msgbox "Ebook already exists in the current session." 8 60 >/dev/tty
-                    continue
-                fi
-
-                #local chapters
-                #chapters=$(whiptail --inputbox "Enter chapter:page pairs (e.g., chapter1:5, chapter3:10-15):" \
-                #    12 60 "" 3>&1 1>&2 2>&3 </dev/tty)
-                #[ $? -ne 0 ] && continue
-
-                # get CHAPTER_PAGES
-                add_chapters
-                # Comment these out to allow registering ebook without chapter-pages.
-                #if [[ -z "$CHAPTER_PAGES" ]]; then
-                #    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
-                #    continue
-                #fi
-                local chapters="$CHAPTER_PAGES"
-
-                ebook_entries+=("${new_ebook}#${chapters}")
+                (( $exists )) && whiptail --msgbox "Some ebook files were skipped because they are already registered." 8 60 >/dev/tty
                 ;;
 
             "Remove ebook")
