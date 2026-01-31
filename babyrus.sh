@@ -1002,10 +1002,16 @@ associate_tag() {
         done
     }
 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+
     # No point continuing if there's no tag registered!
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
-	whiptail --title "Alert" --msgbox "No tags db found or is empty! Register at least one tag!" 8 40 >/dev/tty
-	return 1
+	    #whiptail --title "Alert" --msgbox "No tags db found or is empty! Register at least one tag!" 8 40 >/dev/tty
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+	    return 1
     }
 
     # NO LONGER NEEDED.
@@ -1017,7 +1023,8 @@ associate_tag() {
 #    fi
 
    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Alert" --msgbox "No ebooks db found or is empty! Register at least one file!" 8 40 >/dev/tty
+        #whiptail --title "Alert" --msgbox "No ebooks db found or is empty! Register at least one file!" 8 40 >/dev/tty
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
     
@@ -1714,8 +1721,15 @@ search_tags() {
 
 dissociate_tag_from_registered_ebook() {
     # Check if ebooks database exists. Also check tags db -- no point continuing if no tag registered!
-    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found or empty!" 8 40 && return 1
-    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found or empty!" 8 40 && return 1
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }      
 
 #    # Read ebooks database into array
 #    local ebooks_list=()
@@ -3640,6 +3654,16 @@ assoc_tag_to_bulk() {
     # Initial message.
     whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files." 10 60
 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }      
+
     # Present tag selection menu using whiptail
     local tags=()
     while IFS= read -r tag; do
@@ -3820,6 +3844,16 @@ dissoc_tag_to_bulk() {
 
     # Initial message.
     whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files." 10 60
+
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }      
 
     # Present tag selection menu using whiptail
     local tags=()
@@ -5316,6 +5350,16 @@ dissociate_tag_from_checklist() {
 
     touch "$EBOOKS_DB" "$TAGS_DB"
 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }      
+
     local ITEMS_PER_PAGE=100
     local current_page=0
     declare -A selected_entries  # Keys are entry indices, value is 1 if selected
@@ -5552,6 +5596,16 @@ associate_tag_from_checklist() {
     }
 
     touch "$EBOOKS_DB" "$TAGS_DB"
+
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }        
 
     local ITEMS_PER_PAGE=100
     local current_page=0
@@ -5820,11 +5874,15 @@ assoc_tag_by_filepath() {
          --msgbox "This function will associate your chosen tag to every file in a directory that you choose. \
 You may choose from a list of directories registered in the ebooks db." 12 80 >/dev/tty
 
-    # Check if databases exist
-    if [[ ! -s "$TAGS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --msgbox "Error: Tags db or Ebooks db are empty. Register at least one ebook and tag." 10 60 >/dev/tty
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    fi
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }      
 
     # Read tags into array
     local tags=()
@@ -6055,11 +6113,15 @@ dissoc_tag_by_filepath() {
          --msgbox "This function will dissociate your chosen tag to every file in a directory that you choose. \
 You may choose from a list of directories registered in the ebooks db. It is inverse of associate tag by filepath function." 12 80 >/dev/tty	
 	
-    # Check if databases exist
-    if [[ ! -s "$TAGS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --msgbox "Error: Tags db or Ebooks db are empty. Register at least one ebook and tag." 10 60 >/dev/tty
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    fi
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }          
 
     # Read tags into array
     local tags=()
