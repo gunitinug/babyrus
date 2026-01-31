@@ -2434,7 +2434,10 @@ open_file() {
 
 # Open file by search by filename workflow
 open_file_search_by_filename() {
-    [[ -f "$EBOOKS_DB" && -s "$EBOOKS_DB" ]] || { whiptail --title "Attention" --msgbox "Ebooks db doesn't exist or is empty. Register at least one file!" 10 60; return 1; }
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
 
     local search_term
     search_term=$(whiptail --inputbox "Enter filename search term (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
@@ -2790,6 +2793,16 @@ open_file_search_by_tag() {
             esac
         done
     }
+
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+    
+    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }          
 
     local tag_search
     tag_search=$(whiptail --inputbox "Enter tag search term (literal substring match; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
@@ -4523,10 +4536,10 @@ Then, you can select to open a file item." 20 80
 
     # If EBOOKS_DB are empty
     # TAGS_DB are not mandatory here.
-    [[ ! -s "$EBOOKS_DB" ]] && { 
-        whiptail --title "Alert" --msgbox "Ebook database database is empty." 8 50 
-        return 1 
-    } 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }    
 
     # First, choose the path among registered files.
 
