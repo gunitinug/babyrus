@@ -10727,7 +10727,7 @@ filter_projects_by_name() {
 
     # Output null-delimited results
     (( ${#filtered_lines[@]} )) && printf "%s\0" "${filtered_lines[@]}" || {
-        whiptail --title "Alert" --msgbox "No matches found for pattern: '${pattern}'" 8 40 >/dev/tty
+        #whiptail --title "Alert" --msgbox "No matches found for pattern: '${pattern}'" 8 40 >/dev/tty  # we don't need this alert any more.
         return 1
     }
 }
@@ -11001,7 +11001,7 @@ add_project() {
 edit_project() {
     # Check if projects database exists and has entries
     [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]] && {
-        whiptail --msgbox "No projects found." 8 40
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -11263,10 +11263,10 @@ print_project() {
 
     # Check if database file exists and is valid
     if [ ! -f "$PROJECTS_DB" ]; then
-        whiptail --msgbox "Error: Project database '$PROJECTS_DB' not found." 10 50 >/dev/tty
+        whiptail --msgbox "Project database '$PROJECTS_DB' not found." 8 40 >/dev/tty
         return 1
     elif [ ! -s "$PROJECTS_DB" ]; then
-        whiptail --msgbox "Error: Project database '$PROJECTS_DB' is empty." 10 50 >/dev/tty
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -11343,7 +11343,7 @@ print_project() {
 delete_project() {
     # Check if projects database exists and is readable
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --title "Error" --msgbox "Project database not found or empty." 8 50
+        whiptail --title "Error" --msgbox "No projects found." 8 40
         return 1
     fi
 
@@ -11511,11 +11511,11 @@ associate_note_to_project() {
 
     # Check if databases exist
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Error: Projects database file not found or empty: $PROJECTS_DB" 20 50
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "Error: Notes database file not found or empty: $NOTES_DB" 20 50
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -11722,7 +11722,7 @@ dissociate_note_from_project() {
 
     # Check if database exists
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -13144,13 +13144,13 @@ open_url_assoc_to_note_from_project() {
 
     # Check if Projects database exists
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Projects database not found or empty!" 8 50 >/dev/tty
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 >/dev/tty
         return 1
     fi
 
     # Check if URLs database exists
     if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-        whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
+        whiptail --msgbox "No URLs found. Associate at least one URL and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -13361,10 +13361,10 @@ print_project_to_printer_from_main() {
 
     # Check if database file exists and is valid
     if [ ! -f "$PROJECTS_DB" ]; then
-        whiptail --msgbox "Error: Project database '$PROJECTS_DB' not found." 10 50 >/dev/tty
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 >/dev/tty
         return 1
     elif [ ! -s "$PROJECTS_DB" ]; then
-        whiptail --msgbox "Error: Project database '$PROJECTS_DB' is empty." 10 50 >/dev/tty
+        whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -13472,7 +13472,7 @@ add_to_shortlist() {
     add_item_to_shortlist() {
         # Check if projects database exists and has entries
         [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]] && {
-            whiptail --msgbox "No projects found." 8 40
+            whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 </dev/tty >/dev/tty
             return 1
         }
 
