@@ -8012,8 +8012,8 @@ list_notes() {
     }
 
     local db_file="$NOTES_DB"
-    [ ! -f "$db_file" ] && {
-        whiptail --msgbox "No notes database found" 8 40
+    [[ ! -f "$db_file" || ! -s "$db_file" ]] && {
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -8186,7 +8186,7 @@ get_notes() {
     }
 
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "No notes found in $NOTES_DB" 8 50 >/dev/tty
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -8498,7 +8498,8 @@ get_note_tag_from_global_list_old() {
 get_note_tag_from_global_list() {
     local tags_file="${NOTES_TAGS_DB}"
     if [[ ! -f "$tags_file" ]]; then
-        echo "Error: Tags database file not found." >&2
+        #echo "Error: Tags database file not found." >&2
+        whiptail --msgbox "No tags found. Add at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -8509,7 +8510,8 @@ get_note_tag_from_global_list() {
     done < "$tags_file"
 
     if [[ ${#all_tags[@]} -eq 0 ]]; then
-        echo "No tags available in the database." >&2
+        #echo "No tags available in the database." >&2
+        whiptail --msgbox "No tags found. Add at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -8571,8 +8573,9 @@ filter_notes_by_tag() {
     local notes_file="${NOTES_DB}"
     FILTERED_NOTES_BY_TAG=()
 
-    if [[ ! -f "$notes_file" ]]; then
-        echo "Error: Notes database file not found." >&2
+    if [[ ! -f "$notes_file" || ! -s "$notes_file" ]]; then
+        #echo "Error: Notes database file not found." >&2
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -9268,7 +9271,7 @@ open_ebook_note_from_global_list() {
 
     # Check if the database file exists
     if [[ ! -f "$NOTES_EBOOKS_DB" || ! -s "$NOTES_EBOOKS_DB" ]]; then
-	whiptail --msgbox "Attention. Notes eBooks database file not found or empty:\n$NOTES_EBOOKS_DB\n\nAdd at least one note." 10 80 >/dev/tty
+	whiptail --title "Attention" --msgbox "No ebooks found. Add at least one note and associate at least one ebook and try again." 10 50 >/dev/tty
         return 1
     fi
 
@@ -9331,7 +9334,7 @@ delete_notes() {
     local ITEMS_PER_PAGE=100
 
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --title "Attention" --msgbox "$NOTES_DB does not exist or empty. Add at least one note." 10 50 >/dev/tty
+        whiptail --title "Attention" --msgbox "No notes found." 8 40 >/dev/tty
         return 1
     fi
 
@@ -9749,7 +9752,7 @@ assoc_url_to_note() {
 
     # Extract note paths from NOTES_DB
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "Error: Notes database not found or empty!" 8 50 >/dev/tty
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -10041,7 +10044,7 @@ dissoc_url_from_note() {
 
     # Check URL database existence
     if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-        whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+        whiptail --msgbox "No associated URLs found. Associate at least one URL and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -10256,7 +10259,7 @@ open_url_assoc_to_note() {
 
     # Check if URLs database exists
     if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-        whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
+        whiptail --msgbox "No associated URLs found. Associate at least one URL and try again." 8 40 >/dev/tty
         return 1
     fi
 
@@ -10486,8 +10489,8 @@ print_notes() {
     }
 
     local db_file="$NOTES_DB"
-    [ ! -f "$db_file" ] && {
-        whiptail --msgbox "No notes database found" 8 40
+    [[ ! -f "$db_file" || ! -s "$db_file" ]] && {
+        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
