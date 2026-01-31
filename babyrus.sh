@@ -25,8 +25,46 @@ NOTES_DB="${NOTES_METADATA_PATH}/notes.db"
 NOTES_TAGS_DB="${NOTES_METADATA_PATH}/notes-tags.db"
 NOTES_EBOOKS_DB="${NOTES_METADATA_PATH}/notes-ebooks.db"
 EBOOKS_DB="${BABYRUS_PATH}/ebooks.db"
-PROJECTS_DB_SHORTLISTED="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted"
-SHORTLISTED_HISTORY="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted.history"
+EBOOKS_DB_BACKUP="${BABYRUS_PATH}/ebooks.db.backup"
+EBOOKS_DB_RENAME_LOG="${BABYRUS_PATH}/ebooks.db.rename.log"
+TAGS_DB="${BABYRUS_PATH}/tags.db"
+PROJECTS_PATH="${BABYRUS_PATH}/projects"
+PROJECTS_METADATA_PATH="${PROJECTS_PATH}/metadata"
+PROJECTS_DB="${PROJECTS_METADATA_PATH}/projects.db"
+PROJECTS_DB_SHORTLISTED="${PROJECTS_METADATA_PATH}/projects.db.shortlisted"
+PROJECTS_DB_SHORTLISTED_HISTORY="${PROJECTS_METADATA_PATH}/projects.db.shortlisted.history"
+URLS_PATH="${BABYRUS_PATH}/urls"
+URLS_DB="${URLS_PATH}/urls.db"
+
+enforce_touch_files() (
+  # run in a subshell so set -euo pipefail won't persist outside the function
+  set -euo pipefail
+
+  local files=(
+    "$EBOOKS_DB"
+    "$EBOOKS_DB_BACKUP"
+    "$EBOOKS_DB_RENAME_LOG"
+    "$TAGS_DB"
+    "$NOTES_DB"
+    "$NOTES_EBOOKS_DB"
+    "$NOTES_TAGS_DB"
+    "$PROJECTS_DB"
+    "$PROJECTS_DB_SHORTLISTED"
+    "$PROJECTS_DB_SHORTLISTED_HISTORY"
+    "$URLS_DB"
+  )
+
+  for f in "${files[@]}"; do
+    # create parent dir if needed, then touch the file
+    mkdir -p "$(dirname -- "$f")"
+    touch -- "$f"
+  done
+
+  return 0
+)
+
+# Make sure all required directories and files are present.
+enforce_touch_files
 
 # DO NOT DELETE OR ALTER BETWEEN THESE MARKERS(INCLUDING MARKERS)!!!
 #+++ CONFIGURATION +++#
