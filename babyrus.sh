@@ -2058,7 +2058,7 @@ delete_tag_from_global_list() {
 remove_registered_ebook() {
     # Check if database file exists
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Error" --msgbox "Ebooks database not found or empty!" 10 60
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
         return 1
     fi
 
