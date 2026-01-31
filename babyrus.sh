@@ -42,8 +42,7 @@ enforce_touch_files() (
 
   local files=(
     "$EBOOKS_DB"
-    "$EBOOKS_DB_BACKUP"
-    "$EBOOKS_DB_RENAME_LOG"
+    #"$EBOOKS_DB_RENAME_LOG"
     "$TAGS_DB"
     "$NOTES_DB"
     "$NOTES_EBOOKS_DB"
@@ -4924,7 +4923,8 @@ and physically on drive. You can also revert the changes later." 15 80
     # If ebooks.db and ebooks.db.backup files are equal content
     # then we shouldn't proceed!    
     if [[ -f "$EBOOKS_DB_BACKUP" ]] && cmp -s "$EBOOKS_DB" "$EBOOKS_DB_BACKUP"; then
-        echo "ebooks db and ebooks db backup files are the same!" >&2   # debug
+        whiptail --title "Error" --msgbox "Something is wrong. Start afresh by deleting ${EBOOKS_DB_BACKUP} file and try again." 10 50 </dev/tty >/dev/tty
+        #echo "ebooks db and ebooks db backup files are the same!" >&2   # debug
         return 1
     fi
 
@@ -5090,7 +5090,7 @@ It reverts both ebooks database and physical file names on drive." 10 80
     local LOG_FILE="$EBOOKS_DB.rename.log"
 
     if [[ ! -f "$EBOOKS_DB_BACKUP" || ! -f "$LOG_FILE" ]]; then
-        whiptail --title "Error" --msgbox "Backup or log file missing. Cannot revert." 8 50
+        whiptail --title "Attention" --msgbox "There is nothing to revert." 8 50
         return 1
     fi
 
