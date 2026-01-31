@@ -1374,7 +1374,8 @@ generate_ebooks_result_list() {
 view_ebooks() {
     # EDGE CASE: EBOOKS_DB file
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Alert" --msgbox "Ebooks db file does not exist or is empty!" 10 60
+        #whiptail --title "Alert" --msgbox "Ebooks db file does not exist or is empty!" 10 60
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -4302,6 +4303,11 @@ After choosing a path from the list, you can further narrow the search by both f
     #     whiptail --msgbox "User canceled." 8 60
     #     return 1
     # fi
+
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
 
     # FEATURE: PAGINATE PATH SEL.
     local choice
