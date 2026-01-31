@@ -4017,6 +4017,11 @@ remove_files_in_bulk() {
     whiptail --title "DANGER: Bulk File Removal" --msgbox \
 "This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 10 60
 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+
     # Read bulk entries
     local tempfile=$(mktemp) || return 1
 
@@ -5065,6 +5070,11 @@ It reverts both ebooks database and physical file names on drive." 10 80
 }
 
 remove_ebooks_from_checklist() {
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
+        return 1
+    }
+
     local ITEMS_PER_PAGE=100
     local current_page=0
     declare -A selected_entries  # Keys are entry indices, value is 1 if selected
@@ -6199,6 +6209,11 @@ remove_files_by_filepath() {
 It does not search recursively but just files under selected path. If a file has a tag associated with it, it will not be removed. \
 It does not delete the files physically on drive." 12 78 >/dev/tty
 
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
+
     # Get unique directories
     local directories
     directories=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
@@ -6285,6 +6300,11 @@ remove_files_by_filepath_recursive() {
     whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path including files in sub-directories. \
 If a file has a tag associated with it, it will not be removed. \
 It does not delete the files physically on drive." 12 78 >/dev/tty
+
+    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
+    }
 
     # Get unique directories
     local directories
