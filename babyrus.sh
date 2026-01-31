@@ -63,6 +63,9 @@ enforce_touch_files() (
   return 0
 )
 
+# An artifact to keep to avoid error
+SHORTLISTED_HISTORY="${BABYRUS_PATH}/projects/metadata/projects.db.shortlisted.history"
+
 # Make sure all required directories and files are present.
 enforce_touch_files
 
