@@ -8717,7 +8717,7 @@ filter_notes_by_tag() {
 
     if [[ ! -f "$notes_file" || ! -s "$notes_file" ]]; then
         #echo "Error: Notes database file not found." >&2
-        whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
+        #whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty  # we don't need this since add note with same tag.
         return 1
     fi
 
