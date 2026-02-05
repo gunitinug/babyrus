@@ -73,7 +73,7 @@ enforce_touch_files
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
-    ["pdf"]="mupdf"
+    ["pdf"]="qpdfview"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
@@ -91,6 +91,7 @@ declare -A VIEWER_COMMANDS=(
     ["okular"]="okular -p"
     ["zathura"]="zathura -P"
     ["mupdf"]="mupdf"
+    ["qpdfview"]="qpdfview"
 
     # EPUB/MOBI/AZW3 viewers
     ["calibre"]="ebook-viewer --open-at"    
@@ -8531,7 +8532,11 @@ open_evince() {
         if [[ "$viewer" == "mupdf" ]]; then
             local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
             "${cmd_and_option[@]}" "$ebook_path" "$page" &> /dev/null & disown
-            return        
+            return
+        elif [[ "$viewer" == "qpdfview" ]]; then
+            local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
+            "${cmd_and_option[@]}" "${ebook_path}#${page}" &> /dev/null & disown
+            return                    
         fi
         #evince -p "$page" "$ebook_path" &> /dev/null & disown
 	    #"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown        
