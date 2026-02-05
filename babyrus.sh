@@ -73,7 +73,7 @@ enforce_touch_files
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
     ["txt"]="gnome-text-editor"
-    ["pdf"]="qpdfview"
+    ["pdf"]="zathura"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
@@ -222,7 +222,7 @@ URL_BROWSER=\"${URL_BROWSER}\"
 
     mv "$temp_file" "$config_file"
     chmod +x "$config_file"	# make babyrus.sh executable again.
-    whiptail --title "Info" --msgbox "Settings saved." 8 40
+    whiptail --title "Info" --msgbox "Settings saved. Restart BABYRUS to take effect." 8 40
 }
 
 # Create notes directories if not created
