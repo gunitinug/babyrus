@@ -83,7 +83,23 @@ Launch the application from the project directory:
 
 ## Configuration
 
-To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings from there.
+To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings from there. 
+
+At the moment we support the following viewers:
+
+```bash
+declare -A VIEWER_COMMANDS=(
+    # PDF viewers
+    ["evince"]="evince -p"
+    ["okular"]="okular -p"
+    ["zathura"]="zathura -P"
+    ["mupdf"]="mupdf"
+    ["qpdfview"]="qpdfview"
+
+    # EPUB/MOBI/AZW3 viewers
+    ["calibre"]="ebook-viewer --open-at"    
+)
+````
 
 File `babyrus.sh.bak` is created to save old `babyrus.sh` executable.
 
