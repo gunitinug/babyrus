@@ -778,7 +778,9 @@ register_ebook() {
     # in operation... message
     in_operation_msg
 
-    run_find="$(find "$search_path" -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # edited for globbing $search
+    #run_find="$(find "$search_path" -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # edited for globbing $search
+    run_find="$(find "$search_path" -maxdepth 1 -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # non-recursive
+
     #run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter. (not needed?)
 
     # Detect illegal file names.
@@ -817,7 +819,7 @@ register_ebook() {
 
     # If cancelled by user
     if [ -z "$selected_trunc" ]; then
-        whiptail --title "Register ebook canceled" --msgbox "Canceled by user." 8 45
+        #whiptail --title "Register ebook canceled" --msgbox "Canceled by user." 8 45
         return 1  # Exit the function.
     fi
 
