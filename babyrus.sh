@@ -3710,7 +3710,7 @@ assoc_tag_to_bulk() {
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 10 70
+        #whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -3904,7 +3904,7 @@ dissoc_tag_to_bulk() {
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 10 70
+        #whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -5461,7 +5461,7 @@ dissociate_tag_from_checklist() {
         result=$(whiptail --title "Dissociate Tag: $tag_to_remove" \
             --checklist "Page $((current_page+1))/$pages\nSelect eBooks to update or navigate:" \
             20 150 10 "${choices[@]}" 3>&1 1>&2 2>&3) \
-            || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+            || { return 1; }
 
         IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
         # update selection
@@ -5670,7 +5670,7 @@ associate_tag_from_checklist() {
         "Enter a substring to filter filenames (globbing; empty is wildcard):" \
         8 50 --title "Search Filter" \
         3>&1 1>&2 2>&3) || {
-            whiptail --msgbox "Cancelled." 8 40
+            #whiptail --msgbox "Cancelled." 8 40
             return 1
         }
 
