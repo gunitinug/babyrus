@@ -8468,6 +8468,12 @@ open_evince() {
     local ext="${ebook_path##*.}"
     local viewer="${EXTENSION_COMMANDS[$ext]}"
 
+    # check viewer is installed in system
+    if ! command -v "$viewer" &>/dev/null; then
+        whiptail --title "Alert" --msgbox "Command ${viewer} is not installed! Install it first." 20 80
+        return 1
+    fi
+
     #evince -p "$page" "$ebook_path" &> /dev/null & disown
 
     if [ -z "$page" ]; then
