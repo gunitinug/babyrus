@@ -4280,32 +4280,7 @@ lookup_by_filepath() {
     # Initial message.
     whiptail --title "Lookup By File Path" --msgbox \
 "This feature allows you to query files by first choosing a file path among registered files:\n\
-After choosing a path from the list, you can further narrow the search by both file name(boolean pattern) and tag(literal substring match)." 20 80
-
-    # First, choose the path among registered files.
-
-    # # Extract unique directories (full path minus file name) from ebooks.db
-    # local dirs
-    # dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
-
-    # # Edge case when there are no registered files (so dirs is empty).
-    # [[ -z "$dirs" ]] && whiptail --title "Error" --msgbox "No registered files!" 10 40 && return 1
-
-    # # Build menu items for whiptail (each item appears as "tag description")
-    # local menu_items=()
-    # while IFS= read -r dir; do
-    #     menu_items+=( "$dir" "" )
-    # done <<< "$dirs"
-
-    # # Prompt user to choose a directory with whiptail
-    # local choice
-    # choice=$(whiptail --title "Select Directory" --menu "Choose a directory for registered files:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-    # # If user cancels, exit the function
-    # if [ $? -ne 0 ]; then
-    #     whiptail --msgbox "User canceled." 8 60
-    #     return 1
-    # fi
+After choosing a path from the list, you can further narrow the search by both file name(glob pattern) and tag(literal substring match)." 20 80
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -4320,29 +4295,13 @@ After choosing a path from the list, you can further narrow the search by both f
     local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" "${EBOOKS_DB}")"
 
     # Now, get from user pattern and tag_pattern to further narrow the search.
-    # Show boolean pattern help information
-    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
-    "Boolean Pattern HELP:\n\n\
-Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
-The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
-We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
-Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
-Searches are case insensitive.\n\n\
-Some examples:\n\
-1. (*.pdf||*.epub)&&*schaum*\n\
-Search pdf or epub containing 'schaum' in their file name.\n\
-2. *.pdf&&*dover*\n\
-Search pdf files with 'dover' in their file name.\n\
-3. *.pdf||*.epub||*.txt\n\
-Search for pdf or epub or txt files.\n\
-4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
-Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
-'dover' and 'linear algebra' in their file names." 20 80
+
+    # REPLACE BOOLEAN SEARCH WITH GLOBBING
 
     local pattern regex filtered_lines final_list tag_pattern
 
     # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         return 1
     fi
@@ -4355,15 +4314,32 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
     #echo "$pattern" >&2
 
     # Convert pattern to regex using your existing parse_expr function
-    regex=$(parse_expr "$pattern")
-
-    # DEBUG
-    #echo regex: >&2
-    #echo "$regex" >&2
+    #regex=$(parse_expr "$pattern")
 
     # Filter file paths from $EBOOKS_DB using the regex.
     # Only the file path part is considered (everything before the |)
-    filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
+    #filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
+
+    filtered_paths=$(
+    awk -F'|' -v glob="$pattern" '
+    BEGIN {
+        IGNORECASE = 1
+        # build regex from glob
+        re = "^"
+        for (i = 1; i <= length(glob); ++i) {
+        c = substr(glob, i, 1)
+        if (c == "*")      re = re ".*"
+        else if (c == "?") re = re "."
+        else {
+            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
+            else re = re c
+        }
+        }
+        re = re "$"
+    }
+    $1 ~ re { print $1 }
+    ' <(echo "$matching_files_in_chosen_dir")
+    )
 
     if [ -z "$filtered_paths" ]; then
         whiptail --msgbox "No files match the given file name pattern." 8 60
