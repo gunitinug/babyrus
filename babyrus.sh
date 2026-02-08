@@ -159,7 +159,20 @@ edit_configuration() {
                 current_value="${EXTENSION_COMMANDS[$choice]}"
                 new_value=$(whiptail --inputbox "Enter new command for .${choice}:" \
                     10 60 "${current_value}" 3>&1 1>&2 2>&3)
-                [[ $? -eq 0 ]] && [[ -n "$new_value" ]] && EXTENSION_COMMANDS["$choice"]="${new_value}"
+
+                local s_=$?
+
+                [[ $s_ -ne 0 ]] && continue   # user pressed Cancel
+
+                new_value=$(echo "$new_value" | xargs)  # trim spaces
+
+                if [[ ! -v VIEWER_COMMANDS[$new_value] ]]; then
+                    whiptail --title "Alert" \
+                            --msgbox "${new_value} command is currently unregistered." 8 50
+                    continue
+                fi
+
+                [[ -n "$new_value" ]] && EXTENSION_COMMANDS["$choice"]="$new_value"
                 ;;
         esac
     done
