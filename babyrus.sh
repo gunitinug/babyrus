@@ -9681,11 +9681,12 @@ delete_global_tag_of_notes() {
         return 1
     fi
 
+    # MAYBE DON'T NEED THIS.
     # Check if notes database exists and isn't empty
-    if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-	whiptail --msgbox "There are no registered notes." 10 50 >/dev/tty
-	return 1
-    fi
+    # if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+	# whiptail --msgbox "There are no registered notes." 10 50 >/dev/tty
+	# return 1
+    # fi
 
     # FIX: PAGINATE SELECTED_TAG.
     # Read all tags into an array
