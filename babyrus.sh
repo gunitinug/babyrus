@@ -8861,11 +8861,11 @@ associate_new_note_to_project() {
 
     # Check if databases exist
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Please add at least one project and try again." 20 50
+        whiptail --msgbox "Please add at least one project and try again." 8 60
         return 1
     fi
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "Please add at least one note and try again." 20 50
+        whiptail --msgbox "Please add at least one note and try again." 8 60
         return 1
     fi
 
@@ -9196,11 +9196,11 @@ associate_notes_by_tag_to_project() {
 
     # Check if databases exist
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-        whiptail --msgbox "Please add at least one project and try again." 20 50
+        whiptail --msgbox "Please add at least one project and try again." 8 60
         return 1
     fi
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-        whiptail --msgbox "Please add at least one note and try again." 20 50
+        whiptail --msgbox "Please add at least one note and try again." 8 60
         return 1
     fi
 
@@ -12499,11 +12499,11 @@ do_stuff_with_project_file() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
@@ -12697,11 +12697,11 @@ do_stuff_with_project_file() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
@@ -12854,11 +12854,11 @@ do_stuff_with_project_file() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
@@ -14194,11 +14194,11 @@ do_stuff_shortlisted() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
@@ -14403,11 +14403,11 @@ do_stuff_shortlisted() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
@@ -14560,11 +14560,11 @@ do_stuff_shortlisted() {
 
         # Check if databases exist
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Please add at least one project and try again." 20 50
+            whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
         fi
         if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Please add at least one note and try again." 20 50
+            whiptail --msgbox "Please add at least one note and try again." 8 60
             return 1
         fi
 
