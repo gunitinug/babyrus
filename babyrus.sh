@@ -2925,7 +2925,7 @@ It involves the following steps:\n\
     local selected_dir
     selected_dir=$(navigate "$(pwd)")
     if [[ -z "$selected_dir" ]]; then
-        whiptail --msgbox "Directory selection canceled." 8 40
+        #whiptail --msgbox "Directory selection canceled." 8 40
         return 1
     fi
 
@@ -3227,29 +3227,10 @@ lookup_registered_files() {
     whiptail --title "Lookup Registered Files" --msgbox \
     "This advanced feature allows you to look up full file information by narrowing it down by file name and tags." 8 78
 
-    # Show boolean pattern help information
-    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
-    "Boolean Pattern HELP:\n\n\
-Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
-The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
-We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
-Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
-Searches are case insensitive.\n\n\
-Some examples:\n\
-1. (*.pdf||*.epub)&&*schaum*\n\
-Search pdf or epub containing 'schaum' in their file name.\n\
-2. *.pdf&&*dover*\n\
-Search pdf files with 'dover' in their file name.\n\
-3. *.pdf||*.epub||*.txt\n\
-Search for pdf or epub or txt files.\n\
-4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
-Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
-'dover' and 'linear algebra' in their file names." 20 80
-
     local pattern regex filtered_paths filtered_lines final_list tag_pattern
 
     # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         return 1
     fi
@@ -3257,20 +3238,30 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
     # Defaults to *
     pattern="${pattern:-*}"
 
-    # DEBUG - if need be save to a temp file perhaps?
-    #echo pattern: >&2
-    #echo "$pattern" >&2
-
-    # Convert pattern to regex using your existing parse_expr function
-    regex=$(parse_expr "$pattern")
-
-    # DEBUG
-    #echo regex: >&2
-    #echo "$regex" >&2
+    # Convert pattern to regex using your existing parse_expr function - DON'T USE BOOLEAN PATTERN ANY MORE!
+    #regex=$(parse_expr "$pattern")
 
     # Filter file paths from $EBOOKS_DB using the regex.
     # Only the file path part is considered (everything before the |)
-    filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")
+    #filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")   # DON'T USE BOOLEAN PATTERN ANY MORE!
+    filtered_paths=$(
+    awk -F'|' -v glob="$pattern" 'BEGIN { IGNORECASE = 1
+        re = "^"
+        for (i = 1; i <= length(glob); ++i) {
+        c = substr(glob, i, 1)
+        if (c == "*")       re = re ".*"
+        else if (c == "?")  re = re "."
+        else {
+            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
+            else re = re c
+        }
+        }
+        re = re "$"
+    }
+    $1 ~ re { print $1 }
+    ' "$EBOOKS_DB"
+    )    
+
     if [ -z "$filtered_paths" ]; then
         whiptail --msgbox "No files match the given file name pattern." 8 60
         return 1
@@ -3520,30 +3511,12 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
 }
 
 # Build list of filtered items from $EBOOKS_DB filtered by full path name and tag.
+# NO LONGER USESBOOLEAN PATTERN BUT GLOBBING!!!!
 build_bulk() {    
-    # Show boolean pattern help information
-    whiptail --scrolltext --title "Boolean pattern for searching files" --msgbox \
-    "Boolean Pattern HELP:\n\n\
-Boolean patterns are used here only for FILE PATTERNS, not tag patterns.\n\
-The pattern is similar to globbing in that pattern consists of (,),&&,||,*. It is NOT regex.\n\
-We group patterns with ( and ). && is AND and || is OR. * is wildcard. ! is not supported yet.\n\
-Don't include spaces between primary patterns ie. *programming*&&*.pdf not *programming* && *.pdf.\n\n\
-Searches are case insensitive.\n\n\
-Some examples:\n\
-1. (*.pdf||*.epub)&&*schaum*\n\
-Search pdf or epub containing 'schaum' in their file name.\n\
-2. *.pdf&&*dover*\n\
-Search pdf files with 'dover' in their file name.\n\
-3. *.pdf||*.epub||*.txt\n\
-Search for pdf or epub or txt files.\n\
-4. (*linear algebra*&&*schaum*&&*.pdf)||(*dover*&&*linear algebra*&&*.epub)\n\
-Search pdf files containing both 'linear algebra' and 'schaum' in their file names OR epub files containing \
-'dover' and 'linear algebra' in their file names." 20 80 >/dev/tty
-
     local pattern regex filtered_paths filtered_lines final_list tag_pattern
 
     # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter boolean pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
     if [ $? -ne 0 ]; then
         return 1
     fi
@@ -3556,15 +3529,30 @@ Search pdf files containing both 'linear algebra' and 'schaum' in their file nam
     #echo "$pattern" >&2
 
     # Convert pattern to regex using your existing parse_expr function
-    regex=$(parse_expr "$pattern")
-
-    # DEBUG
-    #echo regex: >&2
-    #echo "$regex" >&2
+    #regex=$(parse_expr "$pattern")
 
     # Filter file paths from $EBOOKS_DB using the regex.
     # Only the file path part is considered (everything before the |)
-    filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")
+    #filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")
+
+    filtered_paths=$(
+    awk -F'|' -v glob="$pattern" 'BEGIN { IGNORECASE = 1
+        re = "^"
+        for (i = 1; i <= length(glob); ++i) {
+        c = substr(glob, i, 1)
+        if (c == "*")       re = re ".*"
+        else if (c == "?")  re = re "."
+        else {
+            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
+            else re = re c
+        }
+        }
+        re = re "$"
+    }
+    $1 ~ re { print $1 }
+    ' "$EBOOKS_DB"
+    )
+
     if [ -z "$filtered_paths" ]; then
         whiptail --msgbox "No files match the given file name pattern." 8 60 >/dev/tty
         return 1
@@ -4076,7 +4064,7 @@ remove_files_in_bulk() {
     local tempfile=$(mktemp) || return 1
 
     build_bulk > "$tempfile" || {
-        whiptail --title "Error" --msgbox "User cancelled." 10 70
+        #whiptail --title "Error" --msgbox "User cancelled." 10 70
         return 1
     }
 
@@ -4786,7 +4774,7 @@ add_ebooks_from_checklist() {
                 20 100 10 \
                 "${choices[@]}" \
                 3>&1 1>&2 2>&3) \
-                || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+                || { return 1; }
 
             # Normalize and split selections
             result=${result//\"/}
@@ -5138,7 +5126,7 @@ remove_ebooks_from_checklist() {
     # Ask for search term first
     local search_term
     search_term=$(whiptail --inputbox "Enter a string to filter by filename (globbing; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
-        whiptail --msgbox "Cancelled." 8 40
+        #whiptail --msgbox "Cancelled." 8 40
         return 1
     }
 
