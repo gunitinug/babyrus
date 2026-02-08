@@ -78,6 +78,18 @@ Launch the application from the project directory:
 
 To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings from there. 
 
+Babyrus supports the following extensions:
+
+```bash
+declare -A EXTENSION_COMMANDS=(
+    ["txt"]="gnome-text-editor"
+    ["pdf"]="zathura"
+    ["epub"]="okular"
+    ["mobi"]="okular"
+    ["azw3"]="okular"
+)
+```
+
 At the moment we support the following viewers:
 
 ```bash
