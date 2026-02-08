@@ -31,20 +31,13 @@ Babyrus is under active development. For the most stable and feature-rich experi
 
 ### 🔍 Searching in Babyrus
 
-Babyrus provides three different search methods, whichever is most suitable for the search task at hand. Use the method indicated by the program. The rule of thumb is to use literal substring match for filtering tags and other methods for filtering file names.
+Babyrus provides two different search methods, whichever is most suitable for the search task at hand. Use the method indicated by the program. The rule of thumb is to use literal substring match for filtering tags and globbing for filtering file names.
 
 1. **Literal Substring Match**  
    A simple substring search. The `*` character is treated literally, not as a wildcard. Special characters like `?` or `.` are also treated literally.
 
 2. **Globbing**  
    Uses wildcards like `*stallman*`. You can include spaces and `*` and `?`.
-
-3. **Boolean Search**  
-   Similar to globbing, but allows logical operators:  
-   - `||` for OR  
-   - `&&` for AND
-
-   Spaces are allowed but for now `?` is not implemented.
 
 ### Requirements
 
