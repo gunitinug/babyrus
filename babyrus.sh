@@ -8156,7 +8156,7 @@ list_notes() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
     fi        
@@ -8329,7 +8329,7 @@ get_notes() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
     fi
@@ -9928,7 +9928,7 @@ assoc_url_to_note() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
     fi    
@@ -10199,6 +10199,9 @@ dissoc_url_from_note() {
         # don't need it any more.
         #menu_items+=("$path" "[${tags__}]")
     done
+
+    # fix for cancel or tag with no notes.
+    [[ -n "$selected_tag" ]] && [[ "${#menu_items}" -eq 0 ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
 
     # Paginate instead!
     ! paginate_get_notes "Select Note to Dissociate URL" "${menu_items[@]}" && return 1
@@ -10637,7 +10640,7 @@ print_notes() {
     # END FIX.    
 
     if [[ ${#lines[@]} -eq 0 ]]; then
-        # whiptail --msgbox "No matching notes found in $NOTES_DB" 8 50 >/dev/tty
+        [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
     fi        
