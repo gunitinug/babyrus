@@ -11717,7 +11717,7 @@ associate_note_to_project() {
         #note_menu_options+=("$note_path" "[${note_tags}]")
     done < "$NOTES_DB"
     if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-        whiptail --msgbox "No notes available in the database." 20 50
+        whiptail --msgbox "Tag '${selected_note_tag}' has no associated notes yet." 8 60   # case where tag has no notes yet.
         return 1
     fi
 
