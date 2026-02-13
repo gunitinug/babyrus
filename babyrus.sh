@@ -2942,54 +2942,72 @@ It involves the following steps:\n\
         return 1
     fi
 
-    # Pattern input
-    local pattern_input
-    pattern_input=$(whiptail --inputbox "Enter glob file patterns (use || to separate multiple):\n\n\
-Example: *.pdf||*.epub\n\
-Matches any PDF or EPUB files" \
-    --title "Search Patterns" 12 70 3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && return 1  # User canceled
+#     # Pattern input
+#     local pattern_input
+#     pattern_input=$(whiptail --inputbox "Enter glob file patterns (use || to separate multiple):\n\n\
+# Example: *.pdf||*.epub\n\
+# Matches any PDF or EPUB files" \
+#     --title "Search Patterns" 12 70 3>&1 1>&2 2>&3)
+#     [[ $? -ne 0 ]] && return 1  # User canceled
 
-    # Check for illegal pattern.
-    illegal_pattern "$pattern_input" || { 
-        whiptail --title "Alert" --msgbox "Illegal pattern. Try again." 8 78
-        return 1
-    }
+#     # Check for illegal pattern.
+#     illegal_pattern "$pattern_input" || { 
+#         whiptail --title "Alert" --msgbox "Illegal pattern. Try again." 8 78
+#         return 1
+#     }
 
-    # Split patterns and validate
-    local patterns=()
-    IFS='||' read -ra temp_patterns <<< "$pattern_input"
-    for p in "${temp_patterns[@]}"; do
-        p="${p#"${p%%[![:space:]]*}"}"  # Trim leading whitespace
-        p="${p%"${p##*[![:space:]]}"}"  # Trim trailing whitespace
-        [[ -n "$p" ]] && patterns+=("$p")
-    done
+#     # Split patterns and validate
+#     local patterns=()
+#     IFS='||' read -ra temp_patterns <<< "$pattern_input"
+#     for p in "${temp_patterns[@]}"; do
+#         p="${p#"${p%%[![:space:]]*}"}"  # Trim leading whitespace
+#         p="${p%"${p##*[![:space:]]}"}"  # Trim trailing whitespace
+#         [[ -n "$p" ]] && patterns+=("$p")
+#     done
 
-    if [[ ${#patterns[@]} -eq 0 ]]; then
-        whiptail --msgbox "No valid patterns entered." 8 40
-        return 1
-    fi
+#     if [[ ${#patterns[@]} -eq 0 ]]; then
+#         whiptail --msgbox "No valid patterns entered." 8 40
+#         return 1
+#     fi
 
-    # Build find command
-    local find_cmd=(-type f)
-    if [[ ${#patterns[@]} -gt 0 ]]; then
-        find_cmd+=(\()
-        for ((i=0; i<${#patterns[@]}; i++)); do
-            ((i > 0)) && find_cmd+=(-o)
-            find_cmd+=(-iname "${patterns[i]}")
-        done
-        find_cmd+=(\))
-    fi
+#     # Build find command
+#     local find_cmd=(-type f)
+#     if [[ ${#patterns[@]} -gt 0 ]]; then
+#         find_cmd+=(\()
+#         for ((i=0; i<${#patterns[@]}; i++)); do
+#             ((i > 0)) && find_cmd+=(-o)
+#             find_cmd+=(-iname "${patterns[i]}")
+#         done
+#         find_cmd+=(\))
+#     fi
 
-    # Perform search
-    TERM=ansi whiptail --infobox "Performing search..." 8 40 >/dev/tty
+#     # Perform search
+#     TERM=ansi whiptail --infobox "Performing search..." 8 40 >/dev/tty
+#     local found_files=()
+#     while IFS= read -r -d $'\0'; do
+#         found_files+=("$REPLY")
+#     done < <(find "$selected_dir" "${find_cmd[@]}" -print0 2>/dev/null)
+
+#     if [[ ${#found_files[@]} -eq 0 ]]; then
+#         whiptail --msgbox "No files found matching patterns." 8 40
+#         return 1
+#     fi
+
+    # Ask for a single glob pattern (example: *.pdf)
+    local pattern
+    pattern=$(whiptail --inputbox "Enter a glob to filter by file name (empty for wildcard):" \
+        --title "Search Pattern" 10 70 3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && return 1  # User cancelled
+
+    : ${pattern:=*}
+
     local found_files=()
-    while IFS= read -r -d $'\0'; do
-        found_files+=("$REPLY")
-    done < <(find "$selected_dir" "${find_cmd[@]}" -print0 2>/dev/null)
+
+    # Case insensitive search to populate found_files
+    mapfile -d $'\0' -t found_files < <(find "$selected_dir" -type f -iname "$pattern" -print0 2>/dev/null)
 
     if [[ ${#found_files[@]} -eq 0 ]]; then
-        whiptail --msgbox "No files found matching patterns." 8 40
+        whiptail --msgbox "No files found matching pattern: $pattern" 8 60
         return 1
     fi
 
