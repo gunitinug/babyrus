@@ -329,7 +329,8 @@ fi
 
 # Function to display the "In operation..." infobox
 in_operation_msg() {
-    TERM=ansi whiptail --infobox "In operation..." 8 40 >/dev/tty
+    :
+    #TERM=ansi whiptail --infobox "In operation..." 8 40 >/dev/tty
 }
 
 list_files() {
