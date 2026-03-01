@@ -4745,7 +4745,7 @@ add_ebooks_from_checklist() {
             result=$(whiptail \
                 --title "Add eBooks: ${current_dir}" \
                 --checklist "Page $((current_page+1))/$pages\nSelect files/directories or navigation action:" \
-                20 100 10 \
+                20 170 10 \
                 "${choices[@]}" \
                 3>&1 1>&2 2>&3) \
                 || { return 1; }
