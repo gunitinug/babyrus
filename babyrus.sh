@@ -2442,8 +2442,8 @@ open_file() {
     fi
 
     # maybe a good idea to show 'Opening file for you...' for a second
-    TERM=ansi whiptail --infobox "Opening file for you..." 8 40
-    sleep 1
+    #TERM=ansi whiptail --infobox "Opening file for you..." 8 40
+    #sleep 1
     
     $open_cmd "$file" &>/dev/null & disown
 }
