@@ -9925,7 +9925,7 @@ assoc_url_to_note() {
     else
         # Build tag options for whiptail (needs tag and description pairs)
         local TAG_OPTIONS=()
-        TAG_OPTIONS+=("ANY TAG" "")
+        TAG_OPTIONS+=("NO TAG" "" "ANY TAG" "")
         for tag in "${tags[@]}"; do
             TAG_OPTIONS+=("$tag" "")
         done
@@ -9942,6 +9942,8 @@ assoc_url_to_note() {
 
         if [[ "$selected_tag" == "ANY TAG" ]]; then
             mapfile -t lines < "$NOTES_DB"
+        elif [[ "$selected_tag" == "NO TAG" ]]; then
+            mapfile -t lines < <(awk -F'|' '$3 == ""' "$NOTES_DB")            
         else
             # Populate array with lines that have exact match for selected tag
             mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
@@ -9964,6 +9966,16 @@ assoc_url_to_note() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
+        [[ "$selected_tag" == "ANY TAG" ]] && {
+            whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
+            return 1
+        }
+
+        [[ "$selected_tag" == "NO TAG" ]] && {
+            whiptail --msgbox "There are no notes with no associated tag found." 8 60
+            return 1
+        }    
+
         [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
