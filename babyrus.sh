@@ -12940,7 +12940,7 @@ do_stuff_with_project_file() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            whiptail --msgbox "No notes available in the database." 20 50
+            whiptail --msgbox "No matching notes found." 20 50
             return 1
         fi
 
@@ -14651,7 +14651,7 @@ do_stuff_shortlisted() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            whiptail --msgbox "No notes available in the database." 20 50
+            whiptail --msgbox "No matching notes found." 20 50
             return 1
         fi
 
