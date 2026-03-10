@@ -14613,7 +14613,7 @@ do_stuff_shortlisted() {
         [[ -z "$selected_project_path" ]] && return 1
 
         # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-        local note_tag_options=("ANY TAG" "Any tag (no filter)")    
+        local note_tag_options=("NO TAG" "Has no tag" "ANY TAG" "Any tag (no filter)")    
 
         while IFS= read -r tag; do
             [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
@@ -14631,6 +14631,11 @@ do_stuff_shortlisted() {
                 note_menu_options+=("$note_path" "[${note_tags}]")
                 continue
             fi
+
+            if [[ "$selected_note_tag" == "NO TAG" ]]; then
+                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "[${note_tags}]")
+                continue
+            fi            
 
             # FIX: FILTER BY NOTE TAG
             IFS=',' read -r -a note_tags_arr <<< "$note_tags"
