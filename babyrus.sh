@@ -7113,7 +7113,7 @@ manage_tags() {
 
                 # get rid of spaces before and after
                 # xargs method replaces all multiple spaces into just a single space whereever found
-                #new_tag="$(echo "$new_tag" | xargs)"
+                new_tag="$(echo "$new_tag" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
                 # ANY TAG and NO TAG are banned words
                 [[ "$new_tag" == "ANY TAG" || "$new_tag" == "NO TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'${new_tag}' is not allowed as a tag name." 8 40 && continue
