@@ -10257,7 +10257,20 @@ dissoc_url_from_note() {
     done
 
     # fix for cancel or tag with no notes.
-    [[ -n "$selected_tag" ]] && [[ "${#menu_items}" -eq 0 ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
+    [[ -n "$selected_tag" ]] && [[ "${#menu_items}" -eq 0 ]] && {
+            case "$selected_tag" in
+                "ANY TAG")
+                    whiptail --msgbox "No notes found. Add at least one note and try again." 8 60 >/dev/tty        
+                    ;;
+                "NO TAG")
+                    whiptail --msgbox "There are no notes with no associated tag found." 8 60 >/dev/tty
+                    ;;
+                *)
+                    whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
+                    ;;
+            esac
+            #whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
+    }
 
     # Paginate instead!
     ! paginate_get_notes "Select Note to Dissociate URL" "${menu_items[@]}" && return 1
