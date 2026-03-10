@@ -11710,7 +11710,7 @@ associate_note_to_project() {
     #[[ -z "$selected_project_path" ]] && return 1  # User canceled
 
     # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-    local note_tag_options=("ANY TAG" "Any tag (no filter)")    
+    local note_tag_options=("NO TAG" "Has no tag" "ANY TAG" "Any tag (no filter)")    
 
     while IFS= read -r tag; do
         [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
@@ -11726,6 +11726,11 @@ associate_note_to_project() {
         # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
         if [[ "$selected_note_tag" == "ANY TAG" ]]; then
             note_menu_options+=("$note_path" "[${note_tags}]")
+            continue
+        fi
+
+        if [[ "$selected_note_tag" == "NO TAG" ]]; then
+            [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "[${note_tags}]")
             continue
         fi
 
