@@ -8182,6 +8182,16 @@ list_notes() {
     # done < "$NOTES_DB"
 
     if [[ ${#lines[@]} -eq 0 ]]; then
+        [[ "$selected_tag" == "ANY TAG" ]] && {
+            whiptail --msgbox "Add at least one note and try again." 8 50 >/dev/tty
+            return 1
+        }
+
+        [[ "$selected_tag" == "NO TAG" ]] && {
+            whiptail --msgbox "There are no notes with no associated tag found." 8 50 >/dev/tty
+            return 1
+        }    
+
         [[ -n "$selected_tag" ]] && whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 50 >/dev/tty
         # echo ""
         return 1
@@ -11748,6 +11758,16 @@ associate_note_to_project() {
         #note_menu_options+=("$note_path" "[${note_tags}]")
     done < "$NOTES_DB"
     if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
+        [[ "$selected_note_tag" == "ANY TAG" ]] && {
+            whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
+            return 1
+        }
+
+        [[ "$selected_note_tag" == "NO TAG" ]] && {
+            whiptail --msgbox "There are no notes with no associated tag." 8 60
+            return 1
+        }    
+
         whiptail --msgbox "Tag '${selected_note_tag}' has no associated notes yet." 8 60   # case where tag has no notes yet.
         return 1
     fi
@@ -12940,7 +12960,7 @@ do_stuff_with_project_file() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            whiptail --msgbox "No matching notes found." 20 50
+            whiptail --msgbox "No matching notes found." 8 50
             return 1
         fi
 
@@ -14651,7 +14671,7 @@ do_stuff_shortlisted() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            whiptail --msgbox "No matching notes found." 20 50
+            whiptail --msgbox "No matching notes found." 8 50
             return 1
         fi
 
