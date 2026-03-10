@@ -10206,7 +10206,7 @@ dissoc_url_from_note() {
     mapfile -t tags < "$NOTES_TAGS_DB"    
     # Build tag options for whiptail (needs tag and description pairs)
     local TAG_OPTIONS=()
-    TAG_OPTIONS+=("ANY TAG" "")
+    TAG_OPTIONS+=("NO TAG" "" "ANY TAG" "")
     for tag in "${tags[@]}"; do
         TAG_OPTIONS+=("$tag" "")
     done
@@ -10238,6 +10238,14 @@ dissoc_url_from_note() {
         local tag_array=()
         IFS=',' read -r -a tag_array <<< "$tags__"
 
+        # Case when tags__ is empty (ie. no associated tag) - deal with both ANY TAG and NO TAG
+        if [[ -z "$tags__" ]]; then
+            if [[ "$selected_tag" == "NO TAG" || "$selected_tag" == "ANY TAG" ]]; then
+                menu_items+=("$path" "[${tags__}]")
+            fi
+        fi
+
+        # Case when tags__ is not empty (ie. at least one associated tag)
         for tag in "${tag_array[@]}"; do
             if [[ "$tag" == "$selected_tag" || "$selected_tag" == "ANY TAG" ]]; then
                 menu_items+=("$path" "[${tags__}]")
