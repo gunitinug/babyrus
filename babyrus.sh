@@ -8183,7 +8183,7 @@ list_notes() {
 
     if [[ ${#lines[@]} -eq 0 ]]; then
         [[ "$selected_tag" == "ANY TAG" ]] && {
-            whiptail --msgbox "Add at least one note and try again." 8 50 >/dev/tty
+            whiptail --msgbox "No notes found. Add at least one note and try again." 8 60 >/dev/tty
             return 1
         }
 
@@ -11764,7 +11764,7 @@ associate_note_to_project() {
         }
 
         [[ "$selected_note_tag" == "NO TAG" ]] && {
-            whiptail --msgbox "There are no notes with no associated tag." 8 60
+            whiptail --msgbox "There are no notes with no associated tag found." 8 60
             return 1
         }    
 
@@ -12960,6 +12960,16 @@ do_stuff_with_project_file() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
+            [[ "$selected_note_tag" == "ANY TAG" ]] && {
+                whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
+                return 1
+            }
+
+            [[ "$selected_note_tag" == "NO TAG" ]] && {
+                whiptail --msgbox "There are no notes with no associated tag found." 8 60
+                return 1
+            }    
+
             whiptail --msgbox "No matching notes found." 8 50
             return 1
         fi
@@ -14671,6 +14681,16 @@ do_stuff_shortlisted() {
             #note_menu_options+=("$note_path" "[${note_tags}]")
         done < "$NOTES_DB"
         if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
+            [[ "$selected_note_tag" == "ANY TAG" ]] && {
+                whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
+                return 1
+            }
+
+            [[ "$selected_note_tag" == "NO TAG" ]] && {
+                whiptail --msgbox "There are no notes with no associated tag found." 8 60
+                return 1
+            }    
+
             whiptail --msgbox "No matching notes found." 8 50
             return 1
         fi
