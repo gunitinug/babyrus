@@ -7110,8 +7110,13 @@ manage_tags() {
                 local new_tag
                 new_tag=$(whiptail --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty)
                 [ $? -eq 0 ] || continue
-                # ANY TAG is banned word
-                [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name." 8 40 && continue
+
+                # get rid of spaces before and after
+                # xargs method replaces all multiple spaces into just a single space whereever found
+                #new_tag="$(echo "$new_tag" | xargs)"
+
+                # ANY TAG and NO TAG are banned words
+                [[ "$new_tag" == "ANY TAG" || "$new_tag" == "NO TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'${new_tag}' is not allowed as a tag name." 8 40 && continue
 
                 # FIX: DELETE BANNED CHARS - MORE EFFICIENT.
                 new_tag=${new_tag//[|,#:;]/}
@@ -8136,7 +8141,7 @@ list_notes() {
     else
         # Build tag options for whiptail (needs tag and description pairs)
         local TAG_OPTIONS=()
-        TAG_OPTIONS+=("ANY TAG" "")
+        TAG_OPTIONS+=("NO TAG" "" "ANY TAG" "")
         for tag in "${tags[@]}"; do
             TAG_OPTIONS+=("$tag" "")
         done
@@ -8153,6 +8158,8 @@ list_notes() {
 
         if [[ "$selected_tag" == "ANY TAG" ]]; then
             mapfile -t lines < "$NOTES_DB"
+        elif [[ "$selected_tag" == "NO TAG" ]]; then
+            mapfile -t lines < <(awk -F'|' '$3 == ""' "$NOTES_DB")
         else
             # Populate array with lines that have exact match for selected tag
             mapfile -t lines < <(awk -F'|' -v tag="$selected_tag" '      
