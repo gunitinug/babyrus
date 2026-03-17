@@ -14792,6 +14792,198 @@ do_stuff_shortlisted() {
     }
 
     associate_note_to_project_from_shortlist() {
+        paginate_get_projects_checklist2() {
+            # Output: populates global array SELECTED_ITEMS_PROJECT with selected note paths.
+            # Usage: paginate_get_projects "Menu Title" "${FILTERED_PROJECTS[@]}"
+            # FILTERED_PROJECTS expected as pairs: "/note/path/note1.txt" "[tag1,tag2]" ...
+
+            # Clear any previous selection
+            SELECTED_ITEMS_PROJECT=()
+
+            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
+            local menu_title
+            local CURRENT_PAGE_PROJECTS
+            local -a FILTERED_PROJECTS
+
+            if [ "$#" -ge 3 ]; then
+                menu_title="$1"
+                shift
+                FILTERED_PROJECTS=("$@")
+                CURRENT_PAGE_PROJECTS=0
+            else
+                return 1
+            fi
+
+            # Basic validation
+            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
+                return 1
+            fi
+            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
+                echo "paginate_get_projects: FILTERED_PROJECTS must be path/tag pairs" >&2
+                return 1
+            fi
+
+            # Build arrays: KEYS, PATHS, DESCS
+            local -a KEYS=()
+            local -a PATHS=()
+            local -a DESCS=()
+            local total_projects=0
+
+            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
+                local path="${FILTERED_PROJECTS[i]}"
+                local tags="${FILTERED_PROJECTS[i+1]}"
+                local idx=$(( i / 2 ))
+                local key="p${idx}"   # safe tokens, no spaces
+                KEYS+=("$key")
+                PATHS+=("$path")
+                DESCS+=("$path $tags")
+                (( total_projects++ ))
+            done
+
+            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
+            (( total_pages == 0 )) && return 1
+
+            # ensure CURRENT_PAGE_PROJECTS within bounds
+            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
+                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
+            fi
+            if (( CURRENT_PAGE_PROJECTS < 0 )); then
+                CURRENT_PAGE_PROJECTS=0
+            fi
+
+            # Persistent selection map across pages
+            local -A SELECTED_MAP=()
+
+            while true; do
+                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
+                local end_proj=$(( start_proj + chunk_size_projects ))
+                (( end_proj > total_projects )) && end_proj=$total_projects
+
+                local -a checklist_args=()
+
+                # Pseudo-keys for navigation and add
+                local PREV_KEY="__prev__"
+                local NEXT_KEY="__next__"
+                local ADD_KEY="__add__"
+
+                # Always show __add__ (user can toggle it to commit)
+                checklist_args+=("$ADD_KEY" "Add selected projects (commit)" OFF)
+
+                # Show prev/next when applicable
+                if (( CURRENT_PAGE_PROJECTS > 0 )); then
+                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
+                fi
+                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
+                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
+                fi
+
+                # Page items
+                for (( p = start_proj; p < end_proj; p++ )); do
+                    local k="${KEYS[p]}"
+                    local desc="${DESCS[p]}"
+                    if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
+                        checklist_args+=("$k" "$desc" ON)
+                    else
+                        checklist_args+=("$k" "$desc" OFF)
+                    fi
+                done
+
+                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
+
+                local choice
+                choice=$(whiptail --title "$menu_title" \
+                    --cancel-button "Back" \
+                    --checklist "$prompt" 20 170 10 \
+                    "${checklist_args[@]}" \
+                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
+                    SELECTED_ITEMS_PROJECT=()
+                    return 1                
+                }
+
+                # Parse whiptail output safely into array (removing quotes)
+                local -a selected_array
+                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
+
+                # Booleans for special items
+                local prev_sel=0
+                local next_sel=0
+                local add_sel=0
+
+                for sel in "${selected_array[@]:-}"; do
+                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
+                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
+                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
+                done
+
+                # Update SELECTED_MAP for items on this page based on returned selections
+                for (( p = start_proj; p < end_proj; p++ )); do
+                    local k="${KEYS[p]}"
+                    local found=0
+                    for sel in "${selected_array[@]:-}"; do
+                        if [[ "$sel" == "$k" ]]; then
+                            found=1
+                            break
+                        fi
+                    done
+                    if (( found )); then
+                        SELECTED_MAP["$k"]=1
+                    else
+                        unset SELECTED_MAP["$k"]
+                    fi
+                done
+
+                # --- Validation rules ---
+                if (( prev_sel && next_sel )); then
+                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60
+                    continue
+                fi
+
+                if (( add_sel && (prev_sel || next_sel) )); then
+                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70
+                    continue
+                fi
+
+                # Handle navigation
+                if (( prev_sel )); then
+                    (( CURRENT_PAGE_PROJECTS-- ))
+                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
+                    continue
+                fi
+                if (( next_sel )); then
+                    (( CURRENT_PAGE_PROJECTS++ ))
+                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
+                    continue
+                fi
+
+                # If add was selected, finalize selection and return (but ensure there is at least one project selected)
+                if (( add_sel )); then
+                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP
+                    SELECTED_ITEMS_PROJECT=()
+                    for (( p = 0; p < total_projects; p++ )); do
+                        local k="${KEYS[p]}"
+                        if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
+                            SELECTED_ITEMS_PROJECT+=("${PATHS[p]}")
+                        fi
+                    done
+
+                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
+                        whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
+                        continue
+                    fi
+
+                    # Success: return with SELECTED_ITEMS_PROJECT populated
+                    return 0
+                fi
+
+                # If we get here it means user pressed OK without choosing Add or navigation.
+                # Remind them to use Add to commit or navigate pages.
+                #whiptail --title "No action chosen" --msgbox "To finish, select 'Add selected projects'. Or use Previous/Next to continue browsing." 8 70
+                #continue
+            done
+
+            return 1
+        }
+
         paginate_tags_menu() {
             local title="$1"
             shift
@@ -14923,21 +15115,16 @@ do_stuff_shortlisted() {
 
         while :; do
             # Note selection
-            paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
-            local selected_note_path
-            selected_note_path="$SELECTED_ITEM_PROJECT"
-            [[ -z "$selected_note_path" ]] && return 1
-
-            #local selected_note_path
-            #selected_note_path=$(whiptail --title "Select Note" \
-            #    --menu "Choose a note to associate:" \
-            #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-            #[[ -z "$selected_note_path" ]] && return 1  # User canceled
-
+            paginate_get_projects_checklist2 "Choose Note to Associate" "${note_menu_options[@]}"
+            local selected_note_paths
+            selected_note_paths=("${SELECTED_ITEMS_PROJECT[@]}")     
+            [[ ${#selected_note_paths[@]} -eq 0 ]] && return 1
+        
             # Process PROJECTS_DB
+            project_found=0
+            line_updated=0                        
             while IFS= read -r line; do
                 if [[ -z "$line" ]]; then
-                    #echo >> "$temp_file"
                     continue
                 fi
 
@@ -14950,40 +15137,42 @@ do_stuff_shortlisted() {
 
                     # Check for duplicates
                     IFS=',' read -ra notes_array <<< "$current_notes"
-                    local duplicate=0	# Reset for each iteration.
-                    # If duplicate found then break out of for loop here.
+                    local duplicate
+
+                    local selected_string=$(IFS=,; echo "${selected_note_paths[*]}")
+
                     for note in "${notes_array[@]}"; do
-                        [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
+                        duplicate=0
+
+                        for selected in "${selected_note_paths[@]}"; do
+                            if [[ "$note" == "$selected" ]]; then
+                                duplicate=1
+                                break
+                            fi
+                        done
+
+                        if (( duplicate )); then
+                            # remove selected from string
+                            selected_string="${selected_string//$selected,}"
+                            selected_string="${selected_string//,$selected}"
+                            selected_string="${selected_string//$selected}"        
+                        fi
                     done
 
-                    if (( duplicate )); then
-                        whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
-
-                        # reset
-                        line_updated=0
-
-                        duplicate_detected=1
-                        # Rebuild original line
-                        new_line="$title|$path|$current_notes"
-                        # There is no fourth field!!!!
-                        # [[ -n "$rest" ]] && new_line+="|$rest"
-                        echo "$new_line" >> "$temp_file"	# No change.
-                    else
-                        # reset
-                        duplicate_detected=0
-
-                        # Update notes
-                        # If there is no previously associated note...
-                        if [[ -z "$current_notes" ]]; then
-                            new_notes="$selected_note_path"
-                        else
-                            new_notes="$current_notes,$selected_note_path"
-                        fi
-                        new_line="$title|$path|$new_notes"
-                        #[[ -n "$rest" ]] && new_line+="|$rest"
-                        echo "$new_line" >> "$temp_file"	# Changes made.
+                    local new_notes
+                    if [[ -z "$current_notes" ]]; then
+                        new_notes="$selected_string"
                         line_updated=1
+                    elif [[ -n "$selected_string" ]]; then
+                        new_notes="${current_notes},${selected_string}"
+                        line_updated=1
+                    else
+                        new_notes="$current_notes"
                     fi
+
+                    local new_line
+                    new_line="$title|$path|$new_notes"            
+                    echo "$new_line" >> "$temp_file"                             
                 else
                     # Just leave the line unchanged.
                     echo "$line" >> "$temp_file"
@@ -14992,13 +15181,9 @@ do_stuff_shortlisted() {
 
             # Handle processing results
             if (( project_found )); then
-                if (( line_updated && !duplicate_detected )); then
+                if (( line_updated )); then
                     mv "$temp_file" "$PROJECTS_DB"
                     whiptail --msgbox "Note successfully associated with the project." 10 50
-                elif (( duplicate_detected )); then
-                    rm "$temp_file"
-                    #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
-                    continue
                 else
                     rm "$temp_file"
                     whiptail --msgbox "No changes were made to the project entry." 10 50
