@@ -8857,34 +8857,33 @@ open_note_ebook_page_from_filtered() {
 }
 
 associate_new_note_to_project() {
-    (
-        ask() {
-            choice=$(whiptail --title "Next action" \
-                            --menu "Choose an option:" \
-                            15 60 2 \
-                            "associate" "Associate this note with project file" \
-                            "continue"  "Do nothing further" \
-                            3>&1 1>&2 2>&3)
+    ask() {
+        local choice exit_status
+        choice=$(whiptail --title "Next action" \
+                        --menu "Choose an option:" \
+                        15 60 2 \
+                        "associate" "Associate this note with project file" \
+                        "continue"  "Do nothing further" \
+                        3>&1 1>&2 2>&3)
 
-            exit_status=$?
+        exit_status=$?
 
-            # Handle Cancel or ESC
-            if [[ $exit_status -ne 0 ]]; then
+        # Cancel or ESC
+        if [[ $exit_status -ne 0 ]]; then
+            return 1
+        fi
+
+        case "$choice" in
+            continue)
                 return 1
-            fi
+                ;;
+            associate)
+                return 0
+                ;;
+        esac
+    }
 
-            case "$choice" in
-                continue)
-                    return 1
-                    ;;
-                associate)
-                    return 0
-                    ;;
-            esac
-        }
-        
-        ask
-    ) || return 1
+    ask || return 1
 
     # accept note path as arg
     local NEW_NOTE_PATH="$1"
