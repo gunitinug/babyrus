@@ -12961,7 +12961,7 @@ do_stuff_with_project_file() {
                 local ADD_KEY="__add__"
 
                 # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Add selected projects (commit)" OFF)
+                checklist_args+=("$ADD_KEY" "Add selected items (commit)" OFF)
 
                 # Show prev/next when applicable
                 if (( CURRENT_PAGE_PROJECTS > 0 )); then
@@ -13292,6 +13292,193 @@ do_stuff_with_project_file() {
     }
 
     dissociate_note_from_project_from_do_stuff() {
+        paginate_get_projects_checklist3() {
+            # Output: populates global array SELECTED_ITEMS_PROJECT with selected index tokens.
+            # Usage: paginate_get_projects_checklist2 "Menu Title" "${FILTERED_PROJECTS[@]}"
+            # FILTERED_PROJECTS expected as pairs: "token" "/note/path/note.txt [tag1,tag2]" ...
+
+            # Clear any previous selection
+            SELECTED_ITEMS_PROJECT=()
+
+            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
+            local menu_title
+            local CURRENT_PAGE_PROJECTS
+            local -a FILTERED_PROJECTS
+
+            if [ "$#" -ge 3 ]; then
+                menu_title="$1"
+                shift
+                FILTERED_PROJECTS=("$@")
+                CURRENT_PAGE_PROJECTS=0
+            else
+                return 1
+            fi
+
+            # Basic validation
+            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
+                return 1
+            fi
+            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
+                echo "paginate_get_projects_checklist3: FILTERED_PROJECTS must be token/description pairs" >&2
+                return 1
+            fi
+
+            # Build arrays: TOKENS, DESCS
+            local -a TOKENS=()
+            local -a DESCS=()
+            local total_projects=0
+
+            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
+                local token="${FILTERED_PROJECTS[i]}"
+                local desc="${FILTERED_PROJECTS[i+1]}"
+                TOKENS+=("$token")
+                DESCS+=("$desc")
+                (( total_projects++ ))
+            done
+
+            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
+            (( total_pages == 0 )) && return 1
+
+            # ensure CURRENT_PAGE_PROJECTS within bounds
+            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
+                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
+            fi
+            if (( CURRENT_PAGE_PROJECTS < 0 )); then
+                CURRENT_PAGE_PROJECTS=0
+            fi
+
+            # Persistent selection map across pages (keys are tokens)
+            local -A SELECTED_MAP=()
+
+            while true; do
+                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
+                local end_proj=$(( start_proj + chunk_size_projects ))
+                (( end_proj > total_projects )) && end_proj=$total_projects
+
+                local -a checklist_args=()
+
+                # Pseudo-keys for navigation and add
+                local PREV_KEY="__prev__"
+                local NEXT_KEY="__next__"
+                local ADD_KEY="__remove__"
+
+                # Always show __add__ (user can toggle it to commit)
+                checklist_args+=("$ADD_KEY" "Remove selected items (commit)" OFF)
+
+                # Show prev/next when applicable
+                if (( CURRENT_PAGE_PROJECTS > 0 )); then
+                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
+                fi
+                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
+                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
+                fi
+
+                # Page items: use token as the whiptail tag and the description as the label
+                for (( p = start_proj; p < end_proj; p++ )); do
+                    local token="${TOKENS[p]}"
+                    local desc="${DESCS[p]}"
+                    if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
+                        checklist_args+=("$token" "$desc" ON)
+                    else
+                        checklist_args+=("$token" "$desc" OFF)
+                    fi
+                done
+
+                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
+
+                local choice
+                choice=$(whiptail --title "$menu_title" \
+                    --cancel-button "Back" \
+                    --checklist "$prompt" 20 170 10 \
+                    "${checklist_args[@]}" \
+                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
+                    SELECTED_ITEMS_PROJECT=()
+                    return 1
+                }
+
+                # Parse whiptail output safely into array (removing quotes)
+                local -a selected_array
+                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
+
+                # Booleans for special items
+                local prev_sel=0
+                local next_sel=0
+                local add_sel=0
+
+                for sel in "${selected_array[@]:-}"; do
+                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
+                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
+                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
+                done
+
+                # Update SELECTED_MAP for items on this page based on returned selections
+                for (( p = start_proj; p < end_proj; p++ )); do
+                    local token="${TOKENS[p]}"
+                    local found=0
+                    for sel in "${selected_array[@]:-}"; do
+                        if [[ "$sel" == "$token" ]]; then
+                            found=1
+                            break
+                        fi
+                    done
+                    if (( found )); then
+                        SELECTED_MAP["$token"]=1
+                    else
+                        unset SELECTED_MAP["$token"]
+                    fi
+                done
+
+                # --- Validation rules ---
+                if (( prev_sel && next_sel )); then
+                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60 >/dev/tty
+                    continue
+                fi
+
+                if (( add_sel && (prev_sel || next_sel) )); then
+                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70 >/dev/tty
+                    continue
+                fi
+
+                # Handle navigation
+                if (( prev_sel )); then
+                    (( CURRENT_PAGE_PROJECTS-- ))
+                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
+                    continue
+                fi
+                if (( next_sel )); then
+                    (( CURRENT_PAGE_PROJECTS++ ))
+                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
+                    continue
+                fi
+
+                # If add was selected, finalize selection and return (but ensure there is at least one token selected)
+                if (( add_sel )); then
+                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP (return tokens)
+                    SELECTED_ITEMS_PROJECT=()
+                    for (( p = 0; p < total_projects; p++ )); do
+                        local token="${TOKENS[p]}"
+                        if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
+                            SELECTED_ITEMS_PROJECT+=("$token")
+                        fi
+                    done
+
+                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
+                        #whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
+                        continue
+                    fi
+
+                    # Success: return with SELECTED_ITEMS_PROJECT populated with index tokens
+                    return 0
+                fi
+
+                # If we get here it means user pressed OK without choosing Add or navigation.
+                # Loop back so they remain in the selection UI.
+                #continue
+            done
+
+            return 1
+        }
+
         find_tags_for_linked_note() {
             local path_to_note_file="$1"
             local matching_tags_str=""
@@ -13342,26 +13529,45 @@ do_stuff_with_project_file() {
                 return 1
             fi
 
+            # Reset menu options so they don't accumulate across loop iterations
+            local -a note_options=()
+
             # Build menu options (add << Back at top)
-            local -a note_options=("<< Back" "")
+            #local -a note_options=("<< Back" "")   # Back item breaks logic
             local note_index note_matching_tags
             for note_index in "${!notes_arr[@]}"; do
                 note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
                 note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
             done
 
-            # Show note selection menu
-            paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
-            local selected_note="$SELECTED_ITEM_PROJECT"
+            # Show note selection menu            
+            paginate_get_projects_checklist3 "Choose Note to Dissociate" "${note_options[@]}"
+            local selected_notes=("${SELECTED_ITEMS_PROJECT[@]}")
+
+            # local contains_back=false
+
+            # for item in "${selected_notes[@]}"; do
+            #     if [[ "$item" == "<< Back" ]]; then
+            #         contains_back=true
+            #         break
+            #     fi
+            # done            
 
             # If user chooses << Back, stop loop
-            [[ -z "$selected_note" || "$selected_note" == "<< Back" ]] && return 1
+            [[ ${#selected_notes[@]} -eq 0 ]] && return 1
 
-            # Remove selected note from list
+            # build a fast lookup map of selected indices
+            local -A sel_map
+            for i in "${selected_notes[@]}"; do
+                sel_map["$i"]=1
+            done
+
+            # populate new_notes with notes whose index is NOT in selected_notes
             local -a new_notes=()
-            for note_index in "${!notes_arr[@]}"; do
-                if [[ $note_index -ne $selected_note ]]; then
-                    new_notes+=("${notes_arr[note_index]}")
+            # iterate indices; sort numerically to preserve increasing order (optional)
+            for idx in $(printf '%s\n' "${!notes_arr[@]}" | sort -n); do
+                if [[ -z "${sel_map[$idx]:-}" ]]; then
+                    new_notes+=("${notes_arr[$idx]}")
                 fi
             done
 
@@ -14867,7 +15073,7 @@ do_stuff_shortlisted() {
                 local ADD_KEY="__add__"
 
                 # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Add selected projects (commit)" OFF)
+                checklist_args+=("$ADD_KEY" "Add selected items (commit)" OFF)
 
                 # Show prev/next when applicable
                 if (( CURRENT_PAGE_PROJECTS > 0 )); then
