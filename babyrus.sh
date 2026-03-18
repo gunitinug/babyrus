@@ -9289,6 +9289,50 @@ associate_notes_by_tag_to_project() {
 }
 
 do_note_filter_by_tag() {
+    get_notes_from_filtered2() {
+        # Directly populate lines from arguments
+        local lines=("$@")
+
+        if [[ ${#lines[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes found in database" 20 80
+            echo ""
+            return 1
+        fi
+
+        local options=()
+        for i in "${!lines[@]}"; do
+            local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
+            local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
+
+            # Truncate note path
+            local dir_tr filename_tr note_path_tr
+            dir_tr="$(dirname "$note_path")"
+            dir_tr="$(truncate_dirname "$dir_tr" 50)"
+            filename_tr="$(basename "$note_path")"
+            filename_tr="$(truncate_filename "$filename_tr" 50)"
+            note_path_tr="${dir_tr}/${filename_tr}"
+
+            # Truncate tags
+            local tags_tr
+            tags_tr="$(truncate_tags "$tags")"
+
+            # Menu options (now, truncated)
+            options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+        done
+
+        # Paginate selection
+        CURRENT_PAGE=0
+        SELECTED_ITEM=""
+
+        ! paginate_get_notes "Select note file to copy to clipboard" "${options[@]}" && return 1
+        local selected_line_tag="$SELECTED_ITEM"
+
+        local selected_index=$((selected_line_tag - 1))
+        [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && return 1
+
+        echo "${lines[$selected_index]}"
+    }
+
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
 by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks. You can also associate a note to multiple projects.\n\n\
@@ -9319,7 +9363,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-            15 50 4 "Add note with same tag" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
+            15 50 5 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -9327,6 +9371,21 @@ After creating a new note, you can choose to associate it to a project file. Aft
                 add_note "$chosen_tag" || return 1
                 [[ -n "$note_path" ]] && associate_new_note_to_project "$note_path"
                 ;;
+            "Copy note content to clipboard")                
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }              
+
+                local line___                              
+                line___="$(get_notes_from_filtered2 "${FILTERED_NOTES_BY_TAG[@]}")" || continue
+                local note_path___
+                IFS='|' read -r _ note_path___ _ <<< "$line___"
+                # Save $note_path to xclip
+                cat "$note_path___" | xclip -sel clip
+                whiptail --msgbox "Copied to clipboard!" 8 50 >/dev/tty                                
+                ;;                
             "Edit note")
                 [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
                     whiptail --title "Attention" --msgbox \
