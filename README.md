@@ -54,7 +54,7 @@ Babyrus requires the following dependencies:
 ```bash
 sudo apt install whiptail wmctrl dialog xclip
 ```
-Plus of course your chosen editor, viewers and web browser!
+Plus of course your chosen editor (terminal-based), viewers and web browser!
 
 ### Installation
 
@@ -107,6 +107,12 @@ declare -A VIEWER_COMMANDS=(
     ["calibre"]="ebook-viewer --open-at"    
 )
 ````
+You can also configure default editor and web browser from the `Configure` menu.
+
+```bash
+DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
+URL_BROWSER="google-chrome"
+```
 
 File `babyrus.sh.bak` is created to save old `babyrus.sh` executable.
 
