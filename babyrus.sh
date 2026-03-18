@@ -289,7 +289,7 @@ check_bash_ver() {
 check_bash_ver || exit 1
 
 # Check dependencies
-for cmd in whiptail wmctrl dialog; do
+for cmd in whiptail wmctrl dialog xclip; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "Error: $cmd is required but not installed." >&2
         exit 1
