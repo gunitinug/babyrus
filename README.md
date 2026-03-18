@@ -54,6 +54,7 @@ Babyrus requires the following dependencies:
 ```bash
 sudo apt install whiptail wmctrl dialog xclip
 ```
+Plus of course your chosen editor, viewers and web browser!
 
 ### Installation
 
