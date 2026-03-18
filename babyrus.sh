@@ -15801,15 +15801,16 @@ do_stuff_shortlisted() {
 
         # Action selection
         local action
-        action=$(whiptail --menu "Note Action" 20 50 8 \
+        action=$(whiptail --menu "Note Action" 20 50 9 \
             "1" "View Note" \
-            "2" "Open ebooks linked to note" \
-            "3" "Edit Note" \
-            "4" "Open linked URL" \
-            "5" "Associate URL to note" \
-            "6" "Dissociate URL from note" \
-            "7" "Associate Note to Project" \
-            "8" "Print Note using Printer" 3>&1 1>&2 2>&3)
+            "2" "Copy note content to clipboard" \
+            "3" "Open ebooks linked to note" \
+            "4" "Edit Note" \
+            "5" "Open linked URL" \
+            "6" "Associate URL to note" \
+            "7" "Dissociate URL from note" \
+            "8" "Associate Note to Project" \
+            "9" "Print Note using Printer" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && continue    # i want to return to list of linked note files so continue
 
         case "$action" in
@@ -15835,29 +15836,35 @@ do_stuff_shortlisted() {
                 clear
                 ;;
             "2")
-                open_note_ebook_page_from_project "$selected_note_line"
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                # Save $note_path to xclip
+                cat "$note_path" | xclip -sel clip
+                whiptail --msgbox "Copied to clipboard!" 8 50 >/dev/tty
                 ;;
             "3")
-                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-                edit_note "$note_path"
+                open_note_ebook_page_from_project "$selected_note_line"
                 ;;
             "4")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-                open_url_assoc_to_chosen_note
+                edit_note "$note_path"
                 ;;
             "5")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-                assoc_url_to_chosen_note
+                open_url_assoc_to_chosen_note
                 ;;
             "6")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-                dissoc_url_from_chosen_note
+                assoc_url_to_chosen_note
                 ;;
             "7")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
-                associate_chosen_note_to_project "$note_path"
+                dissoc_url_from_chosen_note
                 ;;
             "8")
+                IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
+                associate_chosen_note_to_project "$note_path"
+                ;;
+            "9")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 print_chosen_note "$note_path"
                 ;;
