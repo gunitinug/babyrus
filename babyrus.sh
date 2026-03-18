@@ -9047,7 +9047,7 @@ associate_notes_by_tag_to_project() {
     }    
 
     select_filtered_notes_by_tag_checklist() {
-        local PAGE_SIZE=5
+        local PAGE_SIZE=10
 
         # ---- convert input paths → (tag, empty-desc) pairs ----
         local -a all_items=()
