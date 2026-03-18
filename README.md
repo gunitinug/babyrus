@@ -47,6 +47,7 @@ Babyrus requires the following dependencies:
   * `whiptail`
   * `wmctrl`
   * `dialog`
+  * `xclip`
 
 **To install on Ubuntu/Debian:**
 
