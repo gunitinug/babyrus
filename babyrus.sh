@@ -9289,6 +9289,180 @@ associate_notes_by_tag_to_project() {
 }
 
 do_note_filter_by_tag() {
+    assoc_url_to_note_by_tag() {
+        touch "$URLS_DB"
+        
+        #local NOTES_DB="$NOTES_DB"
+        #local URLS_DB="$URLS_DB"
+        local GS=$'\x1D'  # separates note path and rest
+        local US=$'\x1F'  # separates url and url title
+        local RS=$'\x1E'  # separates urls
+
+        # Extract note paths from NOTES_DB
+        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
+            whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 >/dev/tty
+            return 1
+        fi
+
+        local -a tags lines
+        # Passed from FILTERED_NOTES_BY_TAG.
+        lines=("$@")
+
+        if [[ ${#lines[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes with the tag found. Add at least one note and try again." 8 60
+            return 1
+        fi    
+
+        # FIX TO ADD TAGS TO MENU_ITEMS
+        # Read note paths
+        local menu_items=()
+        while IFS='|' read -r _ path tags _; do
+            menu_items+=("$path" "[${tags}]")
+        done < <(printf '%s\n' "${lines[@]}")
+
+        if [[ ${#menu_items[@]} -eq 0 ]]; then
+            #whiptail --msgbox "No notes found in database!" 8 50 >/dev/tty
+            return 1
+        fi
+
+        # Paginate instead
+        ! paginate_get_notes "Select Note to Associate URL to" "${menu_items[@]}" && return 1
+        local selected_path
+        selected_path="$SELECTED_ITEM"
+        [[ -z "$selected_path" ]] && return 1
+
+        # Load existing URLs
+        local urls=()
+        local titles=()
+        if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
+            while IFS= read -r line; do
+                if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
+                    for entry in "${entries[@]}"; do
+                        IFS="$US" read -r url title <<< "$entry"
+                        urls+=("$url")
+                        titles+=("$title")
+                    done
+                    break
+                fi
+            done < "$URLS_DB"
+        fi
+
+        local url_regex='^(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.)+[A-Za-z]{2,}(:[0-9]+)?(\/\S*)?$'
+
+        # URL management loop
+        while true; do
+            local menu_options=("Register URL" "" "Save and return" "")
+            for i in "${!urls[@]}"; do
+                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+            done
+
+            local choice
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            [[ -z "$choice" ]] && return 1
+
+            case "$choice" in
+                "Register URL")
+                    local new_url new_title
+                    new_url=$(whiptail --inputbox "Enter URL:" 8 50 3>&1 1>&2 2>&3)
+                    [[ $? -ne 0 ]] && continue
+
+                    # validate URL
+                    if [[ ! $new_url =~ $url_regex ]]; then
+                        whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
+                        continue
+                    fi
+
+                    new_title=$(whiptail --inputbox "Enter URL title:" 8 50 3>&1 1>&2 2>&3)
+                    [[ $? -ne 0 ]] && continue
+
+                    if [[ -z "$new_url" || -z "$new_title" ]]; then
+                        whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
+                        continue
+                    fi
+
+                    urls+=("$new_url")
+                    titles+=("$new_title")
+                    ;;
+
+                "Save and return")
+                    # Construct new entry
+                    local new_entry="${selected_path}${GS}"
+                    for i in "${!urls[@]}"; do
+                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
+                    done
+                    new_entry="${new_entry%$RS}"
+
+                    # Update URLS_DB
+                    local temp_file
+                    temp_file=$(mktemp) || return 1
+                    if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
+                        # Write every line except for selected path to temp file.
+                        while IFS= read -r line; do
+                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
+                        done < "$URLS_DB" > "$temp_file"
+                    fi
+                    # Add new entry at the end of the temp file.
+                    echo "$new_entry" >> "$temp_file"
+
+                    # Replace original file
+                    mv "$temp_file" "$URLS_DB"
+                    whiptail --msgbox "URL associations saved successfully!" 8 50 >/dev/tty
+                    return 0
+                    ;;
+
+                *)
+                    # Handle existing URL selection
+                    local index="$choice"
+                    if [[ ! -v urls[index] ]]; then
+                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
+                        continue
+                    fi
+
+                    # Submenu for edit/delete
+                    local sub_choice
+                    sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
+                        "Change values" "" \
+                        "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
+                    [[ -z "$sub_choice" ]] && continue
+
+                    case "$sub_choice" in
+                        "Change values")
+                            local current_url="${urls[index]}"
+                            local current_title="${titles[index]}"
+                            new_url=$(whiptail --inputbox "Edit URL:" 8 50 "$current_url" 3>&1 1>&2 2>&3)
+                            [[ $? -ne 0 ]] && continue
+
+                            # validate URL
+                            if [[ ! $new_url =~ $url_regex ]]; then
+                                whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
+                                continue
+                            fi
+
+                            new_title=$(whiptail --inputbox "Edit URL title:" 8 50 "$current_title" 3>&1 1>&2 2>&3)
+                            [[ $? -ne 0 ]] && continue
+
+                            if [[ -z "$new_url" || -z "$new_title" ]]; then
+                                whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
+                                continue
+                            fi
+
+                            urls[index]="$new_url"
+                            titles[index]="$new_title"
+                            ;;
+                        "Delete URL")
+                            unset 'urls[index]'
+                            unset 'titles[index]'
+                            # Reindex arrays
+                            urls=("${urls[@]}")
+                            titles=("${titles[@]}")
+                            ;;
+                    esac
+                    ;;
+            esac
+        done
+    }
+
     get_notes_from_filtered2() {
         # Directly populate lines from arguments
         local lines=("$@")
@@ -9363,7 +9537,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-            15 50 5 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate note to project" "" \
+            18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" "Associate note to project" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -9401,6 +9575,14 @@ After creating a new note, you can choose to associate it to a project file. Aft
                     continue
                 }                
                 open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Associate URL to note")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }                            
+                assoc_url_to_note_by_tag "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
             "Associate note to project")
                 [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
