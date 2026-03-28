@@ -9463,6 +9463,171 @@ do_note_filter_by_tag() {
         done
     }
 
+    dissoc_url_from_note_by_tag() {
+        touch "$URLS_DB"
+        
+        #local URLS_DB="$URLS_DB"
+        local GS=$'\x1D'  # separates note path and rest
+        local US=$'\x1F'  # separates url and url title
+        local RS=$'\x1E'  # separates urls
+
+        # Check URL database existence
+        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
+            whiptail --msgbox "No associated URLs found. Associate at least one URL and try again." 8 40 >/dev/tty
+            return 1
+        fi
+
+        local selected_tag="$1"
+
+        # debug
+        #echo selected_tag
+        #echo "$selected_tag"
+        #exit
+
+        # Extract unique note paths from URLS_DB
+        local note_paths=()
+        while IFS= read -r line; do
+            note_path="${line%%$GS*}"
+            [[ -n "$note_path" ]] && note_paths+=("$note_path")
+        done < <(awk -F"$GS" '!seen[$1]++' "$URLS_DB")
+
+        if [[ ${#note_paths[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes with URLs found in database!" 8 50 >/dev/tty
+            return 1
+        fi
+
+        # debug
+        #echo note_paths:
+        #printf "%s, " "${note_paths[@]}"
+        #exit        
+
+        # Select note path
+        local menu_items=()
+        local tags__		# FIX: display tags too!
+        for path in "${note_paths[@]}"; do
+            tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
+
+            # logic error: some matching entries from NOTES_DB might have no tag so it will return here, if that's the case.
+            #[[ -z "$tags__" ]] && return 1
+
+            # FIX: FILTER BY SELECTED TAG.
+            local tag_array=()
+            IFS=',' read -r -a tag_array <<< "$tags__"
+
+            # Should have tag since do stuff by tag at the beginning
+            for tag in "${tag_array[@]}"; do
+                if [[ "$tag" == "$selected_tag" ]]; then
+                    menu_items+=("$path" "[${tags__}]")
+                    break  # optional: stop after first match
+                fi
+            done
+        done
+
+        # fix for cancel or tag with no notes.
+        [[ -n "$selected_tag" ]] && [[ "${#menu_items}" -eq 0 ]] && {
+                whiptail --msgbox "No matching notes with URLs for tag '${selected_tag}'." 8 60 >/dev/tty
+        }
+
+        # debug
+        #echo menu_items:
+        #printf "%s, " "${menu_items[@]}"
+        #exit
+
+        # Paginate instead!
+        ! paginate_get_notes "Select Note to Dissociate URL" "${menu_items[@]}" && return 1
+        local selected_path
+        selected_path="$SELECTED_ITEM"
+        [[ -z "$selected_path" ]] && return 1
+
+        # Load existing URLs
+        local urls=()
+        local titles=()
+        while IFS= read -r line; do
+            if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                IFS="$RS" read -ra entries <<< "${line#*$GS}"
+                for entry in "${entries[@]}"; do
+                    IFS="$US" read -r url title <<< "$entry"
+                    urls+=("$url")
+                    titles+=("$title")
+                done
+                break
+            fi
+        done < "$URLS_DB"
+
+        # URL removal loop
+        while true; do
+            local menu_options=("Remove URL" "" "Save and return" "")
+            for i in "${!urls[@]}"; do
+                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+            done
+
+            local choice
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+                "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            [[ -z "$choice" ]] && continue
+
+            case "$choice" in
+                "Remove URL")
+                    if [[ ${#urls[@]} -eq 0 ]]; then
+                        whiptail --msgbox "No URLs to remove!" 8 50 >/dev/tty
+                        continue
+                    fi
+
+                    # Create removal submenu
+                    local remove_menu=()
+                    for i in "${!urls[@]}"; do
+                        remove_menu+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                    done
+
+                    local remove_index
+                    remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                        "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
+                    [[ -z "$remove_index" ]] && continue
+
+                    # Validate and remove selected URL
+                    if [[ -v "urls[$remove_index]" ]]; then
+                        unset 'urls[$remove_index]'
+                        unset 'titles[$remove_index]'
+                        urls=("${urls[@]}")  # Reindex array
+                        titles=("${titles[@]}")
+                    else
+                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
+                    fi
+                    ;;
+
+                "Save and return")
+                    # Prepare new entry
+                    local new_entry="${selected_path}${GS}"
+                    for i in "${!urls[@]}"; do
+                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
+                    done
+                    new_entry="${new_entry%$RS}"
+
+                    # Update database
+                    local temp_file=$(mktemp) || return 1
+                    {
+                        # Copy existing entries except current note
+                        while IFS= read -r line; do
+                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
+                        done < "$URLS_DB"
+                        
+                        # Add updated entry if URLs remain
+                        [[ -n "$new_entry" ]] && echo "$new_entry"
+                    } > "$temp_file"
+
+                    mv "$temp_file" "$URLS_DB"
+                    whiptail --msgbox "URL associations updated!" 8 50 >/dev/tty
+                    return 0
+                    ;;
+
+                *)
+                    # Ignore URL index selections
+                    continue
+                    ;;
+            esac
+        done
+    }
+
     get_notes_from_filtered2() {
         # Directly populate lines from arguments
         local lines=("$@")
@@ -9537,7 +9702,8 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-            18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" "Associate note to project" "" \
+            18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
+            "Dissociate URL from note" "" "Associate note to project" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -9583,6 +9749,14 @@ After creating a new note, you can choose to associate it to a project file. Aft
                     continue
                 }                            
                 assoc_url_to_note_by_tag "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Dissociate URL from note")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }
+                dissoc_url_from_note_by_tag "$chosen_tag"                
                 ;;
             "Associate note to project")
                 [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
