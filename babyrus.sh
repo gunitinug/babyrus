@@ -9774,6 +9774,113 @@ do_note_filter_by_tag() {
         echo "${lines[$selected_index]}"
     }
 
+    print_note_from_filtered() {
+        print_note_by_tag() {
+            print_file_from_do_stuff() {
+                # Check if file argument is provided
+                if [ -z "$1" ]; then
+                    return 1
+                fi
+
+                local file_to_print="$1"
+
+                # Check if file exists
+                if [ ! -f "$file_to_print" ]; then
+                    echo "Error: File '$file_to_print' does not exist." >&2
+                    return 1
+                fi
+
+                # Get list of printers
+                local printers
+                printers=$(lpstat -p | awk '/^printer/ && /enabled/ {print $2}')            
+
+                # Edge case: no printers found.
+                [[ -z "$printers" ]] && { whiptail --title "Attention" --msgbox "No printers found." 8 40; return 1; }
+
+                # Convert printer list into whiptail menu format
+                local menu_items=()
+                for p in $printers; do
+                    menu_items+=("$p" "")
+                done
+
+                # Show whiptail menu to select printer
+                local selected_printer
+                selected_printer=$(whiptail --title "Select Printer" \
+                    --menu "Choose a printer:" 20 60 10 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                # Check if user cancelled
+                if [ $? -ne 0 ]; then
+                    return 1
+                fi
+
+                # Print the file
+                if whiptail --title "Print Note" --yesno "Send '$file_to_print' to printer '$selected_printer'?" 12 80; then
+                    lpr -P "$selected_printer" "$file_to_print"
+                    if [ $? -eq 0 ]; then
+                        whiptail --title "Success" --msgbox "File '$file_to_print' sent to printer '$selected_printer'." 12 80
+                    else
+                        whiptail --title "Error" --msgbox "Failed to print '$file_to_print'." 12 80
+                        return 1
+                    fi            
+                else
+                    :  # do nothing if No or Cancel
+                fi
+            }
+
+            local selected_path="$1"       
+            print_file_from_do_stuff "$selected_path"
+        }
+        
+        # Directly populate lines from arguments
+        local lines=("$@")
+
+        if [[ ${#lines[@]} -eq 0 ]]; then
+            whiptail --msgbox "No notes found in database" 20 80
+            echo ""
+            return 1
+        fi
+
+        local options=()
+        for i in "${!lines[@]}"; do
+            local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
+            local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
+
+            # Truncate note path
+            local dir_tr filename_tr note_path_tr
+            dir_tr="$(dirname "$note_path")"
+            dir_tr="$(truncate_dirname "$dir_tr" 50)"
+            filename_tr="$(basename "$note_path")"
+            filename_tr="$(truncate_filename "$filename_tr" 50)"
+            note_path_tr="${dir_tr}/${filename_tr}"
+
+            # Truncate tags
+            local tags_tr
+            tags_tr="$(truncate_tags "$tags")"
+
+            # Menu options (now, truncated)
+            options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+        done
+
+        # Paginate selection
+        CURRENT_PAGE=0
+        SELECTED_ITEM=""
+
+        ! paginate_get_notes "Select note file to print using printer" "${options[@]}" && return 1
+        local selected_line_tag="$SELECTED_ITEM"
+
+        local selected_index=$((selected_line_tag - 1))
+        [[ $selected_index -lt 0 || $selected_index -ge ${#lines[@]} ]] && return 1
+
+        local line___
+        line___="${lines[$selected_index]}"
+
+        local note_path___
+        IFS='|' read -r _ note_path___ _ <<< "$line___"     
+
+        print_note_by_tag "$note_path___"         
+    }    
+
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
 by their associated tag and do stuff with them. You can add a new note with the chosen tag, edit note or open associated ebooks. You can also associate a note to multiple projects.\n\n\
@@ -9805,7 +9912,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
             18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
-            "Dissociate URL from note" "" "Open URL" "" "Associate note to project" "" \
+            "Dissociate URL from note" "" "Open URL" "" "Print note using printer" "" "Associate note to project" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -9875,6 +9982,14 @@ After creating a new note, you can choose to associate it to a project file. Aft
                     continue
                 }                
                 associate_notes_by_tag_to_project "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Print note using printer")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }   
+                print_note_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
         esac
     done
