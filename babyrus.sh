@@ -9628,6 +9628,108 @@ do_note_filter_by_tag() {
         done
     }
 
+    open_url_assoc_to_note_by_tag() {
+        touch "$URLS_DB"
+        
+        #local URLS_DB="$URLS_DB"
+        local GS=$'\x1D'  # separates note path and rest
+        local US=$'\x1F'  # separates url and url title
+        local RS=$'\x1E'  # separates urls            
+
+        # Check if URLs database exists
+        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
+            whiptail --msgbox "No associated URLs found. Associate at least one URL and try again." 8 40 >/dev/tty
+            return 1
+        fi
+
+        local selected_tag="$1"
+
+        while true; do
+            # Extract unique note paths
+            local note_paths=()
+            while IFS= read -r line; do
+                path="${line%%$GS*}"
+                [[ -n "$path" ]] && note_paths+=("$path")
+            done < <(awk -F"$GS" '!seen[$1]++' "$URLS_DB")
+
+            if [[ ${#note_paths[@]} -eq 0 ]]; then
+                whiptail --msgbox "No notes with URLs found!" 8 50 >/dev/tty
+                return 1
+            fi
+
+            # Select note path
+            local menu_items=("<< Return" "")
+            local tags__		# FIX: display tags too!
+            for path in "${note_paths[@]}"; do
+                tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
+
+                # FIX: FILTER BY SELECTED TAG.
+                local tag_array=()
+                IFS=',' read -r -a tag_array <<< "$tags__"
+
+                # Should have tag since do stuff by tag at the beginning
+                for tag in "${tag_array[@]}"; do
+                    if [[ "$tag" == "$selected_tag" ]]; then
+                        menu_items+=("$path" "[${tags__}]")
+                        break  # optional: stop after first match
+                    fi
+                done
+            done
+
+            # Paginate instead!
+            ! paginate_get_notes "Select Note to Open URL" "${menu_items[@]}" && return 1
+            local selected_path
+            selected_path="$SELECTED_ITEM"
+            [[ -z "$selected_path" ]] && return 1
+            
+            # Handle return option
+            if [[ "$selected_path" == "<< Return" ]]; then
+                return 0
+            fi
+
+            # Extract URLs for selected note
+            local urls=()
+            local titles=()
+            while IFS= read -r line; do
+                # Only for the matched line...
+                if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
+                    for entry in "${entries[@]}"; do
+                        IFS="$US" read -r url title <<< "$entry"
+                        urls+=("$url")
+                        titles+=("$title")
+                    done
+                    break
+                fi
+            done < "$URLS_DB"
+
+            if [[ ${#urls[@]} -eq 0 ]]; then
+                whiptail --msgbox "No URLs found for selected note!" 8 50 >/dev/tty
+                continue
+            fi
+
+            # URL selection loop
+            while true; do
+                local url_menu_items=("<< Back" "")
+                for i in "${!urls[@]}"; do
+                    url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                done
+
+                local choice
+                choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+                    20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                [[ -z "$choice" ]] && break
+
+                if [[ "$choice" == "<< Back" ]]; then
+                    break
+                elif [[ -n "${urls[$choice]}" ]]; then
+                    #eval "$URL_BROWSER" "'${urls[$choice]}'" >/dev/null 2>&1 &
+                    nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
+                fi
+            done
+        done
+    }    
+
     get_notes_from_filtered2() {
         # Directly populate lines from arguments
         local lines=("$@")
@@ -9703,7 +9805,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
             18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
-            "Dissociate URL from note" "" "Associate note to project" "" \
+            "Dissociate URL from note" "" "Open URL" "" "Associate note to project" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -9757,6 +9859,14 @@ After creating a new note, you can choose to associate it to a project file. Aft
                     continue
                 }
                 dissoc_url_from_note_by_tag "$chosen_tag"                
+                ;;
+            "Open URL")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }
+                open_url_assoc_to_note_by_tag "$chosen_tag"            
                 ;;
             "Associate note to project")
                 [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
