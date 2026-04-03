@@ -10905,7 +10905,7 @@ dissoc_url_from_note() {
                     whiptail --msgbox "There are no notes with no associated tag found." 8 60 >/dev/tty
                     ;;
                 *)
-                    whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
+                    whiptail --msgbox "No matching notes with URLs for tag '${selected_tag}'." 8 60 >/dev/tty
                     ;;
             esac
             #whiptail --msgbox "No matching notes for tag '${selected_tag}'." 8 60 >/dev/tty
@@ -11465,23 +11465,73 @@ add_note_tag_main() {
     return 1
 }
 
+lookup_note_tags() {
+    local search matches status
+    local db_file="$NOTES_TAGS_DB"
+
+    while :; do
+        search=$(
+            whiptail \
+                --title "Lookup note tags" \
+                --inputbox "Enter search string (literal substring match):" 10 60 \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        [[ -z "$search" ]] && whiptail --title "Alert" --msgbox "Enter non-empty search string!" 10 60 || break
+    done
+
+    matches=$(grep -iF -- "$search" "$db_file" 2>/dev/null)
+    status=$?
+
+    # If status is 2 or higher, something actually went wrong.
+    if [ $status -ge 2 ]; then
+        whiptail --title "Alert" --msgbox "Something went wrong!" 10 60
+        return 1
+    fi
+
+    if [ -z "$matches" ]; then
+        whiptail --title "Matched tags" --msgbox "No matching tags found." 10 60
+        return 1
+    fi
+
+    local -a matches_arr=()
+    mapfile -t matches_arr <<< "$matches"
+
+    local -a menu_items=()
+    for tag in "${matches_arr[@]}"; do
+        menu_items+=("$tag" "")
+    done
+
+    local choice
+    while :; do
+        choice=$(whiptail \
+        --cancel-button "Back" \
+        --title "Matched tags" \
+        --menu "We've found these tags:" \
+        28 80 20 \
+        "${menu_items[@]}" \
+        3>&1 1>&2 2>&3) || break
+    done
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 20 50 12 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 23 70 13 \
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Print Note Using Printer" \
             "4" "Open Associated eBook" \
             "5" "Add New Note Tag" \
-            "6" "Do Stuff by Tag" \
-            "7" "Associate URL to Note" \
-            "8" "Dissociate URL from Note" \
-	        "9" "Open URL from Note" \
-            "10" "Open an eBook From Global List" \
-            "11" "Delete Notes" \
-	        "12" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
+            "6" "Lookup Note Tag" \
+            "7" "Do Stuff by Tag" \
+            "8" "Associate URL to Note" \
+            "9" "Dissociate URL from Note" \
+	        "10" "Open URL from Note" \
+            "11" "Open an eBook From Global List" \
+            "12" "Delete Notes" \
+	        "13" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -11494,13 +11544,14 @@ manage_notes() {
             3) print_notes ;;
             4) open_note_ebook_page ;;
             5) add_note_tag_main ;;
-            6) do_note_filter_by_tag ;;
-            7) assoc_url_to_note ;;
-            8) dissoc_url_from_note ;;
-            9) open_url_assoc_to_note ;;
-            10) open_ebook_note_from_global_list ;;
-            11) delete_notes ;;
-    	    12) delete_global_tag_of_notes ;;
+            6) lookup_note_tags ;;
+            7) do_note_filter_by_tag ;;
+            8) assoc_url_to_note ;;
+            9) dissoc_url_from_note ;;
+            10) open_url_assoc_to_note ;;
+            11) open_ebook_note_from_global_list ;;
+            12) delete_notes ;;
+    	    13) delete_global_tag_of_notes ;;
             *) return ;;
         esac
     done
@@ -17556,7 +17607,7 @@ Copyleft © 2025, 2026 Logan Lee — GPLv3." \
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 25 58 8 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
