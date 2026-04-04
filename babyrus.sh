@@ -11477,19 +11477,27 @@ lookup_note_tags() {
                 3>&1 1>&2 2>&3
         ) || return 1
 
-        [[ -z "$search" ]] && whiptail --title "Alert" --msgbox "Enter non-empty search string!" 10 60 || break
+        if [[ -z "$search" ]]; then
+            whiptail --title "Alert" --msgbox "Enter non-empty search string!" 10 60
+            continue
+        fi
+        break
     done
 
     matches=$(grep -iF -- "$search" "$db_file" 2>/dev/null)
+    #matches=$(grep -iF -- "" "$db_file" 2>/dev/null) # test pagination!
     status=$?
 
-    # If status is 2 or higher, something actually went wrong.
-    if [ $status -ge 2 ]; then
+    # grep exit status:
+    # 0 = matches found
+    # 1 = no matches
+    # 2+ = actual error
+    if (( status >= 2 )); then
         whiptail --title "Alert" --msgbox "Something went wrong!" 10 60
         return 1
     fi
 
-    if [ -z "$matches" ]; then
+    if [[ -z "$matches" ]]; then
         whiptail --title "Matched tags" --msgbox "No matching tags found." 10 60
         return 1
     fi
@@ -11497,20 +11505,56 @@ lookup_note_tags() {
     local -a matches_arr=()
     mapfile -t matches_arr <<< "$matches"
 
-    local -a menu_items=()
-    for tag in "${matches_arr[@]}"; do
-        menu_items+=("$tag" "")
-    done
-
+    local -i page=0 page_size=25 total=${#matches_arr[@]}
+    local -i total_pages=$(( (total + page_size - 1) / page_size )) # ceil division
+    local -i start end
+    local -a page_items menu_items
     local choice
+
+    local prev_tag="__PREV_PAGE__"
+    local next_tag="__NEXT_PAGE__"
+
     while :; do
-        choice=$(whiptail \
-        --cancel-button "Back" \
-        --title "Matched tags" \
-        --menu "We've found these tags:" \
-        28 80 20 \
-        "${menu_items[@]}" \
-        3>&1 1>&2 2>&3) || break
+        start=$((page * page_size))
+        end=$((start + page_size))
+
+        page_items=("${matches_arr[@]:start:page_size}")
+
+        menu_items=()
+
+        for tag in "${page_items[@]}"; do
+            menu_items+=("$tag" "")
+        done
+
+        if (( page > 0 )); then
+            menu_items+=("$prev_tag" "Previous page")
+        fi
+
+        if (( end < total )); then
+            menu_items+=("$next_tag" "Next page")
+        fi
+
+        choice=$(
+            whiptail \
+                --cancel-button "Back" \
+                --title "Matched tags" \
+                --menu "We've found these tags (page $((page+1))/${total_pages}):" \
+                20 70 10 \
+                "${menu_items[@]}" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        case "$choice" in
+            "$prev_tag")
+                ((page > 0)) && ((page--))
+                ;;
+            "$next_tag")
+                ((end < total)) && ((page++))
+                ;;
+            *)
+                continue
+                ;;
+        esac
     done
 }
 
