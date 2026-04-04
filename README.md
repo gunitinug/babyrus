@@ -54,7 +54,7 @@ Babyrus requires the following dependencies:
 ```bash
 sudo apt install whiptail wmctrl dialog xclip
 ```
-Plus of course your chosen editor (terminal-based), viewers and web browser that you can setup by visiting `Main Menu -> Configure` menu. Also, `wmctrl` and `xclip` only work with X11 not Wayland.
+Plus of course your chosen default editor (terminal-based), viewers and web browser that you can setup by visiting `Main Menu -> Configure` menu. Also, `wmctrl` and `xclip` only work with X11 not Wayland.
 
 BABYRUS will not launch if any program defined in `Set Default Apps` is not installed. For default setting here is the command to install them:
 ```bash
