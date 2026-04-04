@@ -8075,7 +8075,7 @@ list_notes() {
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=27  # 25 notes plux NO TAG and ANY TAG
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
@@ -8261,7 +8261,7 @@ get_notes() {
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=26  # ANY TAG plus 25 note files
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
@@ -8657,7 +8657,7 @@ get_note_tag_from_global_list() {
 
     # Pagination variables
     local current_page=0
-    local tags_per_page=20
+    local tags_per_page=25
     local total_pages=$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page ))
 
     while true; do
@@ -10367,7 +10367,7 @@ delete_global_tag_of_notes() {
     # Read all tags into an array
     mapfile -t all_tags < "$NOTES_TAGS_DB"
     local current_page=0
-    local tags_per_page=20
+    local tags_per_page=25
 
     while true; do
         # Calculate start and end indices for current page
@@ -10473,7 +10473,7 @@ mkdir -p "$(pwd)/urls"
 assoc_url_to_note() {
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=27  # NO TAG, ANY TAG, plus 25 note files
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
@@ -10778,7 +10778,7 @@ dissoc_url_from_note() {
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=27  # NO TAG, ANY TAG, plus 25 note files
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
@@ -11017,7 +11017,7 @@ open_url_assoc_to_note() {
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=27  # ANY TAG, NO TAG, plus 25 note files
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
@@ -11197,7 +11197,7 @@ print_notes() {
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu_for_print() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
-        local PAGE_SIZE=10
+        local PAGE_SIZE=26  # ANY TAG plus 25 note files
         local page=0
         local total_items=$(( ${#TAG_OPTIONS__[@]} / 2 ))
         local total_pages=$(( (total_items + PAGE_SIZE - 1) / PAGE_SIZE ))
