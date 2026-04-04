@@ -56,6 +56,12 @@ sudo apt install whiptail wmctrl dialog xclip
 ```
 Plus of course your chosen editor (terminal-based), viewers and web browser that you can setup by visiting `Main Menu -> Configure` menu. Also, `xclip` only works with X11 not Wayland.
 
+BABYRUS will not launch if any program defined in `Set Default Apps` is not installed. For default setting here is the command to install them:
+```bash
+sudo apt install gnome-text-editor zathura okular nano
+```
+Plus, the default browser is set as `google-chrome` so download and install it from official google chrome website.
+
 ### Installation
 
 Clone the repository and make the script executable:
