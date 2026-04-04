@@ -17624,9 +17624,9 @@ During the restoration process, existing database files will be overwritten with
 ################################
 # Main Menu
 ################################
-msg1="'Labor of love and hope"
-msg2="in our Lord Jesus Christ.'"
-msg3="1 Thessalonians 1:3"
+msg1="'Be strong and courageous. Do not be afraid;"
+msg2="do not be discouraged, for the Lord your God will"
+msg3="be with you wherever you go.' Joshua 1:9"
 padding1=$(( (53 - ${#msg1}) / 2 ))
 padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
 padding2=$(( (55 - ${#msg2}) / 2 ))
