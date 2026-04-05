@@ -62,6 +62,8 @@ sudo apt install gnome-text-editor zathura okular nano
 ```
 Plus, the default browser is set as `google-chrome` so download and install it from official google chrome website.
 
+You can then change your default apps from `Main Menu -> Configure`.
+
 ### Installation
 
 Clone the repository and make the script executable:
