@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99www'
+BABYRUS_VERSION='v.0.99x'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -35,6 +35,18 @@ PROJECTS_DB_SHORTLISTED="${PROJECTS_METADATA_PATH}/projects.db.shortlisted"
 PROJECTS_DB_SHORTLISTED_HISTORY="${PROJECTS_METADATA_PATH}/projects.db.shortlisted.history"
 URLS_PATH="${BABYRUS_PATH}/urls"
 URLS_DB="${URLS_PATH}/urls.db"
+
+# Try to maximize the current terminal window
+if ! wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz &> /dev/null; then
+    echo "If menu is broken please manually maximise terminal window before running this program." >&2
+fi
+
+# Allow a brief pause for the window manager to update the window size
+sleep 0.5
+
+#+++ FIRST RUN +++#
+FIRST_RUN=0
+#+++ FIRST RUN END +++#
 
 enforce_touch_files() (
   # run in a subshell so set -euo pipefail won't persist outside the function
@@ -86,19 +98,107 @@ URL_BROWSER="google-chrome"
 
 # ADD COMMANDS FOR VIEWERS.
 declare -A VIEWER_COMMANDS=(
+    # Txt editors
+    ["gnome-text-editor"]="gnome-text-editor"
+    ["gedit"]="gedit"
+    ["kate"]="kate"
+    ["mousepad"]="mousepad"
+    ["featherpad"]="featherpad"
+    ["xed"]="xed"
+    ["geany"]="geany"
+    ["code"]="code"    
+
     # PDF viewers
     ["evince"]="evince -p"
     ["okular"]="okular -p"
     ["zathura"]="zathura -P"
-    ["mupdf"]="mupdf"
+    ["mupdf"]="mupdf -p"
     ["qpdfview"]="qpdfview"
 
     # EPUB/MOBI/AZW3 viewers
-    ["calibre"]="ebook-viewer --open-at"    
+    ["calibre"]="ebook-viewer --open-at"   
+    ["foliate"]="foliate --chapter"
+    ["bookworm"]="bookworm"
+    ["thorium-reader"]="thorium"
+
+    # Default editor (terminal-based)
+    ["nano"]="nano"
+    ["vim"]="vim"
+    ["nvim"]="nvim"
+    ["emacs"]="emacs -nw"
+    ["micro"]="micro"
+    ["helix"]="helix"    
+
+    # URL browsers
+    ["firefox"]="firefox"
+    ["chromium"]="chromium"
+    ["google-chrome"]="google-chrome"
+    ["brave-browser"]="brave-browser"
+    ["vivaldi"]="vivaldi"
+    ["opera"]="opera"
+    ["qutebrowser"]="qutebrowser"
+    ["lynx"]="lynx"
+    ["w3m"]="w3m"    
+)
+
+# List of common linux apps for extension.
+declare -A AVAILABLE_CMDS=(
+  ["txt"]="gnome-text-editor gedit kate mousepad featherpad xed geany code"
+  ["pdf"]="evince okular zathura atril xpdf mupdf firefox"
+  ["epub"]="calibre foliate okular bookworm thorium-reader"
+  ["mobi"]="calibre okular"
+  ["azw3"]="calibre okular"
+  ["DEFAULT_EDITOR"]="nano vim nvim emacs micro helix"
+  ["URL_BROWSER"]="firefox chromium google-chrome brave-browser vivaldi opera qutebrowser lynx w3m"
 )
 
 # Function to edit configuration using whiptail
 edit_configuration() {
+    avail_cmds_menu() {
+        local chosen_ext="$1"
+        local current_val="$2"
+        local -a menu_items
+        local app
+
+        # Convert string to array
+        read -ra apps <<< "${AVAILABLE_CMDS[$chosen_ext]}"
+
+        # Build whiptail menu arguments
+        for app in "${apps[@]}"; do
+            menu_items+=("$app" "")
+        done
+
+        local chosen_cmd
+        chosen_cmd=$(whiptail --title "Select Command" \
+            --default-item "$current_val" \
+            --menu "Choose application for $chosen_ext" \
+            20 70 10 \
+            "${menu_items[@]}" \
+            3>&1 1>&2 2>&3) || return 1
+
+        ! command -v "$chosen_cmd" &>/dev/null && {
+           whiptail --msgbox "Command not found: ${chosen_cmd}. Install it first!" 8 50 >/dev/tty
+            return 1
+        }
+
+        printf '%s\n' "$chosen_cmd"
+    }
+
+    toggle_first_run() {
+        local source_file="${BABYRUS_PATH}/babyrus.sh"        
+
+        sed -i \
+            '/^#+++ FIRST RUN +++#$/,/^#+++ FIRST RUN END +++#$/ s/^FIRST_RUN=0$/FIRST_RUN=1/' \
+            "$source_file"
+    }    
+
+    [[ $FIRST_RUN -eq 0 ]] && {
+        whiptail --title "First run" --msgbox \
+"This is the first time you are running BABYRUS.
+
+In the next screen, choose the default apps." 11 60 >/dev/tty
+    }
+
     local config_file="${BABYRUS_PATH}/babyrus.sh"
     local backup_file="${config_file}.bak"
     local temp_file=$(mktemp)
@@ -140,6 +240,8 @@ edit_configuration() {
             done
             DEFAULT_EDITOR="$BACKUP_DE"            
             URL_BROWSER="$BACKUP_UB"
+
+            [[ $FIRST_RUN -eq 0 ]] && exit
             return 1
         }
 
@@ -148,17 +250,14 @@ edit_configuration() {
         case "$choice" in
             DEFAULT_EDITOR|URL_BROWSER)
                 current_value="${!choice}"
-                new_value=$(whiptail --inputbox "Enter new value for ${choice}:" \
-                    10 60 "${current_value}" 3>&1 1>&2 2>&3)
-                [[ $? -eq 0 ]] && [[ -n "$new_value" ]] && declare "${choice}=${new_value}"
+                new_value="$(avail_cmds_menu "$choice" "$current_value")" && [[ -n "$new_value" ]] && declare "${choice}=${new_value}"
                 ;;
             "Save")
                 break
                 ;;
             *)
                 current_value="${EXTENSION_COMMANDS[$choice]}"
-                new_value=$(whiptail --inputbox "Enter new command for .${choice}:" \
-                    10 60 "${current_value}" 3>&1 1>&2 2>&3)
+                new_value="$(avail_cmds_menu "$choice" "$current_value")"
 
                 local s_=$?
 
@@ -168,7 +267,7 @@ edit_configuration() {
 
                 if [[ ! -v VIEWER_COMMANDS[$new_value] ]]; then
                     whiptail --title "Alert" \
-                            --msgbox "${new_value} command is currently unregistered." 8 50
+                            --msgbox "${new_value} command is currently unregistered." 8 50 >/dev/tty
                     continue
                 fi
 
@@ -184,7 +283,9 @@ edit_configuration() {
             EXTENSION_COMMANDS["$key"]="${BACKUP_EC[$key]}"
         done
         DEFAULT_EDITOR="$BACKUP_DE"            
-        URL_BROWSER="$BACKUP_UB"        
+        URL_BROWSER="$BACKUP_UB"       
+
+        [[ $FIRST_RUN -eq 0 ]] && exit 
         return 1
     }
 
@@ -236,7 +337,11 @@ URL_BROWSER=\"${URL_BROWSER}\"
     mv "$temp_file" "$config_file"
     chmod +x "$config_file"	# make babyrus.sh executable again.
     whiptail --title "Info" --msgbox "Settings saved. Restart BABYRUS to take effect." 8 40
+    toggle_first_run
 }
+
+# Run edit conf if it's the first time BABYRUS is run.
+[[ $FIRST_RUN -eq 0 ]] && edit_configuration
 
 # Create notes directories if not created
 mkdir -p "${NOTES_METADATA_PATH}"
@@ -296,13 +401,7 @@ for cmd in whiptail wmctrl dialog xclip; do
     fi
 done
 
-# Try to maximize the current terminal window
-if ! wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz &> /dev/null; then
-    echo "If menu is broken please manually maximise terminal window before running this program." >&2
-fi
-
-# Allow a brief pause for the window manager to update the window size
-sleep 0.5
+# old location for wmctrl resize terminal window.
 
 # Database files
 #EBOOKS_DB="ebooks.db"  # Format: "path|tag1,tag2,..."
@@ -7826,7 +7925,8 @@ add_note() {
             "Save and Edit")
                 save_note || return 1
                 #nano "$note_path"
-		"$DEFAULT_EDITOR" "$note_path"
+		        #"$DEFAULT_EDITOR" "$note_path"
+                eval "${VIEWER_COMMANDS[$DEFAULT_EDITOR]}" "$note_path"
                 break
                 ;;
             "Save and Return")
@@ -7983,7 +8083,8 @@ edit_note() {
             "Save and Edit")
                 if update_note_in_db; then
                     #nano "$note_path"
-		    "$DEFAULT_EDITOR" "$note_path"
+		            #"$DEFAULT_EDITOR" "$note_path"
+                    eval "${VIEWER_COMMANDS[$DEFAULT_EDITOR]}" "$note_path"
                     break
                 fi
                 ;;
