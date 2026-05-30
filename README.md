@@ -30,7 +30,7 @@ Babyrus is under active development. For the most stable and feature-rich experi
 ## Getting Started
 
 ### First run ###
-When you first run BABYRUS, you will be prompted to set default apps. This is so that the program will run the next time you run BABYRUS. Set default apps per extension then quit and restart the program. Next time BABYRUS is run, you will be shown the main menu.
+When you first run BABYRUS, you will be prompted to set default apps. This is so that the program will run normally the next time you run BABYRUS. Set default apps per extension then quit and restart the program. Next time BABYRUS is run, you will be shown the main menu.
 
 ### 🔍 Searching in Babyrus
 
