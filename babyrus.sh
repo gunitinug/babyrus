@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99x'
+BABYRUS_VERSION='v.0.99xx'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -45,7 +45,7 @@ fi
 sleep 0.5
 
 #+++ FIRST RUN +++#
-FIRST_RUN=0
+FIRST_RUN=1
 #+++ FIRST RUN END +++#
 
 enforce_touch_files() (
@@ -9980,7 +9980,240 @@ do_note_filter_by_tag() {
         IFS='|' read -r _ note_path___ _ <<< "$line___"     
 
         print_note_by_tag "$note_path___"         
-    }    
+    }
+
+    add_tag_to_notes_from_filtered() {
+        whiptail --title "Attention" --msgbox \
+"Step 1: Select tag to add.
+Step 2: Select multiple notes to add the tag to.
+
+Tag you have chosen will be added to the selected notes." 10 60
+        local notes_db="${NOTES_DB:-}"
+        local tags_db="${NOTES_TAGS_DB:-}"
+        local page_size="${PAGE_SIZE:-8}"
+
+        if [[ -z $notes_db || ! -r $notes_db || ! -w $notes_db ]]; then
+            printf 'ERROR: NOTES_DB must be set and writable: %s\n' "${notes_db:-<unset>}" >&2
+            return 1
+        fi
+
+        if [[ -z $tags_db || ! -r $tags_db ]]; then
+            printf 'ERROR: NOTES_TAGS_DB must be set and readable: %s\n' "${tags_db:-<unset>}" >&2
+            return 1
+        fi
+
+        if ! command -v whiptail >/dev/null 2>&1; then
+            printf 'ERROR: whiptail is not installed.\n' >&2
+            return 1
+        fi
+
+        if [[ $# -eq 0 ]]; then
+            printf 'ERROR: pass filtered note lines as arguments.\n' >&2
+            return 1
+        fi
+
+        local -a all_notes=("$@")
+        local total="${#all_notes[@]}"
+
+        (( total == 0 )) && {
+            whiptail --msgbox "No filtered notes found. Add a note and try again." 8 50
+            return 1
+        }
+
+        local page_count=$(( (total + page_size - 1) / page_size ))
+
+        local tmp_sel=""
+        local tmp_db=""
+        trap 'rm -f -- "$tmp_sel" "$tmp_db"' RETURN
+
+        local -a tag_menu=()
+        local tag
+        while IFS= read -r tag || [[ -n $tag ]]; do
+            [[ -n $tag ]] || continue
+            tag_menu+=("$tag" "")
+        done < "$tags_db"
+
+        if (( ${#tag_menu[@]} == 0 )); then
+            whiptail --msgbox "No note tags found. Add a tag and try again." 8 50
+            return 1
+        fi
+
+        local selected_tag
+        selected_tag=$(
+            whiptail --title "Select tag" \
+                --menu "Choose the tag to add:" \
+                20 70 10 \
+                "${tag_menu[@]}" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        local -A selected_paths=()
+        local page=0
+
+        while :; do
+            local start=$(( page * page_size ))
+            (( start < 0 )) && start=0
+            if (( start >= total )); then
+                page=0
+                start=0
+            fi
+
+            local end=$(( start + page_size ))
+            (( end > total )) && end=$total
+
+            local -a checklist=()
+            local -a note_ids=()
+            local -a note_paths=()
+
+            local i line title path tags rest id label status
+            for ((i=start; i<end; i++)); do
+                line="${all_notes[i]}"
+
+                IFS='|' read -r title path tags rest <<< "$line"
+                id="n_$i"
+
+                note_ids+=("$id")
+                note_paths+=("$path")
+
+                label="$path"
+                if [[ -n $tags ]]; then
+                    label+=" [$tags]"
+                else
+                    label+=" []"
+                fi
+
+                status="OFF"
+                [[ ${selected_paths["$path"]+x} ]] && status="ON"
+
+                checklist+=("$id" "$label" "$status")
+            done
+
+            if (( page > 0 )); then
+                checklist+=("prev_page" "Previous page" "OFF")
+            fi
+            if (( page + 1 < page_count )); then
+                checklist+=("next_page" "Next page" "OFF")
+            fi
+            checklist+=("add_tag" "Add tag to selected notes" "OFF")
+
+            local choice_text=""
+            choice_text=$(
+                whiptail --title "Select notes" \
+                    --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
+                    20 170 10 \
+                    "${checklist[@]}" \
+                    3>&1 1>&2 2>&3
+            ) || return 1
+
+            choice_text=${choice_text//\"/}
+            local -a choices=()
+            read -r -a choices <<< "$choice_text"
+
+            local nav_prev=0 nav_next=0 nav_add=0
+            local item
+            for item in "${choices[@]}"; do
+                case $item in
+                    prev_page) nav_prev=1 ;;
+                    next_page) nav_next=1 ;;
+                    add_tag)   nav_add=1 ;;
+                esac
+            done
+
+            if (( nav_prev && nav_next )); then
+                whiptail --msgbox "Choose only one of prev_page or next_page." 8 60
+                continue
+            fi
+
+            if (( nav_add && (nav_prev || nav_next) )); then
+                whiptail --msgbox "add_tag cannot be selected together with prev_page or next_page." 8 70
+                continue
+            fi
+
+            # Commit the current page note selections into the persistent set.
+            for ((i=0; i<${#note_ids[@]}; i++)); do
+                if [[ " ${choices[*]} " == *" ${note_ids[i]} "* ]]; then
+                    selected_paths["${note_paths[i]}"]=1
+                else
+                    unset "selected_paths[${note_paths[i]}]"
+                fi
+            done
+
+            if (( nav_prev )); then
+                (( page > 0 )) && ((page--))
+                continue
+            fi
+
+            if (( nav_next )); then
+                (( page + 1 < page_count )) && ((page++))
+                continue
+            fi
+
+            if (( nav_add )); then
+                local selected_count="${#selected_paths[@]}"
+                if (( selected_count == 0 )); then
+                    #whiptail --msgbox "No notes selected yet." 8 45
+                    continue
+                fi
+
+                if ! whiptail --title "Confirm" \
+                    --yesno "Add tag \"$selected_tag\" to $selected_count selected note(s)?" \
+                    10 70; then
+                    continue
+                fi
+
+                tmp_sel=$(mktemp "${TMPDIR:-/tmp}/notes_sel.XXXXXX") || return 1
+                tmp_db=$(mktemp "${notes_db}.XXXXXX") || { rm -f -- "$tmp_sel"; return 1; }
+
+                {
+                    local p
+                    for p in "${!selected_paths[@]}"; do
+                        printf '%s\n' "$p"
+                    done
+                } > "$tmp_sel"
+
+                awk -F'|' -v OFS='|' -v tag="$selected_tag" -v selfile="$tmp_sel" '
+                    BEGIN {
+                        while ((getline p < selfile) > 0) sel[p] = 1
+                        close(selfile)
+                    }
+
+                    function has_tag(tags, tag,   n, a, i) {
+                        if (tags == "") return 0
+                        n = split(tags, a, /,/)
+                        for (i = 1; i <= n; i++) {
+                            if (a[i] == tag) return 1
+                        }
+                        return 0
+                    }
+
+                    function append_tag(tags, tag,   n, a, i, out) {
+                        if (tags == "") return tag
+                        n = split(tags, a, /,/)
+                        out = ""
+                        for (i = 1; i <= n; i++) {
+                            if (a[i] == "" || a[i] == tag) continue
+                            out = (out == "" ? a[i] : out "," a[i])
+                        }
+                        return (out == "" ? tag : out "," tag)
+                    }
+
+                    {
+                        if (sel[$2] && !has_tag($3, tag)) {
+                            $3 = append_tag($3, tag)
+                        }
+                        print
+                    }
+                ' "$notes_db" > "$tmp_db" || { rm -f -- "$tmp_sel" "$tmp_db"; return 1; }
+
+                mv -- "$tmp_db" "$notes_db" || { rm -f -- "$tmp_sel" "$tmp_db"; return 1; }
+                rm -f -- "$tmp_sel"
+                tmp_sel=""
+
+                whiptail --msgbox "Tag \"$selected_tag\" added to selected notes." 8 60
+                return 0
+            fi
+        done
+    }        
 
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
@@ -10012,8 +10245,8 @@ After creating a new note, you can choose to associate it to a project file. Aft
 
         local choice
         choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "Select action:" \
-            18 70 9 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
-            "Dissociate URL from note" "" "Open URL" "" "Print note using printer" "" "Associate note to project" "" \
+            18 70 10 "Add note with same tag" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
+            "Dissociate URL from note" "" "Open URL" "" "Print note using printer" "" "Associate note to project" "" "Add another tag to notes" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
         case "$choice" in
@@ -10091,6 +10324,14 @@ After creating a new note, you can choose to associate it to a project file. Aft
                     continue
                 }   
                 print_note_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
+                ;;
+            "Add another tag to notes")
+                [[ ${#FILTERED_NOTES_BY_TAG[@]} -eq 0 ]] && {
+                    whiptail --title "Attention" --msgbox \
+                        "No notes found. Create at least one note file and try again." 10 60
+                    continue
+                }                
+                add_tag_to_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"                
                 ;;
         esac
     done
@@ -17725,9 +17966,9 @@ During the restoration process, existing database files will be overwritten with
 ################################
 # Main Menu
 ################################
-msg1="'Be strong and courageous. Do not be afraid;"
-msg2="do not be discouraged, for the Lord your God will"
-msg3="be with you wherever you go.' Joshua 1:9"
+msg1="'For you formed my inward parts; you knitted me"
+msg2="together in my mother's womb. I praise you,"
+msg3="for I am fearfully and wonderfully made.'"
 padding1=$(( (53 - ${#msg1}) / 2 ))
 padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
 padding2=$(( (55 - ${#msg2}) / 2 ))
