@@ -45,7 +45,7 @@ fi
 sleep 0.5
 
 #+++ FIRST RUN +++#
-FIRST_RUN=0
+FIRST_RUN=1
 #+++ FIRST RUN END +++#
 
 enforce_touch_files() (
@@ -337,7 +337,10 @@ URL_BROWSER=\"${URL_BROWSER}\"
     mv "$temp_file" "$config_file"
     chmod +x "$config_file"	# make babyrus.sh executable again.
     whiptail --title "Info" --msgbox "Settings saved. Restart BABYRUS to take effect." 8 40
+
+    local first_quit=$FIRST_RUN
     toggle_first_run
+    (( first_quit == 0 )) && exit   # if first run and saved config, exit babyrus.
 }
 
 # Run edit conf if it's the first time BABYRUS is run.
