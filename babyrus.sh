@@ -45,7 +45,7 @@ fi
 sleep 0.5
 
 #+++ FIRST RUN +++#
-FIRST_RUN=0
+FIRST_RUN=1
 #+++ FIRST RUN END +++#
 
 enforce_touch_files() (
@@ -9993,7 +9993,7 @@ Step 2: Select multiple notes to add the tag to.
 Tag you have chosen will be added to the selected notes." 10 60
         local notes_db="${NOTES_DB:-}"
         local tags_db="${NOTES_TAGS_DB:-}"
-        local page_size="${PAGE_SIZE:-8}"
+        local page_size="${PAGE_SIZE:-20}"
 
         if [[ -z $notes_db || ! -r $notes_db || ! -w $notes_db ]]; then
             printf 'ERROR: NOTES_DB must be set and writable: %s\n' "${notes_db:-<unset>}" >&2
