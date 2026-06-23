@@ -45,7 +45,7 @@ fi
 sleep 0.5
 
 #+++ FIRST RUN +++#
-FIRST_RUN=1
+FIRST_RUN=0
 #+++ FIRST RUN END +++#
 
 enforce_touch_files() (
