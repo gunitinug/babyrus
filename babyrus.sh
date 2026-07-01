@@ -45,7 +45,7 @@ fi
 sleep 0.5
 
 #+++ FIRST RUN +++#
-FIRST_RUN=0
+FIRST_RUN=1
 #+++ FIRST RUN END +++#
 
 enforce_touch_files() (
@@ -17210,282 +17210,91 @@ show_help() {
         case $CHOICE in
             1)
                 whiptail --scrolltext --title "Manage eBooks" --cancel-button "Back" --msgbox "\
-MANAGE EBOOKS / FILE MANAGEMENT / REGISTER FILE(S)
-==================================================
+The Manage eBooks section allows you to manage ebook files stored on your file system. It works by registering ebook files in a database so they can be easily searched, opened, and read later.
 
-ADD FILES IN BULK:
-  - Register many files at once.
-  - Steps:
-    1. Select a root directory (recursive).
-    2. Enter a search string to filter files by name.
-    3. All matching files are added to the ebooks database.
-  * Best for: Quickly registering a large set of files.
+Adding eBooks:
 
-REGISTER EBOOK:
-  - Register a single ebook file.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Select a root directory (recursive).
-    3. Choose a file from the matching list.
-  * Best for: Finding and registering one specific file.
+You can add files to the database in several ways:
 
-REGISTER EBOOKS FROM CHECKLIST:
-  - Manually browse and select multiple files.
-  - Steps:
-    1. Open the checklist view.
-    2. Traverse directories.
-    3. Mark the files to register.
-    4. Also mark '__add__' to confirm.
-  * Best for: Picking files manually without search.
+You may add a single file by first entering a glob pattern, selecting a directory, and then choosing the specific file you want to register.
 
-MANAGE EBOOKS / FILE MANAGEMENT / DEREGISTER FILE(S)
-====================================================
+For bulk addition, select a root directory and provide a glob pattern to filter files. After confirming, all files within the selected directory that match the pattern will be added to the database.
 
-REMOVE REGISTERED EBOOK:
-  - Deregister a single ebook file.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Choose a file from the matching list.
-    3. Confirm to deregister.
-  * Best for: Removing one specific ebook from the database.
+Alternatively, you can use a multi-select checklist. Navigate to a directory, select multiple files from the list, and then confirm to add them all at once.
 
-REMOVE EBOOKS FROM CHECKLIST:
-  - Deregister multiple files using a checklist.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Wait for the checklist to appear.
-    3. Select the files you want removed.
-    4. Select '__proceed__' at the same time to confirm removal.
-  * Best for: Removing multiple files manually.
+Removing eBooks
 
-REMOVE FILES IN BULK:
-  - Deregister multiple files at once.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Enter a search string to filter by tag name.
-    3. Matching files are selected for bulk removal.
-    4. Confirm removal.
-  * Best for: Quickly deregistering many files matching criteria.
+There are also multiple ways to remove registered files from the database:
 
-REMOVE FILES BY FILEPATH:
-  - Deregister all files under a selected path (non-recursive).
-  - Files with tags will NOT be removed.
-  - Steps:
-    1. Select a path from the menu.
-    2. Confirm removal.
-  * Best for: Removing all files in a specific directory without touching subdirectories.
+To remove a single file, first apply a glob filter, then select the file you want to remove and confirm the action.
 
-REMOVE FILES BY FILEPATH RECURSIVELY:
-  - Deregister all files under a selected path, including subdirectories.
-  - Files with tags will NOT be removed.
-  - Steps:
-    1. Select a path from the menu.
-    2. Confirm removal.
-  * Best for: Removing all files in a directory tree except those with tags.
+For bulk removal, you can combine a glob filter with an optional tag filter (using an exact match). After reviewing the matched results, confirm to remove them from the database.
 
-MANAGE EBOOKS / TAG MANAGEMENT / REGISTER TAG
-=============================================
+You can also use a checklist-based removal. Enter a glob pattern, select multiple files from a directory listing, and confirm removal.
 
-REGISTER TAG:
-  - Create a new tag to associate with ebook(s).
-  - Steps:
-    1. Enter a name for the new tag when prompted.
-  * Best for: Setting up a new tag to organize ebooks.
+In addition, you can remove all matched files under a specific directory. Simply choose the directory and confirm to delete all registered entries within that path. There is also an option to perform this removal recursively, affecting all subdirectories as well.
 
-MANAGE EBOOKS / TAG MANAGEMENT / ASSOCIATE TAG
-==============================================
+Associating Tags:
 
-ASSOCIATE TAG WITH EBOOK:
-  - Associate a tag with a single registered ebook.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Choose a file from the matching list.
-    3. Choose a tag from the list of registered tags.
-    4. The chosen tag is associated with the selected file.
-  * Best for: Adding a tag to one specific ebook.
+You can organise registered files using tags. Before doing so, you must first create at least one tag. Once tags are available, you can assign them to ebooks in several ways.
 
-ASSOCIATE TAG FROM CHECKLIST:
-  - Associate a tag with multiple files using a checklist.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Enter a search string to filter by file name.
-    3. Select files from the checklist.
-    4. Also select '__proceed__' to confirm.
-  * Best for: Tagging many files manually in one go.
+To tag a single file, enter a glob pattern to filter the registered files, select the desired file, choose a tag from the list, and confirm. The selected tag will then be associated with that file.
 
-ASSOCIATE TAG TO BULK:
-  - Associate a tag with a large number of files automatically.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Enter a search string to filter by file name.
-    3. Enter a search string to filter by tag name.
-    4. Review the candidate files in the message box.
-    5. Confirm to apply the tag to all listed files.
-  * Best for: Quickly tagging many files that meet specific criteria.
+You can also assign a tag to multiple files in bulk. To do this, select a tag, provide a glob pattern to filter the files, optionally apply a tag filter (literal match), and confirm. The tag will be applied to all matching files.
 
-ASSOCIATE TAG BY FILEPATH:
-  - Associate a tag with every file under a chosen directory.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Select a directory where registered files are located.
-    3. Confirm to associate the tag with every file in that directory.
-  * Best for: Applying a tag across all files in a directory.
+Alternatively, you can use a checklist to select multiple files manually. First, choose a tag, filter files using a glob pattern, select the desired files from the checklist, and confirm to apply the tag to all selected items.
 
-MANAGE EBOOKS / TAG MANAGEMENT / DISSOCIATE TAG
-===============================================
+Finally, you can tag all files within a specific directory. Select a tag, choose a directory from the list, and confirm. The selected tag will be applied to every registered file in that directory.
 
-DISSOCIATE TAG FROM REGISTERED EBOOK:
-  - Remove a tag from a single registered ebook.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Choose a file from the matching list.
-    3. Choose a tag from the file's associated tags.
-    4. Confirm to dissociate.
-  * Best for: Removing one tag from one ebook.
+Dissociating Tags:
 
-DISSOCIATE TAG FROM CHECKLIST:
-  - Remove a tag from multiple files using a checklist.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Babyrus shows all matching files in a checklist.
-    3. Select the files you want to dissociate the tag from.
-    4. Also select '__proceed__' to confirm.
-  * Best for: Manually dissociating a tag from many files.
+Conversely, you can dissociate a tag from registered files in several ways.
 
-DISSOCIATE TAG FROM BULK:
-  - Remove a tag from many files automatically.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Enter a search string to filter by file name.
-    3. Enter a search string to filter by tag name.
-    4. Review candidate files shown in the message box.
-    5. Confirm to remove the tag from all candidate files.
-  * Best for: Quickly clearing a tag from many files at once.
+To remove a tag from a single file, enter a glob pattern to filter the registered files, select a file from the list, choose the tag to remove, and confirm.
 
-DISSOCIATE TAG BY FILEPATH:
-  - Remove a tag from all files under a specific directory.
-  - Steps:
-    1. Choose a tag from the list of registered tags.
-    2. Select a directory where registered files are located.
-    3. Review the candidate files shown.
-    4. Confirm to remove the tag from those files.
-  * Best for: Removing a tag across all files in a directory.
+You can also dissociate a tag from multiple files in bulk. First, select the tag to remove, enter a glob pattern to filter the files, then optionally enter a literal tag filter to limit the operation to files that already have specific associated tags. Finally, confirm to remove the selected tag from all matching files.
 
-MANAGE EBOOKS / TAG MANAGEMENT / DELETE TAG
-===========================================
+Alternatively, you can remove a tag from multiple files using a checklist. Select the tag to remove, choose the files from the checklist, proceed with the operation, and confirm.
 
-DELETE TAG FROM GLOBAL LIST:
-  - Remove a tag completely from the tags database.
-  - Steps:
-    1. Babyrus shows all registered tags.
-    2. Choose the tag you want to delete.
-    3. If the tag is still associated with files, Babyrus will
-       prompt you to dissociate it from those files first.
-  * Best for: Cleaning up unused tags from the global list.
+For convenience, you can also remove a tag from every registered file within a specified file path. Simply select the tag, choose the file path, and confirm.
 
-MANAGE EBOOKS / SEARCH & LOOKUP / LOOKUP FILES
-==============================================
+Finally, you can delete a tag from the global tag list. A tag can only be deleted if it is no longer associated with any registered files. If the tag is still associated with one or more files, you must first dissociate it from all of those files before it can be deleted.
 
-LOOKUP REGISTERED FILES:
-  - Look up registered files by file name and tag.
-  - Info available: full file name, directory, tags, size, mime type.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Enter a search string to filter by tag name.
-    3. Babyrus shows a list of matching files.
-    4. Select a file to see full details.
-    5. The menu stays open until you select 'Back'.
-  * Best for: Inspecting detailed info for files matching certain criteria.
+Search & Lookup:
 
-SEARCH EBOOK BY TAG:
-  - Look up files by their associated tag.
-  - Steps:
-    1. Enter a search string to filter by tag names.
-    2. Babyrus shows matching tags.
-    3. Choose a tag to view its files.
-    4. Matching files are shown in a message box.
-  * Best for: Quickly finding all ebooks under one tag.
+Once you have built a library of registered ebook files and organised them with tags, you can use the Search & Lookup features to quickly find files and view their details.
 
-LOOKUP BY FILEPATH:
-  - Look up registered files under a specific directory.
-  - Steps:
-    1. Select a directory from the list of registered paths.
-    2. Enter a search string to filter by file name.
-    3. Enter a search string to filter by tag name.
-    4. Babyrus shows all matching files.
-    5. Select a file to see full details (name, directory, tags, mime type, size).
-  * Best for: Narrowing lookup to a specific folder and its files.
+To search for a file, begin by entering a glob pattern to filter filenames, followed by a literal pattern to filter associated tags. A list of matching files will be displayed. Select a file to view its information, including its filename, directory path, associated tags, MIME type, and file size.
 
-MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED EBOOKS
-============================================================
+You can also search for files by tag. Start by entering a literal tag pattern to search for matching tags, then select a tag from the list. You will then be presented with all files associated with that tag. Choose a file to view its details.
 
-VIEW ALL REGISTERED EBOOKS:
-  - Display detailed info for every registered ebook.
-  - Steps:
-    1. Babyrus shows a paginated list of all registered files.
-    2. Select an item to view details (name, path, tags, mime type, size).
-    3. Menu remains active so you can inspect multiple files.
-  * Best for: Browsing all registered ebooks in one place.
+If you want to search within a specific directory, first select the directory, then enter a glob pattern to filter filenames and a literal pattern to filter tag names. A list of matching files will be displayed. Select any file to view its information.
 
-MANAGE EBOOKS / SEARCH & LOOKUP / VIEW ALL REGISTERED TAGS
-==========================================================
+To browse every registered ebook in the database, use the View All Registered Ebooks function. Likewise, to see every registered tag, use the View All Registered Tags function.
 
-VIEW ALL REGISTERED TAGS:
-  - Display all registered tags.
-  - Steps:
-    1. Babyrus shows tags in a scrollable message box.
-  * Best for: Reviewing all available tags.
+Open & Read
 
-MANAGE EBOOKS / SEARCH & LOOKUP / OPEN & READ
-=============================================
+This section is designed to help you quickly find and open registered books using different search methods.
 
-OPEN EBOOK SEARCH BY FILENAME:
-  - Open a registered file by filtering with its file name.
-  - Steps:
-    1. Enter a search string to filter by file name.
-    2. Babyrus shows a list of matching files.
-    3. Choose a file to open with an external viewer.
-  * Best for: Quickly opening a file when you know part of its name.
+The main feature allows you to search through your registered books and open them directly in an external viewer. It’s especially useful when you want to filter books by tags or quickly locate a specific title.
 
-OPEN EBOOK SEARCH BY TAG:
-  - Open a file by searching with its associated tag.
-  - Steps:
-    1. Enter a search string to filter by tag name.
-    2. Babyrus shows matching tags from the tag database.
-    3. Choose a tag to view associated files.
-    4. Select a file to open with an external viewer.
-  * Best for: Opening a file by category or topic.
+To begin, you can search by filename. Enter a glob pattern to filter the registered files, and you’ll be shown a list of all matching results. From there, simply select the file you want, and it will open in your external viewer.
 
-OPEN FILE BY FILE PATH:
-  - Open a file located in a specific directory.
-  - Steps:
-    1. Choose a directory from the list of registered file paths.
-    2. Enter a search string to filter by file name (within the directory).
-    3. Enter a search string to filter by tag name (within the directory).
-    4. Babyrus shows matching files.
-    5. Choose a file to open with an external viewer.
-  * Best for: Narrowing down and opening files by folder location.
+If you already know the tag associated with the book, you can search by tag instead. Enter a literal pattern to filter tag names, and you’ll see a list of matching tags. Selecting a tag will display all files associated with it. Choose the file you want, and it will open in the external viewer.
 
-MANAGE EBOOKS / MAINTENANCE:
-============================
+You can also search by file path. This option displays a list of all file paths from your registered files. Select the path you’re interested in, then refine your search using a glob pattern for filenames and an optional tag filter. A list of matching files will be shown, and selecting one will open it in your external viewer.
 
-FIND REMOVE BROKEN ENTRIES:
-Used to remove from the eBooks database broken entries (i.e., paths that point to non-existent files). 
-If there are no broken entries Babyrus will notify you. Otherwise, the broken entries are removed.
+Maintenance
 
-RENAME AND REREGISTER ILLEGAL FILENAMES:
-Registered file names containing characters: | , # : ; are illegal in Babyrus 
-because they potentially conflict with line formats of Babyrus’ database files. 
-This function renames any illegal file names found in the eBooks database, 
-avoids name conflicts, and reregisters them into the database. 
-Babyrus allows the user to revert the changes if they wish. 
-Babyrus takes some time to collect information about illegal file names. 
-If illegal file names are found, Babyrus displays candidate files for renaming. 
-After confirming, changes are made.
+This section does exactly what the name suggests — it provides tools to maintain and repair the ebook database.
 
-REVERT RENAMING ILLEGAL FILENAMES:
-Babyrus provides a way to revert file renaming changes from the last renaming operation. 
-If you confirm, Babyrus will restore original filenames in the eBooks database.
+First, the Remove Broken Entries function scans the database for entries that are either invalid or no longer exist in the file system, and removes them to keep the database clean and up to date.
+
+Second, the Rename and Reregister Illegal Filenames function helps fix files with illegal or problematic characters in their names. It renames both the actual files on the file system and their corresponding database entries, ensuring consistency across both.
+
+Finally, the Revert Renaming of Illegal Filenames function allows you to undo the changes made by the previous renaming operation, restoring both the original filenames and their database entries.
+
+That’s it!
 " 40 120
                 ;;
             2)
