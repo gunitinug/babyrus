@@ -17299,247 +17299,29 @@ That’s it!
                 ;;
             2)
                 whiptail --scrolltext --title "Manage Notes" --cancel-button "Back" --msgbox "\
-MANAGE NOTES:
-=============
+Do Stuff by Tag
 
-ADD NOTE:
-Used to create a new note entry.
+BABYRUS provides a comprehensive set of features within the Do Stuff by Tag function. The idea is simple: first filter notes by a tag, then perform a wide range of actions from a single, unified menu. This makes BABYRUS both convenient and powerful.
 
-Step 1: Set Note Title
-Select “Note Title” from the menu.
-You must set a title before saving a note.
-The note path is generated based on the title, and a timestamp is added to its name.
-File name generation is automatic.
+To begin, select a tag from your list of registered tags. BABYRUS will then display a menu of available actions for items associated with that tag. These options are explained below.
 
-Step 2: Add Tags
-Select “Tags” from the menu.
-Babyrus will display a paginated list of all registered tags (including tags from other notes).
-Use “>> Next Page” or “<< Previous Page” to navigate.
+First, you can add a note with the same tag. For example, if you are filtering by the tag “javascript”, you can use this option to create a new note that automatically inherits the same tag. This is useful when you want to keep related content grouped together while still being able to revisit and edit it later.
 
-Options:
-- Create a new tag: Select “Add new tag”, enter the name, and it will be created.
-- Select existing tags: Choose from the list.
-  Associated tags will be shown with [x] next to them.
-You may associate any number of tags with a note.
+You can also copy a note’s content to the clipboard. This allows you to quickly paste the note elsewhere without needing to open or export it manually.
 
-Step 3: Associate Ebooks
-Select “Ebooks” from the menu.
-Babyrus will display a list of previously associated ebook files.
+The edit note function lets you browse all notes under the selected tag (e.g. “javascript”), choose one, and modify its contents directly.
 
-Adding a new ebook:
-- Select “Add new ebook”.
-- Filter candidate ebook files by tag:
-  * Choose “ANY TAG” (no filtering), or
-  * Select a tag (tags here belong to registered ebooks, not notes).
-- Enter a search term to filter by ebook filename.
-- Babyrus will display the number of matches found.
-- A list of matching files will be shown.
-- Select one file from the list.
+If a note has an associated ebook file, you can use open associated ebook. This displays all tagged notes and allows you to open any ebook linked to a selected note.
 
-Next actions:
-- “Add chapter” – Create a bookmark with chapter name + page number.  
-  Multiple chapters may be added.
-- “Save and return” – Save the ebook selection and return.
+BABYRUS also supports working with URLs. You can associate, dissociate, or open a URL linked to a note. When using this feature, you will be shown a list of notes under the selected tag, and you can choose a note to manage its linked web resources.
 
-Remove ebook:
-- Remove associated ebook file: you can remove ebook files that you've added in the above steps.
+For physical workflows, there is an option to print a note, sending it directly to a connected printer.
 
-Step 4: Edit the Note
-Select “Save and Edit”: The note opens in an external terminal editor (e.g., vim or nano, depending on configuration).
-When finished: Select “Save and Return” to store the changes.
+You can also associate multiple notes to a project file using a checklist interface. After selecting the desired notes, you choose a project file to link them to. A project file acts as a container or “file cabinet” for related notes, helping you organise larger workflows.
 
-EDIT NOTE:
-The Edit Note function is used to edit an existing note. When you begin, Babyrus will display a paginated menu containing all existing notes. You can navigate forward or backward through pages if there are many items. Select the note you want to edit to access its menu.
+Finally, you can add an additional tag to filtered notes. For instance, while filtering by “javascript”, you might choose to add another tag such as “bind” to selected notes, allowing them to belong to multiple categories at once.
 
-The menu options for the selected note include:
-- Note Title
-- Note Path
-- Tags
-- Ebooks
-- Save and Edit
-- Save and Return
-
-Editing the Note Title
-You can change the note title by selecting Note Title.
-Important: Changing the note title does not alter the note path or the note file name.
-
-Managing Tags
-To add or remove tags, select Tags. This will display a list of all registered tags, including both:
-- Tags associated with this note (marked with [x])
-- Other available tags
-Selecting a tag will either associate or dissociate it with the note, depending on its current state.
-You can also choose Add new tag to create a new tag and associate it with the note.
-
-Managing Ebooks
-To associate ebooks with the note, select Ebooks. Babyrus will display:
-- A list of currently associated ebook files
-- Options to Add new ebook or Remove ebook
-
-Removing an Ebook
-- Select Remove ebook.
-- Choose the file you want to remove.
-
-Adding an Ebook
-- Select Add new ebook.
-- Babyrus will display the global list of registered ebook tags, along with an ANY TAG option.
-- Selecting ANY TAG means not filtering by tag.
-- Enter a search term to filter ebook files by name (blank acts as a wildcard).
-- Babyrus will show the number of matching entries. Select OK.
-- From the displayed list of matching files, choose the ebook to associate with the note.
-
-Adding Chapters (Optional)
-After associating an ebook, Babyrus allows you to:
-- Save and return
-- Add chapter
-If you select Add chapter, you can create bookmarks that let you reopen the ebook at a specific page later.
-
-Saving Changes
-From the main Edit Note menu, you can:
-- Save and Edit – Opens the note file in an external terminal editor to modify its contents.
-- Save and Return – Saves all changes and returns to the parent menu.
-
-OPEN ASSOCIATED EBOOK:
-This function allows you to open an ebook file that has been associated with a note using either Add Note or Edit Note. It also supports opening at specific bookmarks.
-
-Displaying Notes
-When you use this function, Babyrus will display a list of all registered note files.
-- The file path (including the file name) is shown on the left.
-- Any associated tag(s) appear on the right, surrounded by square brackets.
-Select the note you want to work with.
-
-Handling Notes Without eBooks
-If the selected note has no associated ebooks, Babyrus will display:
-\"No ebooks associated with the note\"
-
-Displaying Associated eBooks
-If the note does have associated ebooks, Babyrus will show a list of all linked ebook files.
-
-If no chapters are registered:
-A menu titled \"No Chapters Found\" appears with two options:
-- Open – Opens the ebook file with the configured external viewer (e.g., Evince) at the last page opened by that viewer.
-- Return – Goes back to the previous menu.
-
-If chapters are registered:
-Babyrus will display a list of all registered bookmarks.
-Selecting one will open the ebook file with the external viewer directly at the specified page.
-
-DO STUFF BY TAG:
-This function allows you to narrow down note entries by their associated tag and perform actions on them. Available actions include editing notes or opening associated ebooks.
-
-Step 1: Select a Tag
-Babyrus begins by displaying a global list of all registered tags (tags linked to note files). Choose a tag from this list to continue.
-
-Step 2: Choose an Action
-After selecting a tag, you are given two options:
-- Edit Note
-- Open Associated eBook
-
-Editing a Note
-If you select Edit Note, Babyrus displays a list of all note files associated with the chosen tag. From there:
-- Select the note you want.
-- A familiar menu from the Edit Note function appears.
-
-You can now:
-- Edit note content
-- Add or remove tags
-- Add or remove ebooks
-
-Opening an Associated eBook
-If you select Open Associated eBook, Babyrus shows a list of note files that match the chosen tag. Once you select a note:
-- A list of all associated ebook files is displayed.
-- Choose the file you wish to open with an external viewer.
-
-If no chapters are registered:
-- Babyrus will still offer to open the file.
-
-If chapters are registered:
-- You can select a bookmark, and the ebook will open at that page in an external viewer.
-
-ASSOCIATE URL TO NOTE:
-This function is used to link a URL to your note file. URLs are managed separately from the Add Note or Edit Note functions.
-
-Step 1: Display Registered Notes
-When you begin, Babyrus displays a list of all registered note files. Left side shows file paths and right side associated tags inside square brackets.
-Select the note file you want to work with.
-
-Step 2: Access the URL Menu
-After selecting a note, you are presented with a menu containing:
-- Register URL
-- Save and return
-- A list of all URLs currently associated with the note
-
-Step 3: Manage Existing URLs
-If you click on an existing URL, two options are available:
-- Change values – Edit the URL
-- Delete URL – Remove the URL
-
-Step 4: Register a New URL
-To add a new URL, select Register URL.
-
-Step 5: Save and Exit
-Once finished, select Save and return to confirm your changes.
-
-DISSOCIATE URL FROM NOTE:
-This function is used to dissociate (unlink) a URL from a note previously associated using the Associate URL to Note function.
-
-Step 1: Display Registered Notes
-Babyrus first displays a list of all registered note files. Each item has file path on the left, associated tags (inside square brackets) on the right.
-Select the note file you want to work with.
-
-Step 2: View Associated URLs
-After selecting a note, Babyrus shows a list of all URLs associated with the chosen note file. You will also see two options:
-- Remove URL
-- Save and return
-
-Step 3: Remove a URL
-If you want to remove a URL, select Remove URL. Babyrus will again display the list of URLs. Choose the one you want to remove, and it will be unlinked from the note.
-
-Step 4: Save and return
-Once you are done managing URLs, select Save and return to confirm the changes and return to parent menu.
-
-OPEN URL FROM NOTE:
-This function allows you to open a URL that has been previously associated with a note file.
-
-Step 1: Display Registered Notes
-Babyrus first displays a list of all registered note files. Each item has file path on the left, any associated tags (inside square brackets) on the right.
-Select the note file you want to work with.
-
-Step 2: View Associated URLs
-After selecting a note, Babyrus will show you a list of all URLs associated with that note.
-
-Step 3: Open URL
-Choose the URL you want from the list. The selected URL will then be opened automatically in your web browser.
-
-OPEN AN EBOOK FROM GLOBAL LIST:
-Babyrus keeps track of all eBook file paths linked to note files in a single global list. This makes it easy to open any associated eBook directly with an external viewer.
-
-Babyrus displays the complete global list of eBook files (those that are associated to a note file). Simply select the file you want, and it will open in your default external viewer.
-
-DELETE NOTES:
-This function is used to delete one or more note files.
-
-How it Works:
-- Babyrus displays a checklist of all registered note files.
-- Multiple files can be selected at once for deletion.
-- To confirm, check the option __proceed__.
-
-Result:
-- The selected note files are permanently removed from the notes database.
-
-DELETE NOTE TAG FROM GLOBAL LIST:
-Babyrus manages all registered note tags centrally. This function is used to delete a tag from the database.
-
-How it Works:
-- Babyrus presents a list of all registered note tags.
-- Select one item to remove it.
-
-Note:
-- A tag can only be deleted if it is not associated with any note file.
-- If the tag is still linked to one or more note files, Babyrus will notify you that the deletion cannot proceed until the conflicts are resolved.
-
-Resolving Conflicts:
-- Dissociate the tag from all associated note files first.
-- Once the tag is no longer linked, it can be deleted successfully.
+Overall, the Do Stuff by Tag menu is designed to centralise all common actions into one efficient workflow, reducing context switching and making note management significantly faster and more intuitive.
 " 40 120
                 ;;
             3)
