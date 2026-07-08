@@ -3147,7 +3147,7 @@ It involves the following steps:\n\
         ((p_count++))
     done
 
-    whiptail --title "Alert" --msgbox "$message" 20 170
+    whiptail --scrolltext --title "Alert" --msgbox "$message" 20 170
 
     # Confirm yes/no to proceed.
     whiptail --title "Confirm" --yesno "${#new_entries[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
@@ -4249,7 +4249,7 @@ remove_files_in_bulk() {
         ((p_count++))
     done
 
-    whiptail --title "Alert" --msgbox "$message" 20 170
+    whiptail --scrolltext --title "Alert" --msgbox "$message" 20 170
 
     # Confirmation dialog
     whiptail --title "Confirm Removal" --yesno \
