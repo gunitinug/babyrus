@@ -3168,7 +3168,7 @@ It involves the following steps:\n\
     
     # Too large to display from msgbox so use temporary file and textbox.
     echo "$result_msg" > /tmp/result_msg.txt
-    whiptail --scrolltext --title "Results" --textbox /tmp/result_msg.txt 20 80
+    whiptail --scrolltext --title "Results" --textbox /tmp/result_msg.txt 20 170
     rm /tmp/result_msg.txt
     #whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
 }
