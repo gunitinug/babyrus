@@ -32,6 +32,14 @@ Babyrus is under active development. For the most stable and feature-rich experi
 ### First run ###
 When you first run BABYRUS, you will be prompted to set default apps. This is so that the program will run normally the next time you run BABYRUS. Set default apps per extension then quit and restart the program. Next time BABYRUS is run, you will be shown the main menu.
 
+To reset BABYRUS and display the first run screen, change `FIRST_RUN` variable to 0 like this:
+
+```
+#+++ FIRST RUN +++#
+FIRST_RUN=0
+#+++ FIRST RUN END +++#
+```
+
 ### 🔍 Searching in Babyrus
 
 Babyrus provides two different search methods, whichever is most suitable for the search task at hand. Use the method indicated by the program. The rule of thumb is to use literal substring match for filtering tags and globbing for filtering file names.
