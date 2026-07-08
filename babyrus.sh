@@ -3135,6 +3135,20 @@ It involves the following steps:\n\
         return 0
     fi
 
+    # Inform user of list of selected files for addition.
+    local message
+    message="The following files are candidates for addition:\n\n"
+
+    local p_count=1
+    local path
+    for path in "${new_entries[@]}"; do
+        ((p_count>10)) && message+="and more..." && break
+        message+="• $path\n"
+        ((p_count++))
+    done
+
+    whiptail --title "Alert" --msgbox "$message" 20 170
+
     # Confirm yes/no to proceed.
     whiptail --title "Confirm" --yesno "${#new_entries[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
 
@@ -3149,7 +3163,7 @@ It involves the following steps:\n\
     local result_msg="Successfully added ${#new_entries[@]} files:\n\n"
     for file in "${new_entries[@]}"; do
         #result_msg+="${file##*/}\n"  # Show filename only
-        result_msg+="${file}\n" 
+        result_msg+="• ${file}\n" 
     done
     
     # Too large to display from msgbox so use temporary file and textbox.
@@ -4223,13 +4237,27 @@ remove_files_in_bulk() {
         return 1
     }
 
+    # Inform user of list of selected files for removal.
+    local message
+    message="The following files are candidates for removal:\n\n"
+
+    local p_count=1
+    local path
+    for path in "${!paths_to_remove[@]}"; do
+        ((p_count>10)) && message+="and more..." && break   # Only list first ten paths.
+        message+="• $path\n"
+        ((p_count++))
+    done
+
+    whiptail --title "Alert" --msgbox "$message" 20 170
+
     # Confirmation dialog
     whiptail --title "Confirm Removal" --yesno \
 "About to remove ${#paths_to_remove[@]} entries from the database. This operation cannot be undone!\n\nProceed with deletion?" \
 0 0
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 10 70
+        #whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 10 70
         return 1
     }
 
