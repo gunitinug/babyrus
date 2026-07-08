@@ -3897,15 +3897,23 @@ assoc_tag_to_bulk() {
     local key
     local entries_str=""
 
-    # Loop through the keys and format each line
+    local count=1
+
+    # Loop through the keys and format each line - display just first ten entries.
     for key in "${!updated_entries[@]}"; do
-        entries_str+="$key New:${updated_entries[$key]}\n"
+        ((count > 10)) && break
+        entries_str+="• $key New:${updated_entries[$key]}\n"
+        ((count++))
     done
+
+    if ((${#updated_entries[@]} > 10)); then
+        entries_str+="and more...\n"
+    fi
 
     # Inform user of candidates for update
     local tempfile=$(mktemp)
     printf "%b" "$entries_str" > "$tempfile"
-    whiptail --scrolltext --title "ATTENTION Candidates For Tag Update" --textbox "$tempfile" 20 80
+    whiptail --scrolltext --title "ATTENTION Candidates For Tag Update" --textbox "$tempfile" 20 170
     rm -f "$tempfile"
 
     # Before updating database, ask user to confirm.
@@ -3914,7 +3922,7 @@ assoc_tag_to_bulk() {
 If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" 10 70
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
+        #whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
         return 1
     }
 
