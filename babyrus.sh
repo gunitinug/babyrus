@@ -17353,15 +17353,15 @@ First, you can add a note with the same tag. For example, if you are filtering b
 
 You can also copy a note’s content to the clipboard. This allows you to quickly paste the note elsewhere without needing to open or export it manually.
 
-The edit note function lets you browse all notes under the selected tag (e.g. “javascript”), choose one, and modify its contents directly.
+The edit note function lets you browse all notes under the selected tag (e.g. “javascript”), choose one, and modify its contents directly. Inside Edit Note, you can add or remove tags or add or remove associated ebooks.
 
-If a note has an associated ebook file, you can use open associated ebook. This displays all tagged notes and allows you to open any ebook linked to a selected note.
+If a note has an associated ebook file, you can use Open associated ebook. This displays all tagged notes and allows you to open any ebook linked to a selected note.
 
 BABYRUS also supports working with URLs. You can associate, dissociate, or open a URL linked to a note. When using this feature, you will be shown a list of notes under the selected tag, and you can choose a note to manage its linked web resources.
 
-For physical workflows, there is an option to print a note, sending it directly to a connected printer.
+There is also an option to print a note, sending it directly to a connected printer.
 
-You can also associate multiple notes to a project file using a checklist interface. After selecting the desired notes, you choose a project file to link them to. A project file acts as a container or “file cabinet” for related notes, helping you organise larger workflows.
+You can also associate multiple notes to a project file using a checklist interface. After selecting the desired notes, you choose a project file to link them to. A project file acts as a container or “file cabinet” for related notes, helping you organise your project.
 
 Finally, you can add an additional tag to filtered notes. For instance, while filtering by “javascript”, you might choose to add another tag such as “bind” to selected notes, allowing them to belong to multiple categories at once.
 
@@ -17604,9 +17604,9 @@ During the restoration process, existing database files will be overwritten with
 ################################
 # Main Menu
 ################################
-msg1="'For you formed my inward parts; you knitted me"
-msg2="together in my mother's womb. I praise you,"
-msg3="for I am fearfully and wonderfully made.'"
+msg1="'And let us run with perseverance the race marked out"
+msg2="for us, fixing our eyes on Jesus, the pioneer and"
+msg3="perfector of faith.' Hebrews 12:1-2"
 padding1=$(( (53 - ${#msg1}) / 2 ))
 padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
 padding2=$(( (55 - ${#msg2}) / 2 ))
