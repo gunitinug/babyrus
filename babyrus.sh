@@ -4162,15 +4162,23 @@ dissoc_tag_to_bulk() {
     local key
     local entries_str=""
 
-    # Loop through the keys and format each line
+    local count=1
+
+    # Loop through the keys and format each line - display just first ten entries.
     for key in "${!updated_entries[@]}"; do
-        entries_str+="$key New:${updated_entries[$key]}\n"
+        ((count > 10)) && break
+        entries_str+="• $key New:${updated_entries[$key]}\n"
+        ((count++))
     done
+
+    if ((${#updated_entries[@]} > 10)); then
+        entries_str+="and more...\n"
+    fi
 
     # Inform user of candidates for update
     local tempfile=$(mktemp)
     printf "%b" "$entries_str" > "$tempfile"
-    whiptail --scrolltext --title "ATTENTION Candidates For Tag '${selected_tag}' Removal" --textbox "$tempfile" 20 80
+    whiptail --scrolltext --title "ATTENTION Candidates For Tag '${selected_tag}' Removal" --textbox "$tempfile" 20 170
     rm -f "$tempfile"
 
     # Confirmation dialog
@@ -4180,7 +4188,7 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 0 0
 
     [[ $? -ne 0 ]] && {
-        whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
+        #whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
         return 1
     }
 
