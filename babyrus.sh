@@ -17395,6 +17395,25 @@ Once you are working with a linked note, BABYRUS also allows you to continue man
 Combined with Do Stuff by Tag, this feature provides a complete and powerful productivity workflow. Tags allow you to manage information across your entire collection, while projects bring together everything needed for a specific goal. Together, they create a flexible system where notes, ebooks, bookmarks, URLs, and projects are connected rather than scattered across separate locations.
 
 BABYRUS turns project management from a simple file organisation task into an integrated knowledge management system. Instead of spending time searching for information, reorganising files, or maintaining duplicate copies, you can focus on using the information that matters. This is what makes the Do Stuff with Linked Notes in Project File feature not only convenient, but a genuinely powerful tool for productivity.
+
+
+Do Stuff with Shortlisted Projects — Focus on What Matters Most
+
+As your project database grows, it can become difficult to quickly find the projects that are currently important to you. BABYRUS solves this problem with the Do Stuff with Shortlisted Projects feature, giving you a simple way to create a focused workspace from your larger collection of projects.
+
+Instead of searching through every project whenever you need to continue your work, you can simply shortlist the projects you are actively working on. This keeps your attention on the tasks that matter right now while allowing you to keep your complete project history safely stored in BABYRUS.
+
+Adding a project to your shortlist is quick and effortless. Choose Add to shortlist, then enter a glob pattern to quickly filter your projects by name. Once you find the project you want, simply select it and confirm. The project is immediately added to your focused list, ready whenever you need it.
+
+Once you have shortlisted projects, BABYRUS provides the same powerful project management capabilities available through Do Stuff with Linked Notes in Project File. You can select a shortlisted project and access the same comprehensive set of features, from creating and managing linked notes to working with individual notes using the full range of available actions. This includes viewing and editing notes, printing them with your printer, copying their contents to the clipboard, associating them with other project files, accessing related ebooks and URLs, and many other productivity features—all within the same convenient workflow.
+
+This creates a streamlined workflow where your active projects and their related information are always just a few selections away. Instead of manually navigating through folders or searching through large databases, BABYRUS brings your current priorities together into one convenient workspace.
+
+Your shortlist remains completely under your control. When a project is no longer active, you can use Remove from shortlist to take it out of your focused list without deleting the project itself. This allows your shortlist to continuously adapt as your priorities change.
+
+For added transparency, BABYRUS also includes a View history feature. It keeps a record of projects that have previously been added to or removed from your shortlist, helping you remember past focus areas and track how your project priorities have evolved over time.
+
+With Shortlisted Projects, BABYRUS transforms a large collection of projects into an organized, flexible, and productivity-focused workspace — helping you spend less time searching and more time getting things done.
 " 40 120
                 ;;
             4)
