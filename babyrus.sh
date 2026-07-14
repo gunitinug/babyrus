@@ -17254,91 +17254,115 @@ show_help() {
         case $CHOICE in
             1)
                 whiptail --scrolltext --title "Manage eBooks" --cancel-button "Back" --msgbox "\
-The Manage eBooks section allows you to manage ebook files stored on your file system. It works by registering ebook files in a database so they can be easily searched, opened, and read later.
+Manage eBooks — Build a Searchable Personal Library
 
-Adding eBooks:
+BABYRUS transforms an ordinary collection of ebook files into a powerful, searchable personal library without forcing you to move or reorganise your files. Your books remain exactly where they are on your local file system while BABYRUS maintains a lightweight database that makes them easy to organise, search, and open whenever you need them.
 
-You can add files to the database in several ways:
+Whether your collection contains a few dozen books or many thousands spread across multiple drives and folders, BABYRUS gives you fast access without relying on cloud services or proprietary library formats.
 
-You may add a single file by first entering a glob pattern, selecting a directory, and then choosing the specific file you want to register.
 
-For bulk addition, select a root directory and provide a glob pattern to filter files. After confirming, all files within the selected directory that match the pattern will be added to the database.
+Register Your Existing Collection
 
-Alternatively, you can use a multi-select checklist. Navigate to a directory, select multiple files from the list, and then confirm to add them all at once.
+Building your library is quick and flexible. Rather than forcing a single workflow, BABYRUS provides several ways to register ebook files depending on how you prefer to work.
 
-Removing eBooks
+You can:
 
-There are also multiple ways to remove registered files from the database:
+    Register a single file when you only need to add one ebook.
+    Register files in bulk by selecting a directory and using a glob pattern to import every matching file.
+    Register multiple files from a checklist, allowing you to manually choose exactly which ebooks to add from a directory.
 
-To remove a single file, first apply a glob filter, then select the file you want to remove and confirm the action.
+Because BABYRUS registers the location of each ebook instead of relocating it, your existing folder structure remains completely unchanged.
 
-For bulk removal, you can combine a glob filter with an optional tag filter (using an exact match). After reviewing the matched results, confirm to remove them from the database.
 
-You can also use a checklist-based removal. Enter a glob pattern, select multiple files from a directory listing, and confirm removal.
+Remove Registered eBooks
 
-In addition, you can remove all matched files under a specific directory. Simply choose the directory and confirm to delete all registered entries within that path. There is also an option to perform this removal recursively, affecting all subdirectories as well.
+Keeping your library tidy is just as convenient. Whether you're cleaning up a few entries or reorganising an entire collection, BABYRUS offers several removal methods.
 
-Associating Tags:
+You can:
 
-You can organise registered files using tags. Before doing so, you must first create at least one tag. Once tags are available, you can assign them to ebooks in several ways.
+    Remove a single registered ebook.
+    Remove ebooks in bulk using filename and optional tag filters.
+    Remove selected ebooks from a checklist.
+    Remove every registered ebook within a specific file path.
+    Recursively remove all registered ebooks beneath a chosen file path, including every subdirectory.
 
-To tag a single file, enter a glob pattern to filter the registered files, select the desired file, choose a tag from the list, and confirm. The selected tag will then be associated with that file.
+These options make it easy to maintain even very large ebook collections.
 
-You can also assign a tag to multiple files in bulk. To do this, select a tag, provide a glob pattern to filter the files, optionally apply a tag filter (literal match), and confirm. The tag will be applied to all matching files.
 
-Alternatively, you can use a checklist to select multiple files manually. First, choose a tag, filter files using a glob pattern, select the desired files from the checklist, and confirm to apply the tag to all selected items.
+Organise Your Library with Tags
 
-Finally, you can tag all files within a specific directory. Select a tag, choose a directory from the list, and confirm. The selected tag will be applied to every registered file in that directory.
+Folders are useful, but they often aren't enough. A programming book might belong to Linux, Networking, and Reference, while a novel could fit several genres. BABYRUS allows every registered ebook to have one or more tags, giving you complete freedom to organise your collection in ways that make sense to you.
 
-Dissociating Tags:
+Once you've created your tag library, BABYRUS provides several ways to associate tags with ebooks.
 
-Conversely, you can dissociate a tag from registered files in several ways.
+You can:
 
-To remove a tag from a single file, enter a glob pattern to filter the registered files, select a file from the list, choose the tag to remove, and confirm.
+    Associate a tag with a single ebook.
+    Associate a tag with multiple ebooks in bulk using filename and optional tag filters.
+    Associate a tag with selected ebooks from a checklist.
 
-You can also dissociate a tag from multiple files in bulk. First, select the tag to remove, enter a glob pattern to filter the files, then optionally enter a literal tag filter to limit the operation to files that already have specific associated tags. Finally, confirm to remove the selected tag from all matching files.
+These flexible tagging methods allow you to organise thousands of ebooks quickly while still giving you precise control whenever you need it.
 
-Alternatively, you can remove a tag from multiple files using a checklist. Select the tag to remove, choose the files from the checklist, proceed with the operation, and confirm.
 
-For convenience, you can also remove a tag from every registered file within a specified file path. Simply select the tag, choose the file path, and confirm.
+Remove Tags from eBooks
 
-Finally, you can delete a tag from the global tag list. A tag can only be deleted if it is no longer associated with any registered files. If the tag is still associated with one or more files, you must first dissociate it from all of those files before it can be deleted.
+As your library evolves, your tagging system will naturally evolve with it. BABYRUS makes it just as easy to remove tags as it is to assign them.
 
-Search & Lookup:
+You can:
 
-Once you have built a library of registered ebook files and organised them with tags, you can use the Search & Lookup features to quickly find files and view their details.
+    Dissociate a tag from a single ebook.
+    Dissociate a tag from multiple ebooks in bulk.
+    Dissociate a tag from selected ebooks using a checklist.
+    Dissociate a tag from every registered ebook within a chosen file path.
 
-To search for a file, begin by entering a glob pattern to filter filenames, followed by a literal pattern to filter associated tags. A list of matching files will be displayed. Select a file to view its information, including its filename, directory path, associated tags, MIME type, and file size.
+When a tag is no longer associated with any ebook, it can be safely removed from the global tag list, helping keep your tag collection clean and meaningful.
 
-You can also search for files by tag. Start by entering a literal tag pattern to search for matching tags, then select a tag from the list. You will then be presented with all files associated with that tag. Choose a file to view its details.
 
-If you want to search within a specific directory, first select the directory, then enter a glob pattern to filter filenames and a literal pattern to filter tag names. A list of matching files will be displayed. Select any file to view its information.
+Powerful Search & Lookup
 
-To browse every registered ebook in the database, use the View All Registered Ebooks function. Likewise, to see every registered tag, use the View All Registered Tags function.
+Once your library has been registered and organised with tags, finding the right book becomes effortless.
+
+BABYRUS lets you search in several different ways:
+
+    Search by filename using glob patterns.
+    Search by tag to view every ebook associated with a particular subject.
+    Search within a specific directory, combining filename and tag filters to narrow the results even further.
+    Browse every registered ebook in the database.
+    Browse every registered tag in your library.
+
+Selecting any ebook displays useful information including its filename, directory path, associated tags, MIME type, and file size, making it easy to verify you've found exactly what you're looking for.
+
 
 Open & Read
 
-This section is designed to help you quickly find and open registered books using different search methods.
+Finding a book is only half the job. BABYRUS lets you open it immediately in your preferred external ebook reader or document viewer.
 
-The main feature allows you to search through your registered books and open them directly in an external viewer. It’s especially useful when you want to filter books by tags or quickly locate a specific title.
+You can launch books by:
 
-To begin, you can search by filename. Enter a glob pattern to filter the registered files, and you’ll be shown a list of all matching results. From there, simply select the file you want, and it will open in your external viewer.
+    Searching by filename.
+    Searching by tag.
+    Searching within a selected file path.
 
-If you already know the tag associated with the book, you can search by tag instead. Enter a literal pattern to filter tag names, and you’ll see a list of matching tags. Selecting a tag will display all files associated with it. Choose the file you want, and it will open in the external viewer.
+Instead of navigating folders or trying to remember where a particular title is stored, simply search, select, and begin reading.
 
-You can also search by file path. This option displays a list of all file paths from your registered files. Select the path you’re interested in, then refine your search using a glob pattern for filenames and an optional tag filter. A list of matching files will be shown, and selecting one will open it in your external viewer.
 
-Maintenance
+Built-in Maintenance Tools
 
-This section does exactly what the name suggests — it provides tools to maintain and repair the ebook database.
+As your ebook collection changes over time, BABYRUS helps keep your database accurate and reliable.
 
-First, the Remove Broken Entries function scans the database for entries that are either invalid or no longer exist in the file system, and removes them to keep the database clean and up to date.
+The maintenance tools can:
 
-Second, the Rename and Reregister Illegal Filenames function helps fix files with illegal or problematic characters in their names. It renames both the actual files on the file system and their corresponding database entries, ensuring consistency across both.
+    Remove broken database entries whose files no longer exist.
+    Rename and reregister ebooks with illegal or problematic filenames, updating both the filesystem and the database together.
+    Revert renamed filenames whenever you need to restore the original names.
 
-Finally, the Revert Renaming of Illegal Filenames function allows you to undo the changes made by the previous renaming operation, restoring both the original filenames and their database entries.
+These tools help ensure your library remains consistent even after years of use.
 
-That’s it!
+Your Library, Organised Your Way
+
+BABYRUS is designed around a simple philosophy: your ebooks should remain on your local file system, organised however you choose. Rather than replacing your folder structure, BABYRUS enhances it with powerful indexing, flexible tagging, fast searching, and reliable maintenance.
+
+Whether you're managing a few hundred books or an extensive digital library containing thousands of titles, BABYRUS gives you multiple ways to organise, maintain, search, and open your ebooks—all while leaving your files exactly where they belong.
 " 40 120
                 ;;
             2)
