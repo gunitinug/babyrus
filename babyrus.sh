@@ -17343,204 +17343,58 @@ That’s it!
                 ;;
             2)
                 whiptail --scrolltext --title "Manage Notes" --cancel-button "Back" --msgbox "\
-Do Stuff by Tag
+Do Stuff by Tag — Where BABYRUS Becomes Your Productivity Hub
 
-BABYRUS provides a comprehensive set of features within the Do Stuff by Tag function. The idea is simple: first filter notes by a tag, then perform a wide range of actions from a single, unified menu. This makes BABYRUS both convenient and powerful.
+The Do Stuff by Tag feature is one of the most powerful parts of BABYRUS. Instead of forcing you to remember where information is stored, BABYRUS lets you think in terms of topics. Select a tag, and everything related to that subject is instantly available from one unified workspace.
 
-To begin, select a tag from your list of registered tags. BABYRUS will then display a menu of available actions for items associated with that tag. These options are explained below.
+Whether you're researching a programming language, managing a project, collecting ideas, or organising study notes, you no longer waste time jumping between different menus. Once you've filtered by a tag, virtually every action you need is available in one place.
 
-First, you can add a note with the same tag. For example, if you are filtering by the tag “javascript”, you can use this option to create a new note that automatically inherits the same tag. This is useful when you want to keep related content grouped together while still being able to revisit and edit it later.
+For example, suppose you're working on JavaScript. Select the javascript tag, and BABYRUS presents every note you've created on that topic, together with a comprehensive set of actions.
 
-You can also copy a note’s content to the clipboard. This allows you to quickly paste the note elsewhere without needing to open or export it manually.
+You can immediately create a new note that automatically inherits the selected tag. This keeps related information organised without requiring you to repeatedly assign the same tag. As your collection grows, your notes naturally remain grouped by subject.
 
-The edit note function lets you browse all notes under the selected tag (e.g. “javascript”), choose one, and modify its contents directly. Inside Edit Note, you can add or remove tags or add or remove associated ebooks.
+Need to reuse information? Simply copy any note directly to the clipboard and paste it into your editor, email, documentation, or chat application without opening extra windows.
 
-If a note has an associated ebook file, you can use Open associated ebook. This displays all tagged notes and allows you to open any ebook linked to a selected note.
+As your knowledge evolves, editing is effortless. Browse all notes under the selected tag, choose the one you want, and update its contents. While editing, you can also add or remove tags, attach ebooks, or remove existing ebook associations, allowing your knowledge base to stay accurate and well organised.
 
-BABYRUS also supports working with URLs. You can associate, dissociate, or open a URL linked to a note. When using this feature, you will be shown a list of notes under the selected tag, and you can choose a note to manage its linked web resources.
+BABYRUS doesn't stop at plain text notes. If a note is linked to an ebook, you can open that ebook directly from the same interface. Your notes and reference material stay connected, so supporting documentation is always only a few keystrokes away.
 
-There is also an option to print a note, sending it directly to a connected printer.
+The same applies to web resources. Associate URLs with notes, open them instantly, or update and remove them whenever needed. This transforms each note into a central hub that can connect your own knowledge with valuable online references.
 
-You can also associate multiple notes to a project file using a checklist interface. After selecting the desired notes, you choose a project file to link them to. A project file acts as a container or “file cabinet” for related notes, helping you organise your project.
+Need a hard copy? Print any note directly from BABYRUS without first exporting or copying its contents elsewhere.
 
-Finally, you can add an additional tag to filtered notes. For instance, while filtering by “javascript”, you might choose to add another tag such as “bind” to selected notes, allowing them to belong to multiple categories at once.
+Projects become much easier to manage as well. Using a simple checklist interface, you can associate multiple notes with a project file. A project acts like a digital filing cabinet, bringing together all the notes relevant to a particular task, assignment, or long-term goal. Instead of searching through hundreds of notes later, everything related to that project is already grouped together.
 
-Overall, the Do Stuff by Tag menu is designed to centralise all common actions into one efficient workflow, reducing context switching and making note management significantly faster and more intuitive.
+Knowledge rarely belongs to only one category, which is why BABYRUS makes retagging effortless. While viewing notes under one tag, you can select multiple notes and assign an additional tag in a single operation. For example, notes tagged javascript can also be tagged bind, closures, or async, creating multiple paths to the same information without duplicating anything.
+
+The real strength of Do Stuff by Tag is that it transforms tags from simple labels into active workspaces. Rather than merely finding notes, you can create, edit, organise, connect, print, and manage every aspect of your knowledge without leaving the current context. This dramatically reduces menu navigation, keeps you focused on your work, and makes BABYRUS feel less like a note-taking program and more like a personal knowledge management system.
 " 40 120
                 ;;
             3)
                 whiptail --scrolltext --title "Manage Goals" --cancel-button "Back" --msgbox "\
-MANAGE GOALS:
-=============
+Do Stuff with Linked Notes in Project File — Where BABYRUS Turns Projects into Powerful Workspaces
 
-ADD NEW PROJECT:
-Used to create a new project. Begin by entering a project title. Babyrus will automatically generate a project file name based on the title, with a timestamp appended to it.
+Projects rarely exist in isolation. As your work grows, you'll accumulate research notes, ideas, references, web pages, and ebooks that all contribute to the same project. BABYRUS brings these resources together by allowing every project to become a central hub for everything related to it.
 
-When ready, select ‘Proceed’ to begin adding content to your project. The project file is structured with headings and subheadings that describe different parts of your project. Often they can be thought of as a summary.
+Unlike notes or ebooks, projects are identified by their filenames rather than tags, so BABYRUS begins by asking you to filter projects using a glob pattern. A glob pattern allows you to quickly narrow down a large collection of project files by matching parts of their filenames, making it easy to locate exactly the project you need. Once you've selected the project, you're immediately presented with every note linked to it. From this single screen you can create new notes, link existing ones, remove notes that are no longer relevant, or explore any linked note in greater detail. Instead of manually searching through folders and files, everything connected to your project is available from one convenient location.
 
-Adding and Managing Headings
-At the start, Babyrus displays two options:
-- Add new heading
-- Save and return
+Creating a new note automatically associates it with the current project, making it effortless to capture ideas, observations, and information while working. If you already have notes elsewhere in your collection, BABYRUS makes it simple to bring them into your project. You can filter notes by a registered tag, filter by notes with no associated tags, or apply no filter and list all notes regardless of tagging. From there, you can select multiple notes at once and link them to your project. Likewise, if a note is no longer relevant to the project, you can unlink it without deleting the note itself. This keeps your information organised while allowing the same note to be reused in different contexts.
 
-Select ‘Add new heading’ to insert a new heading. Once added, the heading will appear in the menu.
+The real power of this feature becomes apparent when you begin working with the notes themselves. Selecting any linked note opens a comprehensive set of actions, many of which are also available through Do Stuff by Tag. Rather than opening different applications or navigating through multiple menus, BABYRUS allows you to manage and interact with your information directly from the project that it belongs to.
 
-Selecting a heading opens a list of available actions:
-- Change text – Edit the text of the selected heading.
-- Move before – Move the heading before another one.
-- Move after – Move the heading after another one.
-- Indent right – Increase indentation by one tab, turning the heading into a subheading.
-- Indent left – Decrease indentation by one tab, making the heading a parent heading.
-- Remove heading – Delete the selected heading.
+Need to quickly review a note? You can open it in read-only mode without making accidental changes. Want to reuse its contents somewhere else? BABYRUS can copy the entire note to your clipboard instantly, allowing you to paste the information wherever it is needed. These simple actions remove unnecessary steps and help maintain a smooth workflow.
 
-Note:
-- To use the Move before or Move after options, your project must contain at least two headings.
+If your note is connected to ebooks, BABYRUS can display all ebook files associated with that note and open your chosen ebook in an external viewer. If you have registered bookmarks, you can even open the ebook directly at a specific page. This is especially useful when working on research projects where notes and source material need to stay closely connected. Instead of remembering where information came from, BABYRUS keeps the relationship between your notes and references intact.
 
-Saving the Project
-After you finish organizing and editing your headings, select ‘Save and return’ to save your changes and return to the previous menu.
+Your projects can also connect directly to online resources. Notes can store associated URLs, allowing you to access websites and online references without searching through browser history or separate bookmark systems. BABYRUS lets you open any linked URL in your browser, add new URLs, edit existing ones, or remove links that are no longer useful. By keeping web resources attached to the notes that depend on them, your knowledge remains organised and easy to retrieve.
 
-EDIT EXISTING PROJECT:
+Another powerful capability is the ability to associate a note with multiple projects. In real-world workflows, the same information often belongs to more than one area. A research article, technical reference, meeting summary, or important idea may be useful across several projects. Instead of creating duplicate copies of the same note, BABYRUS allows you to link the existing note to another project. The note remains a single source of information while being accessible from every project where it is relevant. This reduces duplication and ensures that updates are reflected everywhere.
 
-This function is used to edit an existing project in Babyrus.
+Once you are working with a linked note, BABYRUS also allows you to continue managing that note without leaving the project workflow. You can edit the note directly when information needs to be updated, ensuring your project stays current as your work progresses. When you need to share information outside of BABYRUS or create a physical record, you can also print the selected note directly using your printer.
 
-Finding the Project to Edit
-Start by entering a glob pattern to narrow down your search. Babyrus will then display a list of candidate project files.
-Select the project file you want to edit.
+Combined with Do Stuff by Tag, this feature provides a complete and powerful productivity workflow. Tags allow you to manage information across your entire collection, while projects bring together everything needed for a specific goal. Together, they create a flexible system where notes, ebooks, bookmarks, URLs, and projects are connected rather than scattered across separate locations.
 
-Changing the Project Title
-Once selected, choose 'Project title' to modify the title of the project.
-
-Note:
-- The project path remains unchanged even when the title is updated.
-
-Editing Project Content
-Select 'Proceed' to view and edit the content of the chosen project. Babyrus will display the full content of the project file along with two options:
-- Add new heading
-- Save and return
-
-Adding and Managing Headings
-To add a new heading, select 'Add new heading.'
-You can also select an existing heading to perform one of the following actions:
-- Change text – Edit the text of the selected heading.
-- Move before / Move after – Reposition the heading relative to another one.
-- Indent left / Indent right – Adjust the indentation level.
-- Remove heading – Delete the selected heading from the project.
-
-Saving Changes
-After making edits, select 'Save and return' to save all changes and go back to the parent menu.
-
-PRINT PROJECT CONTENT ON SCREEN:
-
-Used to display a project's content in read-only mode on the screen.
-
-Filtering Projects
-Start by entering a glob pattern to filter projects by title. Babyrus will display a list of candidate project files.
-
-Viewing Content
-Select the project you want to view. Babyrus will then display the project’s content on the screen in read-only mode.
-
-ASSOCIATE NOTE WITH PROJECT:
-
-Used to associate a note file with a project file.
-
-Filtering Projects
-Begin by entering a glob pattern to filter projects by title. Babyrus will show a list of matching project files. Select the one you want.
-
-Selecting a Note File
-Next, Babyrus will display all registered note files. Each entry shows the note’s full file path on the left and any associated tags on the right (inside square brackets).
-
-Association Confirmation
-Choose the note file you wish to associate with the selected project. If it isn’t already associated, Babyrus will confirm that the note has been successfully linked to the project.
-
-DISSOCIATE NOTE FROM PROJECT:
-
-Used to remove the association between a note file and a project file.
-
-Filtering Projects
-Start by entering a glob pattern to filter projects by title. Babyrus will list matching project files. Select the one you want.
-
-Selecting an Associated Note
-Babyrus will then display all note files currently associated with the chosen project. Select the note you wish to dissociate.
-
-Dissociation Confirmation
-If successful, Babyrus will notify you that the note has been successfully dissociated from the project.
-
-DO STUFF WITH LINKED NOTES IN PROJECT FILE:
-
-Used to perform actions with note files linked to a project file. The available actions are View Note and Open eBooks.
-
-Filtering Projects
-
-Start by entering a glob pattern to filter projects by title.
-Babyrus will display a list of candidate project files.
-Select the project you want to work with.
-
-Selecting a Linked Note
-
-After choosing a project, Babyrus will list all note files linked to that project.
-Select the note file you want to interact with.
-
-Viewing a Note
-
-Choose 'View Note' to display the content of the selected note file in read-only mode.
-This is useful when browsing through the contents of all note files linked to a project.
-
-Opening eBooks
-
-Choose 'Open eBooks' to access ebook files linked to the selected note file.
-Babyrus will show all ebook files associated with that note.
-
-If no chapters are registered:
-Babyrus displays a simple menu with two options — Open and Return.
-Select 'Open' to open the ebook using an external viewer.
-Select 'Return' to go back to the previous menu.
-
-If one or more chapters are registered:
-Babyrus lists all registered chapters.
-Choose one, and Babyrus will open the ebook file at that specific page using an external viewer.
-
-OPEN URL FROM LINKED NOTES IN PROJECT FILE:
-
-A note file can include linked URLs that you can open directly in a web browser. This function allows you to select a note file linked to a project file, then open one of its associated URLs.
-
-Step 1: Filter Projects
-
-Enter a glob pattern to filter projects by title.
-Babyrus will display a list of all matching registered project files.
-
-Step 2: Select a Project
-
-Choose the project file you want to work with from the displayed list.
-
-Step 3: Select a Linked Note
-
-Babyrus will list all note files associated with the selected project.
-Choose the note file you want to access.
-
-Step 4: Open a Linked URL
-
-Babyrus will display all registered URLs linked to the note.
-Select the URL you want to open, and it will be launched in your default web browser.
-Alternatively, select 'Back' to return to the parent menu.
-
-DELETE PROJECT:
-
-Used to delete a project file from the projects database.
-
-Step 1: Filter Projects
-
-Enter a glob pattern to filter projects by title.
-Babyrus will display a list of all matching project files.
-
-Step 2: Select a Project
-
-Choose the project you want to delete from the list.
-
-Step 3: Confirm Deletion
-
-Babyrus will display a confirmation message.
-Select 'Delete' to confirm.
-The project file will then be permanently removed from the database.
+BABYRUS turns project management from a simple file organisation task into an integrated knowledge management system. Instead of spending time searching for information, reorganising files, or maintaining duplicate copies, you can focus on using the information that matters. This is what makes the Do Stuff with Linked Notes in Project File feature not only convenient, but a genuinely powerful tool for productivity.
 " 40 120
                 ;;
             4)
