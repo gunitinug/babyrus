@@ -11858,32 +11858,30 @@ lookup_note_tags() {
     local search matches status
     local db_file="$NOTES_TAGS_DB"
 
-    while :; do
-        search=$(
-            whiptail \
-                --title "Lookup note tags" \
-                --inputbox "Enter search string (literal substring match):" 10 60 \
-                3>&1 1>&2 2>&3
-        ) || return 1
+    search=$(
+        whiptail \
+            --title "Lookup note tags" \
+            --inputbox "Enter search string (empty for wildcard; literal substring match):" 10 60 \
+            3>&1 1>&2 2>&3
+    ) || return 1
 
-        if [[ -z "$search" ]]; then
-            whiptail --title "Alert" --msgbox "Enter non-empty search string!" 10 60
-            continue
+    if [[ -z "$search" ]]; then
+        if ! matches=$(<"$db_file"); then
+            whiptail --title "Alert" --msgbox "Something went wrong!" 10 60
+            return 1
         fi
-        break
-    done
+    else
+        matches=$(grep -iF -- "$search" "$db_file" 2>/dev/null)
+        status=$?
 
-    matches=$(grep -iF -- "$search" "$db_file" 2>/dev/null)
-    #matches=$(grep -iF -- "" "$db_file" 2>/dev/null) # test pagination!
-    status=$?
-
-    # grep exit status:
-    # 0 = matches found
-    # 1 = no matches
-    # 2+ = actual error
-    if (( status >= 2 )); then
-        whiptail --title "Alert" --msgbox "Something went wrong!" 10 60
-        return 1
+        # grep exit status:
+        # 0 = matches found
+        # 1 = no matches
+        # 2+ = actual error
+        if (( status >= 2 )); then
+            whiptail --title "Alert" --msgbox "Something went wrong!" 10 60
+            return 1
+        fi
     fi
 
     if [[ -z "$matches" ]]; then
