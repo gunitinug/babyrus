@@ -17460,37 +17460,35 @@ You will need to restart BABYRUS for the changes to take effect.
                 ;;
             5)
                 whiptail --scrolltext --title "Help" --cancel-button "Back" --msgbox "\
-HELP:
-=====
+HELP
 
-Use this function to view the help documentation for Babyrus.
-It provides guidance on how to use all major features of the system.
+Use this function to access the BABYRUS help documentation.
+
+It provides detailed guidance on using the system, including explanations of the major features and available functions.
 " 40 120
                 ;;
             6)
                 whiptail --scrolltext --title "Backup" --cancel-button "Back" --msgbox "\
-BACKUP:
-=======
+BACKUP
 
-This function creates a backup of all Babyrus database files — including the ebooks, notes, and projects databases.
+Use this function to create a backup of all BABYRUS database files, including the ebooks, notes, and projects databases.
 
-When prompted, confirm that you want to proceed.
-Babyrus will generate a backup file named:
+After selecting this option, confirm that you want to continue. BABYRUS will create a compressed backup archive with the following naming format:
 
-    backup_<timestamp>.tar.gz
+backup_<timestamp>.tar.gz
 
-This ensures your data is safely stored for recovery if needed.
+The backup file contains all essential BABYRUS data and can be used to restore your system if your database files are lost, damaged, or need to be recovered.
 " 40 120
                 ;;
             7)
                 whiptail --scrolltext --title "Restore" --cancel-button "Back" --msgbox "\
-RESTORE:
-========
+RESTORE
 
-Use this function to restore Babyrus data from a previously created backup file.
+Use this function to restore BABYRUS data from a previously created backup archive.
 
-Simply select one of the available backup files to restore.
-During the restoration process, existing database files will be overwritten with the contents of the backup.
+Select the backup file you want to restore from the list of available backups. During the restoration process, Babyrus will replace the current database files with the contents of the selected backup.
+
+Warning: Any existing BABYRUS database data will be overwritten during restoration. Make sure you select the correct backup file before proceeding.
 " 40 120
                 ;;
         esac
