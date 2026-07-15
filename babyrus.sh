@@ -17440,21 +17440,22 @@ With Shortlisted Projects, BABYRUS transforms a large collection of projects int
                 ;;
             4)
                 whiptail --scrolltext --title "Configure" --cancel-button "Back" --msgbox "\
-CONFIGURE:
-==========
+CONFIGURE — Set Default Applications
 
-Use this function to set default applications for different file types based on their extensions.
-Babyrus relies on these defaults to open files appropriately.
+Use this function to configure the default applications that BABYRUS uses to open different file types. BABYRUS uses these settings to determine which application should be launched for each file extension.
 
-When you open the 'Set Default Apps' menu, you’ll see a list showing file extensions on the left and their current default applications on the right.
+When you open the Set Default Apps menu, BABYRUS displays a list of file extensions on the left and their currently assigned default applications on the right.
 
-To change a default app:
+To change a default application:
 
-1. Select the item corresponding to the extension you want to modify.
-2. Babyrus will prompt you to enter a new command.
-3. For example, to change the default app for '.pdf' files to Evince, enter: evince
+1. Select the file extension you want to modify.
+2. BABYRUS will display a list of supported applications available for that file type.
+3. Choose your preferred application from the list.
 
-From then on, Babyrus will use Evince whenever you open a '.pdf' file.
+After making all required changes, select Save to apply and store your new default application settings.
+
+You will need to restart BABYRUS for the changes to take effect.
+
 " 40 120
                 ;;
             5)
