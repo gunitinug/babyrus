@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99xx'
+BABYRUS_VERSION='v.0.99xxx'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -10542,6 +10542,13 @@ delete_notes() {
     done
 
     local total=${#filtered_lines[@]}
+
+    # No point continuing if there is no match for filtered file names
+    if (( total == 0 )); then
+        whiptail --title "Alert" --msgbox "There are no matching note files." 10 40
+        return 1
+    fi    
+
     # Calculate number of pages (ITEMS_PER_PAGE items per page).
     local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
     local current_page=0
@@ -10597,7 +10604,7 @@ delete_notes() {
         result=$(whiptail --title "Delete Notes" --checklist "Select notes to delete (page $((current_page + 1))/$pages)" 20 170 10 "${choices[@]}" 3>&1 1>&2 2>&3)
         local exit_status=$?
         if [ $exit_status -ne 0 ]; then
-            whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
+            #whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
             return 1
         fi
 
@@ -10734,7 +10741,8 @@ delete_notes() {
         done
         whiptail --title "Deletion Complete" --msgbox "Selected notes have been deleted." 10 40
     else
-        whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
+        :
+        #whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
     fi
 }
 
