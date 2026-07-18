@@ -11945,11 +11945,353 @@ lookup_note_tags() {
     done
 }
 
+# Let's user to dissociate a tag from a multiple note files filtered by a tag.
+dissociate_note_tag_from_checklist() {
+    local initial_tag removal_tag
+    local menu_items=()
+    local checklist_items=()
+    local line title path tags rest
+    local choice
+    local -A selected_notes=()
+    local -A available_tags=()
+
+    #
+    # Select initial tag (paginated)
+    #
+    menu_items=()
+
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+        menu_items+=("$line")
+    done < "$NOTES_TAGS_DB"
+
+    (( ${#menu_items[@]} == 0 )) && {
+        whiptail --msgbox \
+            "No tags found. Register at least one tag and try again!" \
+            8 50
+        return 1
+    }
+
+    PAGE_SIZE=15
+    page=0
+
+    total_tags=${#menu_items[@]}
+    total_pages=$(( (total_tags + PAGE_SIZE - 1) / PAGE_SIZE ))
+
+    while :; do
+
+        page_items=()
+
+        start=$(( page * PAGE_SIZE ))
+        end=$(( start + PAGE_SIZE - 1 ))
+        (( end >= total_tags )) && end=$(( total_tags - 1 ))
+
+        for ((i=start; i<=end; i++)); do
+            page_items+=("${menu_items[i]}" "")
+        done
+
+        (( page > 0 )) && \
+            page_items+=("__prev__" "<< Previous Page")
+
+        (( page < total_pages-1 )) && \
+            page_items+=("__next__" "Next Page >>")
+
+        choice=$(
+            whiptail \
+                --title "Select Tag (Page $((page+1))/$total_pages)" \
+                --menu "Show notes associated with which tag?" \
+                20 170 10 \
+                "${page_items[@]}" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        case "$choice" in
+            __prev__)
+                ((page--))
+                ;;
+
+            __next__)
+                ((page++))
+                ;;
+
+            *)
+                initial_tag="$choice"
+                break
+                ;;
+        esac
+
+    done
+
+    #
+    # Build checklist of matching notes
+    #
+    while IFS='|' read -r title path tags rest; do
+        IFS=',' read -ra taglist <<< "$tags"
+
+        for t in "${taglist[@]}"; do
+            [[ $t == "$initial_tag" ]] || continue
+            checklist_items+=("$path" "${tags}")
+            break
+        done
+    done < "$NOTES_DB"
+
+    (( ${#checklist_items[@]} == 0 )) && {
+        whiptail --msgbox "No notes are associated with '$initial_tag'." 8 50
+        return
+    }
+
+    PAGE_SIZE=15
+    page=0
+    total_notes=$(( ${#checklist_items[@]} / 2 ))
+    total_pages=$(( (total_notes + PAGE_SIZE - 1) / PAGE_SIZE ))
+
+    while :; do
+
+        page_items=()
+
+        start=$(( page * PAGE_SIZE ))
+        end=$(( start + PAGE_SIZE - 1 ))
+        (( end >= total_notes )) && end=$(( total_notes - 1 ))
+
+        for ((i=start; i<=end; i++)); do
+            idx=$(( i * 2 ))
+
+            path="${checklist_items[idx]}"
+            tags="${checklist_items[idx + 1]}"
+
+            if [[ ${selected_notes[$path]} ]]; then
+                state=ON
+            else
+                state=OFF
+            fi
+
+            page_items+=("$path" "[${tags}]" "$state")
+        done
+
+        (( page > 0 )) && \
+            page_items+=("__prev__" "<< Previous Page" OFF)
+
+        (( page < total_pages-1 )) && \
+            page_items+=("__next__" "Next Page >>" OFF)
+
+        page_items+=("__submit__" "Finish Selection" OFF)
+
+        choice=$(
+            whiptail \
+                --title "Select Notes (Page $((page+1))/$total_pages)" \
+                --checklist "Select notes:" \
+                20 170 10 \
+                "${page_items[@]}" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        #
+        # Parse selection
+        #
+        eval "set -- $choice"
+
+        prev_selected=0
+        next_selected=0
+        submit_selected=0
+
+        current_page_paths=()
+
+        for ((i=start; i<=end; i++)); do
+            idx=$(( i * 2 ))
+            current_page_paths+=("${checklist_items[idx]}")
+        done
+
+        #
+        # Remove all current-page selections first.
+        #
+        for path in "${current_page_paths[@]}"; do
+            unset 'selected_notes[$path]'
+        done
+
+        #
+        # Add newly selected items.
+        #
+        for item in "$@"; do
+            item=${item//\"/}
+
+            case "$item" in
+                __prev__)
+                    prev_selected=1
+                    ;;
+
+                __next__)
+                    next_selected=1
+                    ;;
+
+                __submit__)
+                    submit_selected=1
+                    ;;
+
+                *)
+                    selected_notes["$item"]=1
+                    ;;
+            esac
+        done
+
+        #
+        # Validate navigation selections.
+        #
+        if (( prev_selected && next_selected )); then
+            whiptail --msgbox \
+                "You cannot select both Previous and Next." \
+                8 50
+            continue
+        fi
+
+        if (( submit_selected && (prev_selected || next_selected) )); then
+            whiptail --msgbox \
+                "Submit cannot be selected together with Previous or Next." \
+                8 60
+            continue
+        fi
+
+        if (( prev_selected )); then
+            ((page--))
+            continue
+        fi
+
+        if (( next_selected )); then
+            ((page++))
+            continue
+        fi
+
+        if (( submit_selected )); then
+            break
+        fi
+
+    done
+
+    (( ${#selected_notes[@]} == 0 )) && return
+
+    #
+    # Collect all tags from selected notes
+    #
+    while IFS='|' read -r title path tags rest; do
+        [[ ${selected_notes[$path]} ]] || continue
+
+        IFS=',' read -ra taglist <<< "$tags"
+
+        for t in "${taglist[@]}"; do
+            [[ -n $t ]] && available_tags["$t"]=1
+        done
+    done < "$NOTES_DB"
+
+    #
+    # Build sorted tag list
+    #
+    menu_items=()
+
+    while IFS= read -r t; do
+        menu_items+=("$t")
+    done < <(
+        printf '%s\n' "${!available_tags[@]}" | sort -f
+    )
+
+    (( ${#menu_items[@]} == 0 )) && {
+        whiptail --msgbox "No associated tags found." 8 40
+        return 1
+    }
+
+    PAGE_SIZE=15
+    page=0
+
+    total_tags=${#menu_items[@]}
+    total_pages=$(( (total_tags + PAGE_SIZE - 1) / PAGE_SIZE ))
+
+    while :; do
+
+        page_items=()
+
+        start=$(( page * PAGE_SIZE ))
+        end=$(( start + PAGE_SIZE - 1 ))
+        (( end >= total_tags )) && end=$(( total_tags - 1 ))
+
+        for ((i=start; i<=end; i++)); do
+            page_items+=("${menu_items[i]}" "")
+        done
+
+        (( page > 0 )) && \
+            page_items+=("__prev__" "<< Previous Page")
+
+        (( page < total_pages-1 )) && \
+            page_items+=("__next__" "Next Page >>")
+
+        choice=$(
+            whiptail \
+                --title "Remove Tag (Page $((page+1))/$total_pages)" \
+                --menu "Select tag to remove:" \
+                20 170 10 \
+                "${page_items[@]}" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        case "$choice" in
+            __prev__)
+                ((page--))
+                ;;
+
+            __next__)
+                ((page++))
+                ;;
+
+            *)
+                removal_tag="$choice"
+                break
+                ;;
+        esac
+
+    done
+
+    #
+    # Confirmation
+    #
+    whiptail \
+        --title "Confirm" \
+        --yesno "Remove '$removal_tag' from the selected notes?" \
+        10 60 || return 1
+
+    #
+    # Rewrite database
+    #
+    local tmp
+    tmp=$(mktemp)
+
+    while IFS='|' read -r title path tags rest; do
+
+        if [[ ${selected_notes[$path]} ]]; then
+
+            IFS=',' read -ra taglist <<< "$tags"
+
+            local newtags=()
+
+            for t in "${taglist[@]}"; do
+                [[ $t == "$removal_tag" ]] && continue
+                [[ -n $t ]] && newtags+=("$t")
+            done
+
+            tags=$(IFS=,; echo "${newtags[*]}")
+        fi
+
+        printf '%s|%s|%s|%s\n' \
+            "$title" "$path" "$tags" "$rest"
+
+    done < "$NOTES_DB" > "$tmp"
+
+    mv "$tmp" "$NOTES_DB"
+
+    whiptail --msgbox "Tag removed successfully." 8 40
+}
+
 # Main menu function
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 23 70 13 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 23 70 14 \
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Print Note Using Printer" \
@@ -11957,12 +12299,13 @@ manage_notes() {
             "5" "Add New Note Tag" \
             "6" "Lookup Note Tag" \
             "7" "Do Stuff by Tag" \
-            "8" "Associate URL to Note" \
-            "9" "Dissociate URL from Note" \
-	        "10" "Open URL from Note" \
-            "11" "Open an eBook From Global List" \
-            "12" "Delete Notes" \
-	        "13" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
+            "8" "Dissociate Note Tag from Checklist" \
+            "9" "Associate URL to Note" \
+            "10" "Dissociate URL from Note" \
+	        "11" "Open URL from Note" \
+            "12" "Open an eBook From Global List" \
+            "13" "Delete Notes" \
+	        "14" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
         # Exit the function if the user presses Esc or Cancel
         if [ $? -ne 0 ] || [ -z "$option" ]; then
@@ -11977,12 +12320,13 @@ manage_notes() {
             5) add_note_tag_main ;;
             6) lookup_note_tags ;;
             7) do_note_filter_by_tag ;;
-            8) assoc_url_to_note ;;
-            9) dissoc_url_from_note ;;
-            10) open_url_assoc_to_note ;;
-            11) open_ebook_note_from_global_list ;;
-            12) delete_notes ;;
-    	    13) delete_global_tag_of_notes ;;
+            8) dissociate_note_tag_from_checklist ;;
+            9) assoc_url_to_note ;;
+            10) dissoc_url_from_note ;;
+            11) open_url_assoc_to_note ;;
+            12) open_ebook_note_from_global_list ;;
+            13) delete_notes ;;
+    	    14) delete_global_tag_of_notes ;;
             *) return ;;
         esac
     done
