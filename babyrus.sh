@@ -10661,6 +10661,7 @@ delete_notes() {
             continue
         fi
         if [ $nav_proceed -eq 1 ]; then
+            (( ${#global_selected[@]} == 0 )) && continue
             break
         fi
         # If no navigation option was chosen, re-display the current page.
@@ -10675,7 +10676,7 @@ delete_notes() {
     done
 
     if [ ${#final_selection[@]} -eq 0 ]; then
-        whiptail --title "No Selection" --msgbox "No notes selected for deletion." 10 40
+        #whiptail --title "No Selection" --msgbox "No notes selected for deletion." 10 40
         return 1
     fi
 
