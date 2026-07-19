@@ -12169,6 +12169,7 @@ dissociate_note_tag_from_checklist() {
         fi
 
         if (( submit_selected )); then
+            (( ${#selected_notes[@]} == 0 )) && continue
             break
         fi
 
