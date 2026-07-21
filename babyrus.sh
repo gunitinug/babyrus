@@ -13951,7 +13951,8 @@ do_stuff_with_project_file() {
 
         # Check URL database existence
         if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+            #whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+            whiptail --msgbox "No URLs found. Associate at least one URL and try again." 8 50 >/dev/tty
             return 1
         fi
 
