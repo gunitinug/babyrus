@@ -10768,6 +10768,9 @@ delete_global_tag_of_notes() {
     local tags_per_page=25
 
     while true; do
+        # after deletion in the menu, reload from list from database file.
+        mapfile -t all_tags < "$NOTES_TAGS_DB"
+
         # Calculate start and end indices for current page
         local start=$((current_page * tags_per_page))
         local end=$((start + tags_per_page - 1))
@@ -10806,60 +10809,47 @@ delete_global_tag_of_notes() {
         else
             # User selected a tag to delete
             # Add your tag deletion logic here
-            #whiptail --msgbox "Selected tag for deletion: $selected_tag" 10 50 >/dev/tty
-            break
+
+            # Check for conflicting notes
+            local conflicts=()
+            if [[ -f "$NOTES_DB" ]]; then
+                while IFS='|' read -r note_title _ note_tags _; do
+                    IFS=',' read -ra tags_arr <<< "$note_tags"
+                    for t in "${tags_arr[@]}"; do
+                        if [[ "$t" == "$selected_tag" ]]; then
+                            conflicts+=("$note_title")
+                            break
+                        fi
+                    done
+                done < "$NOTES_DB"
+            fi
+
+            # Handle conflicts or delete tag
+            if [[ ${#conflicts[@]} -gt 0 ]]; then
+                local conflict_msg="Cannot delete tag '$selected_tag' due to conflicts in:\n"
+                for title in "${conflicts[@]:0:10}"; do
+                    conflict_msg+="- $title\n"
+                done
+
+                (( ${#conflicts[@]} > 10 )) && conflict_msg+="and more..."
+
+                conflict_msg+="\n\nPlease dissociate the tag from these notes first."
+                whiptail --msgbox "$conflict_msg" 20 80
+            else
+                # Confirm before deletion
+                whiptail --title "Confirm Deletion" \
+                    --yesno "Are you sure you want to delete tag '$selected_tag' from the global list?" 10 60 \
+                || return 1
+
+                # Remove tag from tags database
+                local temp_file=$(mktemp)
+                grep -vFx "$selected_tag" "$NOTES_TAGS_DB" > "$temp_file"
+                mv "$temp_file" "$NOTES_TAGS_DB"
+                whiptail --msgbox "Note tag '$selected_tag' has been successfully deleted from global list." 10 50
+            fi            
         fi
     done
     # END FIX.
-
-#    # Read all tags into an array
-#    mapfile -t tags < "$NOTES_TAGS_DB"
-#
-#    # Prepare whiptail menu options
-#    local menu_options=()
-#    for tag in "${tags[@]}"; do
-#        menu_options+=("$tag" "")
-#    done
-#
-#    # Show tag selection menu
-#    local selected_tag
-#    selected_tag=$(whiptail --menu "Choose a note tag to delete from global list." 20 50 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
-#    [[ $? -ne 0 ]] && return  # User canceled
-
-    # Check for conflicting notes
-    local conflicts=()
-    if [[ -f "$NOTES_DB" ]]; then
-        while IFS='|' read -r note_title _ note_tags _; do
-            IFS=',' read -ra tags_arr <<< "$note_tags"
-            for t in "${tags_arr[@]}"; do
-                if [[ "$t" == "$selected_tag" ]]; then
-                    conflicts+=("$note_title")
-                    break
-                fi
-            done
-        done < "$NOTES_DB"
-    fi
-
-    # Handle conflicts or delete tag
-    if [[ ${#conflicts[@]} -gt 0 ]]; then
-        local conflict_msg="Cannot delete tag '$selected_tag' due to conflicts in:\n"
-        for title in "${conflicts[@]}"; do
-            conflict_msg+="- $title\n"
-        done
-        conflict_msg+="\nPlease dissociate the tag from these notes first."
-        whiptail --msgbox "$conflict_msg" 20 50
-    else
-	# Confirm before deletion
-	whiptail --title "Confirm Deletion" \
-        --yesno "Are you sure you want to delete tag '$selected_tag' from the global list?" 10 60 \
-	|| return 1
-
-        # Remove tag from tags database
-        local temp_file=$(mktemp)
-        grep -vFx "$selected_tag" "$NOTES_TAGS_DB" > "$temp_file"
-        mv "$temp_file" "$NOTES_TAGS_DB"
-        whiptail --msgbox "Note tag '$selected_tag' has been successfully deleted from global list." 10 50
-    fi
 }
 
 URLS_DB="$(pwd)/urls/urls.db"
