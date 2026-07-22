@@ -17870,7 +17870,7 @@ Copyleft © 2025, 2026 Logan Lee — GPLv3." \
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
+        choice=$(NEWT_COLORS='root=,magenta textbox=red,' whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
