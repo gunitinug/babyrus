@@ -681,7 +681,7 @@ generate_trunc_delete_ebook() {
 
 generate_trunc_assoc_tag() {
         local counter=1
-        local path space dir file
+        local path tags space dir file
         local truncated_dir truncated_file
 
         while IFS= read -r -d $'\x1f' group; do
@@ -689,7 +689,7 @@ generate_trunc_assoc_tag() {
             [[ -z "$group" ]] && continue
 
             # Split group into fields using \x1E as delimiter
-            IFS=$'\x1e' read -r path space _ <<< "$group"
+            IFS=$'\x1e' read -r path tags _ <<< "$group"
 
             dir="$(dirname "$path")"
             file="$(basename "$path")"
@@ -698,7 +698,7 @@ generate_trunc_assoc_tag() {
             truncated_dir="$(truncate_dirname "$dir" 35)"
             truncated_file="$(truncate_filename "$file" 65)"
 
-            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" " "
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file} $tags" " "
             ((counter++))
         done < <(split_second_print "$@")
 }
@@ -2980,7 +2980,7 @@ open_file_search_by_tag() {
             IFS=',' read -ra tag_array <<< "$tags"
             for t in "${tag_array[@]}"; do
                 if [ "$t" = "$selected_tag" ]; then
-                    files+=("$path" "")
+                    files+=("$path" "[${tags}]")
                     break
                 fi
             done
