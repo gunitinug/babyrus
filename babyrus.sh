@@ -11999,7 +11999,7 @@ dissociate_note_tag_from_checklist() {
             whiptail \
                 --title "Select Tag (Page $((page+1))/$total_pages)" \
                 --menu "Show notes associated with which tag?" \
-                20 170 10 \
+                20 70 10 \
                 "${page_items[@]}" \
                 3>&1 1>&2 2>&3
         ) || return 1
@@ -12225,7 +12225,7 @@ dissociate_note_tag_from_checklist() {
             whiptail \
                 --title "Remove Tag (Page $((page+1))/$total_pages)" \
                 --menu "Select tag to remove:" \
-                20 170 10 \
+                20 70 10 \
                 "${page_items[@]}" \
                 3>&1 1>&2 2>&3
         ) || return 1
