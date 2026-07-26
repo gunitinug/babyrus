@@ -17843,16 +17843,19 @@ Warning: Any existing BABYRUS database data will be overwritten during restorati
 ################################
 # Main Menu
 ################################
-msg1="'And let us run with perseverance the race marked out"
-msg2="for us, fixing our eyes on Jesus, the pioneer and"
-msg3="perfector of faith.' Hebrews 12:1-2"
+msg1="'But the Helper, the Holy Spirit, whom the Father will"
+msg2="send in My name, He will teach you all things, and bring"
+msg3="to your remembrance all things that I said to you.'"
+msg4="†John 14:26"
 padding1=$(( (53 - ${#msg1}) / 2 ))
 padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
 padding2=$(( (55 - ${#msg2}) / 2 ))
 padded_msg2="$(printf "%*s%s" $padding2 "" "$msg2")"
 padding3=$(( (53 - ${#msg3}) / 2 ))
 padded_msg3="$(printf "%*s%s" $padding3 "" "$msg3")"
-padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}"
+padding4=$(( (53 - ${#msg4}) / 2 ))
+padded_msg4="$(printf "%*s%s" $padding4 "" "$msg4")"
+padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}\n${padded_msg4}"
 MAIN_MENU_STR="
 ${padded_msg}
 "
