@@ -8830,7 +8830,7 @@ get_note_tag_from_global_list() {
         # Use whiptail to display menu
         local selected_tag
         selected_tag=$(whiptail --title "Do stuff by Tag (Page $((current_page + 1))/$total_pages)" \
-                               --menu "Choose a tag" 20 40 10 "${menu_items[@]}" \
+                               --menu "Choose a tag" 20 70 10 "${menu_items[@]}" \
                                3>&1 1>&2 2>&3 >/dev/tty)
 
         # Check if selection was cancelled
@@ -11853,6 +11853,111 @@ add_note_tag_main() {
     return 1
 }
 
+add_note_tag_menu() {
+    local subject=""
+    local topic=""
+    local tag_name=""
+    local choice
+
+    while true; do
+        # Construct tag name
+        if [[ -n "$subject" && -n "$topic" ]]; then
+            tag_name="${subject}->${topic}"
+        else
+            tag_name="$subject"
+        fi
+
+        # Silently remove banned characters
+        tag_name="${tag_name//[|,#:;]/}"
+
+        choice=$(
+            whiptail \
+                --title "Add Note Tag" \
+                --menu "Create a new tag (formatted 'subject->topic'):" \
+                18 70 8 \
+                "Subject" "${subject:-<not set>}" \
+                "Topic" "${topic:-<not set>}" \
+                "Tag Name" "'${tag_name}'" \
+                "Save" "" \
+                3>&1 1>&2 2>&3
+        ) || return 1
+
+        case "$choice" in
+            Subject)
+                subject=$(
+                    whiptail \
+                        --title "Subject" \
+                        --inputbox "Enter subject:" \
+                        10 60 "$subject" \
+                        3>&1 1>&2 2>&3
+                ) || continue
+                ;;
+
+            Topic)
+                topic=$(
+                    whiptail \
+                        --title "Topic" \
+                        --inputbox "Enter topic (optional):" \
+                        10 60 "$topic" \
+                        3>&1 1>&2 2>&3
+                ) || continue
+                ;;
+
+            Save)
+                # Reconstruct again to ensure latest values
+                if [[ -n "$subject" && -n "$topic" ]]; then
+                    tag_name="${subject}->${topic}"
+                else
+                    tag_name="$subject"
+                fi
+
+                # Remove banned characters
+                tag_name="${tag_name//[|,#:;]/}"
+
+                # Trim whitespace
+                tag_name="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$tag_name")"
+
+                if [[ -z "$tag_name" ]]; then
+                    whiptail \
+                        --title "Error" \
+                        --msgbox "Tag Name cannot be empty." \
+                        8 40
+                    continue
+                fi
+
+                if [[ "$tag_name" == "ANY TAG" ]]; then
+                    whiptail \
+                        --title "Error" \
+                        --msgbox "'ANY TAG' is a reserved tag name." \
+                        8 45
+                    continue
+                fi
+
+                if grep -Fxq -- "$tag_name" "$NOTES_TAGS_DB"; then
+                    whiptail \
+                        --title "Duplicate" \
+                        --msgbox "Tag already exists." \
+                        8 40
+                    continue
+                fi
+
+                {
+                    cat "$NOTES_TAGS_DB"
+                    printf '%s\n' "$tag_name"
+                } | sort -u > "${NOTES_TAGS_DB}.tmp" &&
+                    mv "${NOTES_TAGS_DB}.tmp" "$NOTES_TAGS_DB"
+
+                whiptail \
+                    --title "Success" \
+                    --msgbox "Tag added:\n\n$tag_name" \
+                    10 50
+
+                return 0
+                ;;
+        esac
+    done
+}
+
 lookup_note_tags() {
     local search matches status
     local db_file="$NOTES_TAGS_DB"
@@ -12317,7 +12422,7 @@ manage_notes() {
             2) list_notes ;;
             3) print_notes ;;
             4) open_note_ebook_page ;;
-            5) add_note_tag_main ;;
+            5) add_note_tag_menu ;;
             6) lookup_note_tags ;;
             7) do_note_filter_by_tag ;;
             8) dissociate_note_tag_from_checklist ;;
