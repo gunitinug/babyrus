@@ -8892,7 +8892,7 @@ list_notes_from_filtered() {
             title_tr="${title:0:50}"
 
             local tag_display=""
-            [ -n "$tags" ] && tag_display=" [${tags}]"
+            [ -n "$tags" ] && tag_display="$(truncate_note_tags_by_tag "$tags")"
             menu_entries+=("${idx}:${title_tr}" "${tag_display}")
             MENU_PATH_ENTRIES+=("$path" "")
             ((idx++))
@@ -8950,10 +8950,11 @@ get_notes_from_filtered() {
 
         # Truncate tags
         local tags_tr
-        tags_tr="$(truncate_tags "$tags")"
+        #tags_tr="$(truncate_tags "$tags")"
+        tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
         # Menu options (now, truncated)
-        options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+        options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
     done
 
     # Paginate selection
@@ -9201,9 +9202,11 @@ associate_notes_by_tag_to_project() {
         local -a all_items=()
         local line
         for line in "$@"; do
-            local path
+            local path tags
             path=$(echo "$line" | cut -d'|' -f2)
-            all_items+=( "$path" "" )
+            tags="$(echo "$line" | cut -d'|' -f3)"
+
+            all_items+=( "$path" "$tags" )
         done
 
         # # If no filtered notes to begin with then display the warning message.
@@ -9230,7 +9233,11 @@ associate_notes_by_tag_to_project() {
                 local tag="${all_items[i*2]}"
                 local state=OFF
                 [[ ${selected_map["$tag"]} ]] && state=ON
-                options+=( "$tag" "" "$state" )
+
+                local t__="${all_items[i*2+1]}"
+                local tags_tr="$(truncate_note_tags_by_tag "$t__")"
+
+                options+=( "$tag" "$tags_tr" "$state" )
             done
 
             # Navigation
@@ -9437,6 +9444,42 @@ associate_notes_by_tag_to_project() {
 }
 
 do_note_filter_by_tag() {
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     assoc_url_to_note_by_tag() {
         touch "$URLS_DB"
         
@@ -9464,8 +9507,11 @@ do_note_filter_by_tag() {
         # FIX TO ADD TAGS TO MENU_ITEMS
         # Read note paths
         local menu_items=()
+        local tags_tr=""
         while IFS='|' read -r _ path tags _; do
-            menu_items+=("$path" "[${tags}]")
+            tags_tr="$(truncate_note_tags_by_tag "$tags")"
+
+            menu_items+=("$path" "${tags_tr}")
         done < <(printf '%s\n' "${lines[@]}")
 
         if [[ ${#menu_items[@]} -eq 0 ]]; then
@@ -9663,9 +9709,13 @@ do_note_filter_by_tag() {
             IFS=',' read -r -a tag_array <<< "$tags__"
 
             # Should have tag since do stuff by tag at the beginning
+            local tags_tr=""
             for tag in "${tag_array[@]}"; do
                 if [[ "$tag" == "$selected_tag" ]]; then
-                    menu_items+=("$path" "[${tags__}]")
+                    tags_tr="$(truncate_note_tags_by_tag "$tags__")"
+
+                    #menu_items+=("$path" "[${tags__}]")
+                    menu_items+=("$path" "${tags_tr}")
                     break  # optional: stop after first match
                 fi
             done
@@ -9816,9 +9866,13 @@ do_note_filter_by_tag() {
                 IFS=',' read -r -a tag_array <<< "$tags__"
 
                 # Should have tag since do stuff by tag at the beginning
+                local tags_tr
                 for tag in "${tag_array[@]}"; do
                     if [[ "$tag" == "$selected_tag" ]]; then
-                        menu_items+=("$path" "[${tags__}]")
+                        tags_tr="$(truncate_note_tags_by_tag "$tags__")"
+
+                        #menu_items+=("$path" "[${tags__}]")
+                        menu_items+=("$path" "$tags_tr")
                         break  # optional: stop after first match
                     fi
                 done
@@ -9903,10 +9957,11 @@ do_note_filter_by_tag() {
 
             # Truncate tags
             local tags_tr
-            tags_tr="$(truncate_tags "$tags")"
+            #tags_tr="$(truncate_tags "$tags")"
+            tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
             # Menu options (now, truncated)
-            options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+            options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
         done
 
         # Paginate selection
@@ -10004,10 +10059,11 @@ do_note_filter_by_tag() {
 
             # Truncate tags
             local tags_tr
-            tags_tr="$(truncate_tags "$tags")"
+            #tags_tr="$(truncate_tags "$tags")"
+            tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
             # Menu options (now, truncated)
-            options+=("$((i+1))" "${note_path_tr} [${tags_tr}]")
+            options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
         done
 
         # Paginate selection
@@ -10123,8 +10179,11 @@ Tag you have chosen will be added to the selected notes." 10 60
                 note_paths+=("$path")
 
                 label="$path"
+                local tags_tr=""
                 if [[ -n $tags ]]; then
-                    label+=" [$tags]"
+                    tags_tr="$(truncate_note_tags_by_tag "$tags")"
+
+                    label+=" $tags_tr"
                 else
                     label+=" []"
                 fi
