@@ -9961,7 +9961,8 @@ do_note_filter_by_tag() {
             tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
             # Menu options (now, truncated)
-            options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
+            #options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
+            options+=("$((i+1))" "${filename_tr} ${tags_tr}")
         done
 
         # Paginate selection
