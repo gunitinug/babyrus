@@ -9507,12 +9507,20 @@ do_note_filter_by_tag() {
 
         # FIX TO ADD TAGS TO MENU_ITEMS
         # Read note paths
+        local title
+        local paths_orig=()
+        local i=0
         local menu_items=()
         local tags_tr=""
-        while IFS='|' read -r _ path tags _; do
+        while IFS='|' read -r title path tags _; do
             tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
-            menu_items+=("$path" "${tags_tr}")
+            paths_orig+=("$path")
+
+            #menu_items+=("$path" "${tags_tr}")
+            menu_items+=("$i" "$title ${tags_tr}")
+            
+            ((i++))
         done < <(printf '%s\n' "${lines[@]}")
 
         if [[ ${#menu_items[@]} -eq 0 ]]; then
@@ -9523,7 +9531,9 @@ do_note_filter_by_tag() {
         # Paginate instead
         ! paginate_get_notes "Select Note to Associate URL to" "${menu_items[@]}" && return 1
         local selected_path
-        selected_path="$SELECTED_ITEM"
+        #selected_path="$SELECTED_ITEM"
+        selected_path="${paths_orig[$SELECTED_ITEM]}"
+
         [[ -z "$selected_path" ]] && return 1
 
         # Load existing URLs
