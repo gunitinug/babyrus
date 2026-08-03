@@ -8937,6 +8937,7 @@ get_notes_from_filtered() {
 
     local options=()
     for i in "${!lines[@]}"; do
+        local note_title=$(cut -d'|' -f1 <<< "${lines[$i]}")
         local note_path=$(cut -d'|' -f2 <<< "${lines[$i]}")
         local tags=$(cut -d'|' -f3 <<< "${lines[$i]}")
 
@@ -8954,7 +8955,7 @@ get_notes_from_filtered() {
         tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
         # Menu options (now, truncated)
-        options+=("$((i+1))" "${note_path_tr} ${tags_tr}")
+        options+=("$((i+1))" "${note_title} ${tags_tr}")
     done
 
     # Paginate selection
