@@ -10324,19 +10324,28 @@ Tag you have chosen will be added to the selected notes." 10 60
 
     lookup_info_by_tag() {
         local -a items=()
+        local -a paths_orig=()
         local -a tags_orig=()
+        local -a note_title_orig=()
         local line
         local title note_path tags rest
 
         # Each argument has the format:
         # note title|/path/to/note/note.txt|tag1,tag2,another tag|rest
+        local i=0
         for line in "$@"; do
             IFS='|' read -r title note_path tags rest <<< "$line"
+
+            paths_orig+=("$note_path")
 
             tags_orig+=("$tags")
             local tags_tr="$(truncate_note_tags_by_tag "$tags")"
 
-            items+=("$note_path" "$tags_tr")
+            note_title_orig+=("$title")
+
+            #items+=("$note_path" "$tags_tr")
+            items+=("$i" "$title $tags_tr")
+            ((i++))
         done
 
         local total=$(( ${#items[@]} / 2 ))
@@ -10417,14 +10426,17 @@ Tag you have chosen will be added to the selected notes." 10 60
             esac
 
             # Find the selected note on the current page.
-            local selected_index=-1
+            # local selected_index=-1
 
-            for ((i=start; i<end; i++)); do
-                if [[ "${items[i*2]}" == "$selected" ]]; then
-                    selected_index=$i
-                    break
-                fi
-            done
+            # for ((i=start; i<end; i++)); do
+            #     if [[ "${items[i*2]}" == "$selected" ]]; then
+            #         selected_index=$i
+            #         break
+            #     fi
+            # done
+
+            # we get selected index straight from menu_items now.
+            selected_index=$selected    
 
             # Shouldn't normally happen.
             (( selected_index < 0 )) && continue
@@ -10438,11 +10450,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             whiptail \
                 --title "Note Information" \
                 --msgbox "$(printf \
-                    'Note path:\n%s\n\nTags:\n%s' \
-                    "$selected" \
+                    'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s' \
+                    "${paths_orig[$selected]}" \
+                    "${note_title_orig[$selected]}" \
                     "$selected_tags"
                 )" \
-                12 80
+                20 90
         done
     }        
 
