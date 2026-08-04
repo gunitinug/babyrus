@@ -9879,7 +9879,10 @@ do_note_filter_by_tag() {
             # Select note path
             local menu_items=("<< Return" "")
             local tags__		# FIX: display tags too!
+            local title__
+            local paths_orig=()
             for path in "${note_paths[@]}"; do
+                title__=$(awk -F'|' -v target="$path" '$2 == target { print $1 }' "$NOTES_DB")
                 tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
 
                 # FIX: FILTER BY SELECTED TAG.
@@ -9888,12 +9891,18 @@ do_note_filter_by_tag() {
 
                 # Should have tag since do stuff by tag at the beginning
                 local tags_tr
+                local i=0
                 for tag in "${tag_array[@]}"; do
                     if [[ "$tag" == "$selected_tag" ]]; then
+                        paths_orig+=("$path")
+
                         tags_tr="$(truncate_note_tags_by_tag "$tags__")"
 
                         #menu_items+=("$path" "[${tags__}]")
-                        menu_items+=("$path" "$tags_tr")
+                        #menu_items+=("$path" "$tags_tr")
+                        menu_items+=("$i" "$title__ $tags_tr")
+
+                        ((i++))
                         break  # optional: stop after first match
                     fi
                 done
@@ -9902,7 +9911,14 @@ do_note_filter_by_tag() {
             # Paginate instead!
             ! paginate_get_notes "Select Note to Open URL" "${menu_items[@]}" && return 1
             local selected_path
-            selected_path="$SELECTED_ITEM"
+            #selected_path="$SELECTED_ITEM"
+
+            # hack
+            if [[ "$SELECTED_ITEM" == "<< Return" ]]; then
+                selected_path="$SELECTED_ITEM"
+            else
+                selected_path="${paths_orig[$SELECTED_ITEM]}"
+            fi
             [[ -z "$selected_path" ]] && return 1
             
             # Handle return option
