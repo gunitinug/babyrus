@@ -10153,7 +10153,7 @@ Step 2: Select multiple notes to add the tag to.
 Tag you have chosen will be added to the selected notes." 10 60
         local notes_db="${NOTES_DB:-}"
         local tags_db="${NOTES_TAGS_DB:-}"
-        local page_size="${PAGE_SIZE:-20}"
+        local page_size="${PAGE_SIZE:-30}"
 
         if [[ -z $notes_db || ! -r $notes_db || ! -w $notes_db ]]; then
             printf 'ERROR: NOTES_DB must be set and writable: %s\n' "${notes_db:-<unset>}" >&2
@@ -10238,7 +10238,9 @@ Tag you have chosen will be added to the selected notes." 10 60
                 note_ids+=("$id")
                 note_paths+=("$path")
 
-                label="$path"
+                #label="$path"   # hack: display note title instead.
+                label="$(awk -F'|' -v path="$path" '$2 == path { print $1; exit }' "$NOTES_DB")"                
+
                 local tags_tr=""
                 if [[ -n $tags ]]; then
                     tags_tr="$(truncate_note_tags_by_tag "$tags")"
