@@ -9197,7 +9197,7 @@ associate_notes_by_tag_to_project() {
     }    
 
     select_filtered_notes_by_tag_checklist() {
-        local PAGE_SIZE=10
+        local PAGE_SIZE=30  # 30 seems to be appropriate.
 
         # ---- convert input paths → (tag, empty-desc) pairs ----
         local -a all_items=()
@@ -9229,7 +9229,8 @@ associate_notes_by_tag_to_project() {
             local start=$(( current_page * PAGE_SIZE ))
             local end=$(( start + PAGE_SIZE ))
 
-            # Page items
+            # Page items - hack: display note title instead of file path in checklist.
+            # $tag is actually a file path.
             for ((i=start; i<end && i<total_items; i++)); do
                 local tag="${all_items[i*2]}"
                 local state=OFF
@@ -9238,7 +9239,8 @@ associate_notes_by_tag_to_project() {
                 local t__="${all_items[i*2+1]}"
                 local tags_tr="$(truncate_note_tags_by_tag "$t__")"
 
-                options+=( "$tag" "$tags_tr" "$state" )
+                local tag_base__="$(basename "$tag")"
+                options+=( "$tag_base__" "$tags_tr" "$state" )
             done
 
             # Navigation
@@ -9260,12 +9262,27 @@ associate_notes_by_tag_to_project() {
 
             local go_prev=0 go_next=0 do_submit=0
 
+            # remember, $item here is actually the basename.
             for item in "${chosen[@]}"; do
                 case "$item" in
                     "<< Prev page") go_prev=1 ;;
                     ">> Next page") go_next=1 ;;
                     "SUBMIT")       do_submit=1 ;;
-                    *) selected_map["$item"]=1 ;;
+                    *)
+                        local full_path__="$(awk -F'|' -v basename="$item" '
+                            {
+                                path = $2
+                                n = split(path, parts, "/")
+                                if (parts[n] == basename) {
+                                    print path
+                                    exit
+                                }
+                            }
+                        ' "$NOTES_DB")"                    
+
+                        [[ -n "$full_path__" ]] && selected_map["$full_path__"]=1
+                        #selected_map["$item"]=1
+                        ;;
                 esac
             done
 
@@ -9273,8 +9290,11 @@ associate_notes_by_tag_to_project() {
             for ((i=start; i<end && i<total_items; i++)); do
                 local tag="${all_items[i*2]}"
                 local found=0
+
+                # remember here $item is basename not file path and $tag here is actually the file path.
                 for item in "${chosen[@]}"; do
-                    [[ "$item" == "$tag" ]] && found=1
+                    [[ "$(basename "$tag")" == "$item" ]] && found=1
+                    #[[ "$item" == "$tag" ]] && found=1
                 done
                 [[ $found -eq 0 ]] && unset selected_map["$tag"]
             done
