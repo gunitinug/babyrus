@@ -9707,9 +9707,12 @@ do_note_filter_by_tag() {
         #exit        
 
         # Select note path
+        local title__
+        local paths_orig=()
         local menu_items=()
         local tags__		# FIX: display tags too!
         for path in "${note_paths[@]}"; do
+            title__="$(awk -F'|' -v path="$path" '$2 == path { print $1; exit }' "$NOTES_DB")"
             tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
 
             # logic error: some matching entries from NOTES_DB might have no tag so it will return here, if that's the case.
@@ -9720,13 +9723,19 @@ do_note_filter_by_tag() {
             IFS=',' read -r -a tag_array <<< "$tags__"
 
             # Should have tag since do stuff by tag at the beginning
+            local i=0
             local tags_tr=""
             for tag in "${tag_array[@]}"; do
                 if [[ "$tag" == "$selected_tag" ]]; then
                     tags_tr="$(truncate_note_tags_by_tag "$tags__")"
 
+                    paths_orig+=("$path")
+
                     #menu_items+=("$path" "[${tags__}]")
-                    menu_items+=("$path" "${tags_tr}")
+                    #menu_items+=("$path" "${tags_tr}")
+                    menu_items+=("$i" "$title__ ${tags_tr}")
+
+                    ((i++))
                     break  # optional: stop after first match
                 fi
             done
@@ -9745,7 +9754,8 @@ do_note_filter_by_tag() {
         # Paginate instead!
         ! paginate_get_notes "Select Note to Dissociate URL" "${menu_items[@]}" && return 1
         local selected_path
-        selected_path="$SELECTED_ITEM"
+        #selected_path="$SELECTED_ITEM"
+        selected_path="${paths_orig[$SELECTED_ITEM]}"
         [[ -z "$selected_path" ]] && return 1
 
         # Load existing URLs
