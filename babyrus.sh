@@ -1099,7 +1099,7 @@ associate_tag() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" 20 70 10 \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -13598,7 +13598,7 @@ associate_note_to_project() {
     #[[ -z "$selected_project_path" ]] && return 1  # User canceled
 
     # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-    local note_tag_options=("NO TAG" "Has no tag" "ANY TAG" "Any tag (no filter)")    
+    local note_tag_options=("NO TAG" "" "ANY TAG" "")    
 
     while IFS= read -r tag; do
         [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
@@ -14993,7 +14993,7 @@ do_stuff_with_project_file() {
         [[ -z "$selected_project_path" ]] && return 1
 
         # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-        local note_tag_options=("NO TAG" "Has no tag" "ANY TAG" "Any tag (no filter)")    
+        local note_tag_options=("NO TAG" "" "ANY TAG" "")    
 
         while IFS= read -r tag; do
             [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
@@ -17112,7 +17112,7 @@ do_stuff_shortlisted() {
         [[ -z "$selected_project_path" ]] && return 1
 
         # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-        local note_tag_options=("NO TAG" "Has no tag" "ANY TAG" "Any tag (no filter)")    
+        local note_tag_options=("NO TAG" "" "ANY TAG" "")    
 
         while IFS= read -r tag; do
             [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
