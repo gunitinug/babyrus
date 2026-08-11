@@ -12236,6 +12236,179 @@ add_note_tag_menu() {
 }
 
 lookup_note_tags() {
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
+    lookup_info_by_tag() {
+        local -a items=()
+        local -a paths_orig=()
+        local -a tags_orig=()
+        local -a note_title_orig=()
+        local line
+        local title note_path tags rest
+
+        # Each argument has the format:
+        # note title|/path/to/note/note.txt|tag1,tag2,another tag|rest
+        local i=0
+        for line in "$@"; do
+            IFS='|' read -r title note_path tags rest <<< "$line"
+
+            paths_orig+=("$note_path")
+
+            tags_orig+=("$tags")
+            local tags_tr="$(truncate_note_tags_by_tag "$tags")"
+
+            note_title_orig+=("$title")
+
+            #items+=("$note_path" "$tags_tr")
+            items+=("$i" "$title $tags_tr")
+            ((i++))
+        done
+
+        local total=$(( ${#items[@]} / 2 ))
+        local page_size=20
+
+        # No matching notes.
+        if (( total == 0 )); then
+            whiptail \
+                --title "Alert" \
+                --msgbox "No matching notes found. Add at least one note and try again." \
+                8 40
+
+            return 1
+        fi
+
+        local total_pages=$(( (total + page_size - 1) / page_size ))
+        local page=0
+
+        while true; do
+            local -a menu_items=()
+            local start=$((page * page_size))
+            local end=$((start + page_size))
+
+            (( end > total )) && end=$total
+
+            # Add notes for the current page.
+            local i
+
+            for ((i=start; i<end; i++)); do
+                menu_items+=(
+                    "${items[i*2]}"
+                    "${items[i*2+1]}"
+                )
+            done
+
+            # Add pagination options only when applicable.
+            if (( page > 0 )); then
+                menu_items+=(
+                    "__prev__"
+                    "Previous page"
+                )
+            fi
+
+            if (( page < total_pages - 1 )); then
+                menu_items+=(
+                    "__next__"
+                    "Next page"
+                )
+            fi
+
+            local selected
+
+            selected=$(
+                whiptail \
+                    --title "Lookup notes" \
+                    --menu "Select a note (Page $((page + 1))/$total_pages)" \
+                    20 170 10 \
+                    "${menu_items[@]}" \
+                    3>&1 1>&2 2>&3
+            ) || return 1
+
+            case "$selected" in
+                __next__)
+                    # Defensive check: don't go past the last page.
+                    if (( page < total_pages - 1 )); then
+                        (( page++ ))
+                    fi
+                    continue
+                    ;;
+
+                __prev__)
+                    # Defensive check: don't go before the first page.
+                    if (( page > 0 )); then
+                        (( page-- ))
+                    fi
+                    continue
+                    ;;
+            esac
+
+            # Find the selected note on the current page.
+            # local selected_index=-1
+
+            # for ((i=start; i<end; i++)); do
+            #     if [[ "${items[i*2]}" == "$selected" ]]; then
+            #         selected_index=$i
+            #         break
+            #     fi
+            # done
+
+            # we get selected index straight from menu_items now.
+            selected_index=$selected    
+
+            # Shouldn't normally happen.
+            (( selected_index < 0 )) && continue
+
+            local selected_tags="${tags_orig[selected_index]}"
+
+            # Remove the display brackets.
+            selected_tags="${selected_tags#[}"
+            selected_tags="${selected_tags%]}"
+
+            whiptail \
+                --title "Note Information" \
+                --msgbox "$(printf \
+                    'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s' \
+                    "${paths_orig[$selected]}" \
+                    "${note_title_orig[$selected]}" \
+                    "$selected_tags"
+                )" \
+                20 90
+        done
+    }        
+
     local search matches status
     local db_file="$NOTES_TAGS_DB"
 
@@ -12320,7 +12493,21 @@ lookup_note_tags() {
                 ((end < total)) && ((page++))
                 ;;
             *)
-                continue
+                mapfile -t matching_lines < <(
+                    awk -F'|' -v tag="$choice" '
+                        {
+                            n = split($3, tags, ",")
+                            for (i = 1; i <= n; i++) {
+                                if (tags[i] == tag) {
+                                    print
+                                    break
+                                }
+                            }
+                        }
+                    ' "$NOTES_DB"
+                )
+
+                lookup_info_by_tag "${matching_lines[@]}" || return 1         
                 ;;
         esac
     done
