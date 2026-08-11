@@ -9731,6 +9731,8 @@ do_note_filter_by_tag() {
         local paths_orig=()
         local menu_items=()
         local tags__		# FIX: display tags too!
+
+        local i=0   # correct!
         for path in "${note_paths[@]}"; do
             title__="$(awk -F'|' -v path="$path" '$2 == path { print $1; exit }' "$NOTES_DB")"
             tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
@@ -9743,7 +9745,7 @@ do_note_filter_by_tag() {
             IFS=',' read -r -a tag_array <<< "$tags__"
 
             # Should have tag since do stuff by tag at the beginning
-            local i=0
+            #local i=0   # wrong!
             local tags_tr=""
             for tag in "${tag_array[@]}"; do
                 if [[ "$tag" == "$selected_tag" ]]; then
@@ -9901,6 +9903,8 @@ do_note_filter_by_tag() {
             local tags__		# FIX: display tags too!
             local title__
             local paths_orig=()
+            
+            local i=0
             for path in "${note_paths[@]}"; do
                 title__=$(awk -F'|' -v target="$path" '$2 == target { print $1 }' "$NOTES_DB")
                 tags__=$(awk -F'|' -v target="$path" '$2 == target { print $3 }' "$NOTES_DB")
@@ -9911,7 +9915,7 @@ do_note_filter_by_tag() {
 
                 # Should have tag since do stuff by tag at the beginning
                 local tags_tr
-                local i=0
+                #local i=0   # wrong! resets each path!
                 for tag in "${tag_array[@]}"; do
                     if [[ "$tag" == "$selected_tag" ]]; then
                         paths_orig+=("$path")
@@ -9920,7 +9924,7 @@ do_note_filter_by_tag() {
 
                         #menu_items+=("$path" "[${tags__}]")
                         #menu_items+=("$path" "$tags_tr")
-                        menu_items+=("$i" "$title__ $tags_tr")
+                        menu_items+=("$i" "$title__ $tags_tr")  # index broken here?
 
                         ((i++))
                         break  # optional: stop after first match
@@ -9946,12 +9950,18 @@ do_note_filter_by_tag() {
                 return 0
             fi
 
+            # debug
+            #echo "$selected_path"   # broken here already! index is the same!!
+
             # Extract URLs for selected note
             local urls=()
             local titles=()
             while IFS= read -r line; do
                 # Only for the matched line...
                 if [[ "$line" == "${selected_path}${GS}"* ]]; then
+                    # debug
+                    #echo "$line"
+
                     IFS="$RS" read -ra entries <<< "${line#*$GS}"
                     for entry in "${entries[@]}"; do
                         IFS="$US" read -r url title <<< "$entry"
