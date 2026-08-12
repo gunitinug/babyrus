@@ -8220,6 +8220,42 @@ paginate_get_notes() {
 }
 
 list_notes() {
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     # SUB FUNCTION FOR PAGINATE SELECT TAG.
     show_tag_menu() {
         local TAG_OPTIONS__=("$@")  # Expect pairs: tag, ""
@@ -8356,9 +8392,11 @@ list_notes() {
             # Truncate long title
             title_tr="${title:0:50}"
 
-            local tag_display=""
-            [ -n "$tags" ] && tag_display=" [${tags}]"
-            menu_entries+=("${idx}:${title_tr}" "${tag_display}")
+            local tag_display="[]"
+            local tag_display_tr
+            [ -n "$tags" ] && tag_display="[${tags}]"
+            tag_display_tr="$(truncate_note_tags_by_tag "$tag_display")"
+            menu_entries+=("${idx}:${title_tr}" "${tag_display_tr}")
             MENU_PATH_ENTRIES+=("$path" "")
             ((idx++))
         done < <(printf '%s\n' "${lines[@]}")
