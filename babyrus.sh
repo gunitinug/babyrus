@@ -14581,12 +14581,13 @@ add_project() {
                     "SAVE" "Save changes" \
                     "REVERT" "Discard changes and reload from disk" \
                     "---" "PROJECT TREE BELOW ---" \
+                    "" "" \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
             )" || break
 
             case "$choice" in
-                "---")
+                "---"|"")
                     continue
                     ;;
 
@@ -21313,10 +21314,50 @@ do_stuff_with_shortlisted() {
     done
 }
 
+print_symbol_help() {
+    status_symbol() {
+        case "$1" in
+            NS) printf '%s' "○" ;;
+            IP) printf '%s' "▶" ;;
+            PA) printf '%s' "Ⅱ" ;;
+            C)  printf '%s' "✓" ;;
+            *)  printf '%s' "?" ;;
+        esac
+    }
+
+    importance_symbol() {
+        case "$1" in
+            VI) printf '%s' "!!" ;;
+            I)  printf '%s' "!" ;;
+            N)  printf '%s' "-" ;;
+            NI) printf '%s' "." ;;
+            *)  printf '%s' "?" ;;
+        esac
+    }
+
+    cat <<EOF
+◆   Heading
+•   Task/Plan
+
+Status:
+  $(status_symbol NS)  Not Started
+  $(status_symbol IP)  In Progress
+  $(status_symbol PA)  Paused
+  $(status_symbol C)   Completed
+
+Importance:
+  $(importance_symbol VI)  Very Important
+  $(importance_symbol I)   Important
+  $(importance_symbol N)   Normal
+  $(importance_symbol NI)  Not Important
+EOF
+}
+
 show_projects_menu() {
     while true; do
 	local choice
-        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 20 60 10 \
+        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 20 60 11 \
+            "0" "Symbol Help" \
             "1" "Add New Project" \
             "2" "Edit Existing Project" \
             "3" "Print Project Content on Screen" \
@@ -21329,6 +21370,12 @@ show_projects_menu() {
             "10" "Print Project using Printer" 3>&1 1>&2 2>&3) || return 1
 
         case $choice in
+            0)
+                whiptail \
+                    --title "Symbol Help" \
+                    --msgbox "$(print_symbol_help)" \
+                    20 80
+                ;;
             1)
                 add_project
                 ;;
