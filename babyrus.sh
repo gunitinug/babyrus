@@ -13078,10 +13078,16 @@ add_project() {
 
     # Main project menu
     while true; do
+        local project_title_tr="${project_title:0:80}"
+        (( ${#project_title} > 80 )) && project_title_tr+="..."    
+
+        local project_path_tr="$project_path"
+        (( ${#project_path} > 80 )) && project_path_tr="${project_path:0:40}...${project_path: -40}"
+
 		local project_action
         project_action=$(whiptail --menu "Project Configuration" 15 150 3 \
-            "Project title" "Current: ${project_title:-<not set>}" \
-            "Project path" "Status: ${project_path:-(will be generated)}" \
+            "Project title" "Current: ${project_title_tr:-<not set>}" \
+            "Project path" "Status: ${project_path_tr:-(will be generated)}" \
             "Proceed" "" 3>&1 1>&2 2>&3) || return 1
 
         case $project_action in
@@ -14583,6 +14589,8 @@ add_project() {
 
     project_menu() {
         local choice
+        local project_file_tr="${PROJECT_FILE:0:80}"
+        (( ${#PROJECT_FILE} > 80 )) && project_file_tr+="..."        
 
         while :; do
 
@@ -14593,8 +14601,8 @@ add_project() {
                 whiptail \
                     --title "Babyrus - Manage Goals" \
                     --menu \
-                    "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
-                    25 110 18 \
+                    "Project: $project_file_tr" \
+                    28 110 20 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
@@ -16470,6 +16478,8 @@ edit_project() {
 
     project_menu() {
         local choice
+        local project_file_tr="${PROJECT_FILE:0:80}"
+        (( ${#PROJECT_FILE} > 80 )) && project_file_tr+="..."
 
         while :; do
 
@@ -16480,8 +16490,8 @@ edit_project() {
                 whiptail \
                     --title "Babyrus - Manage Goals" \
                     --menu \
-                    "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
-                    25 110 18 \
+                    "Project: $project_file_tr" \
+                    28 110 20 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
