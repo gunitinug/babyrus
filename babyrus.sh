@@ -13464,8 +13464,28 @@ add_project() {
     # ------------------------------------------------------------
     # Tree helpers
     # ------------------------------------------------------------
-
     get_children() {
+        local wanted_parent="$1"
+        local i
+        local position
+        local child_index
+
+        CHILDREN=()
+
+        # Output indices sorted by position.
+        while IFS=$'\t' read -r position child_index; do
+            [[ -n "$child_index" ]] && CHILDREN+=("$child_index")
+        done < <(
+            for i in "${!item_id[@]}"; do
+                if [[ "${parent_id[i]}" == "$wanted_parent" ]]; then
+                    printf '%s\t%s\n' "${item_position[i]}" "$i"
+                fi
+            done |
+            sort -n -k1,1 -k2,2
+        )
+    }
+
+    get_children_old() {
         local wanted_parent="$1"
         local i
 
@@ -15331,8 +15351,28 @@ edit_project() {
     # ------------------------------------------------------------
     # Tree helpers
     # ------------------------------------------------------------
-
     get_children() {
+        local wanted_parent="$1"
+        local i
+        local position
+        local child_index
+
+        CHILDREN=()
+
+        # Output indices sorted by position.
+        while IFS=$'\t' read -r position child_index; do
+            [[ -n "$child_index" ]] && CHILDREN+=("$child_index")
+        done < <(
+            for i in "${!item_id[@]}"; do
+                if [[ "${parent_id[i]}" == "$wanted_parent" ]]; then
+                    printf '%s\t%s\n' "${item_position[i]}" "$i"
+                fi
+            done |
+            sort -n -k1,1 -k2,2
+        )
+    }
+
+    get_children_old() {
         local wanted_parent="$1"
         local i
 
