@@ -16439,12 +16439,13 @@ edit_project() {
                     "SAVE" "Save changes" \
                     "REVERT" "Discard changes and reload from disk" \
                     "---" "PROJECT TREE BELOW ---" \
+                    "" "" \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
             )" || break
 
             case "$choice" in
-                "---")
+                "---"|"")
                     continue
                     ;;
 
