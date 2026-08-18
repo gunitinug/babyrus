@@ -14575,15 +14575,21 @@ add_project() {
                     --menu \
                     "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
                     25 110 18 \
+                    -- \
                     "ADD_H" "Add top-level heading" \
                     "ADD_T" "Add task" \
                     "SAVE" "Save changes" \
                     "REVERT" "Discard changes and reload from disk" \
+                    "---" "PROJECT TREE BELOW ---" \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
             )" || break
 
             case "$choice" in
+                "---")
+                    continue
+                    ;;
+
                 ADD_H)
                     add_heading "0"
                     ;;
@@ -16427,15 +16433,21 @@ edit_project() {
                     --menu \
                     "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
                     25 110 18 \
+                    -- \
                     "ADD_H" "Add top-level heading" \
                     "ADD_T" "Add task" \
                     "SAVE" "Save changes" \
                     "REVERT" "Discard changes and reload from disk" \
+                    "---" "PROJECT TREE BELOW ---" \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
             )" || break
 
             case "$choice" in
+                "---")
+                    continue
+                    ;;
+
                 ADD_H)
                     add_heading "0"
                     ;;
