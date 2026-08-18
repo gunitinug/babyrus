@@ -14563,6 +14563,75 @@ add_project() {
 
     project_menu() {
         local choice
+
+        while :; do
+
+            calculate_all_statuses
+            build_tree_options
+
+            choice="$(
+                whiptail \
+                    --title "Babyrus - Manage Goals" \
+                    --menu \
+                    "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
+                    25 110 18 \
+                    "ADD_H" "Add top-level heading" \
+                    "ADD_T" "Add task" \
+                    "SAVE" "Save changes" \
+                    "REVERT" "Discard changes and reload from disk" \
+                    "${TREE_OPTIONS[@]}" \
+                    3>&1 1>&2 2>&3
+            )" || break
+
+            case "$choice" in
+                ADD_H)
+                    add_heading "0"
+                    ;;
+
+                ADD_T)
+                    if select_heading_for_parent "0"; then
+                        add_task "$SELECTED_HEADING_ID"
+                    fi
+                    ;;
+
+                SAVE)
+                    if save_project; then
+                        whiptail \
+                            --title "Saved" \
+                            --msgbox "Project saved successfully." \
+                            8 50
+                    fi
+                    ;;
+
+                REVERT)
+                    if whiptail \
+                        --title "Revert Project" \
+                        --yesno \
+                        "Discard unsaved changes and reload the project from disk?" \
+                        10 70; then
+
+                        if load_project "$PROJECT_FILE"; then
+                            whiptail \
+                                --title "Reverted" \
+                                --msgbox "Unsaved changes discarded; project reloaded." \
+                                8 50
+                        fi
+                    fi
+                    ;;
+
+                *)
+                    # Tree entries use their persistent item ID as the menu tag.
+                    find_index_by_id "$choice"
+                    if (( RESULT_INDEX >= 0 )); then
+                        item_menu "$RESULT_INDEX"
+                    fi
+                    ;;
+            esac
+        done
+    }
+
+    project_menu_old() {
+        local choice
         local selected_index
 
         while :; do
@@ -16345,6 +16414,75 @@ edit_project() {
     # ------------------------------------------------------------
 
     project_menu() {
+        local choice
+
+        while :; do
+
+            calculate_all_statuses
+            build_tree_options
+
+            choice="$(
+                whiptail \
+                    --title "Babyrus - Manage Goals" \
+                    --menu \
+                    "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
+                    25 110 18 \
+                    "ADD_H" "Add top-level heading" \
+                    "ADD_T" "Add task" \
+                    "SAVE" "Save changes" \
+                    "REVERT" "Discard changes and reload from disk" \
+                    "${TREE_OPTIONS[@]}" \
+                    3>&1 1>&2 2>&3
+            )" || break
+
+            case "$choice" in
+                ADD_H)
+                    add_heading "0"
+                    ;;
+
+                ADD_T)
+                    if select_heading_for_parent "0"; then
+                        add_task "$SELECTED_HEADING_ID"
+                    fi
+                    ;;
+
+                SAVE)
+                    if save_project; then
+                        whiptail \
+                            --title "Saved" \
+                            --msgbox "Project saved successfully." \
+                            8 50
+                    fi
+                    ;;
+
+                REVERT)
+                    if whiptail \
+                        --title "Revert Project" \
+                        --yesno \
+                        "Discard unsaved changes and reload the project from disk?" \
+                        10 70; then
+
+                        if load_project "$PROJECT_FILE"; then
+                            whiptail \
+                                --title "Reverted" \
+                                --msgbox "Unsaved changes discarded; project reloaded." \
+                                8 50
+                        fi
+                    fi
+                    ;;
+
+                *)
+                    # Tree entries use their persistent item ID as the menu tag.
+                    find_index_by_id "$choice"
+                    if (( RESULT_INDEX >= 0 )); then
+                        item_menu "$RESULT_INDEX"
+                    fi
+                    ;;
+            esac
+        done
+    }
+
+    project_menu_old() {
         local choice
         local selected_index
 
