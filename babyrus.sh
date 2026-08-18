@@ -14576,6 +14576,7 @@ add_project() {
                     "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
                     25 110 18 \
                     -- \
+                    "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
                     "ADD_T" "Add task" \
                     "SAVE" "Save changes" \
@@ -14589,6 +14590,13 @@ add_project() {
             case "$choice" in
                 "---"|"")
                     continue
+                    ;;
+
+                SYMBOLS)
+                    whiptail \
+                        --title "Symbol Help" \
+                        --msgbox "$(print_symbol_help)" \
+                        20 80                    
                     ;;
 
                 ADD_H)
@@ -16435,6 +16443,7 @@ edit_project() {
                     "Project: $PROJECT_FILE\n\nSelect an action or a project item:" \
                     25 110 18 \
                     -- \
+                    "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
                     "ADD_T" "Add task" \
                     "SAVE" "Save changes" \
@@ -16446,6 +16455,13 @@ edit_project() {
             )" || break
 
             case "$choice" in
+                SYMBOLS)
+                    whiptail \
+                        --title "Symbol Help" \
+                        --msgbox "$(print_symbol_help)" \
+                        20 80                
+                    ;;
+
                 "---"|"")
                     continue
                     ;;
