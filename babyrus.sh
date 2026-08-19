@@ -14612,7 +14612,8 @@ add_project() {
 
             choice="$(
                 whiptail \
-                    --title "Babyrus - Manage Goals" \
+                    --title "Manage Goals" \
+                    --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
                     28 110 20 \
@@ -16501,7 +16502,8 @@ edit_project() {
 
             choice="$(
                 whiptail \
-                    --title "Babyrus - Manage Goals" \
+                    --title "Manage Goals" \
+                    --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
                     28 110 20 \
