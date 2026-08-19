@@ -3106,8 +3106,21 @@ It involves the following steps:\n\
 
     local found_files=()
 
-    # Case insensitive search to populate found_files
-    mapfile -d $'\0' -t found_files < <(find "$selected_dir" -type f -iname "$pattern" -print0 2>/dev/null)
+    # Case insensitive search to populate found_files.
+    # Only allowed extensions.
+    mapfile -d $'\0' -t found_files < <(
+        find "$selected_dir" \
+            -type f \
+            -iname "$pattern" \
+            \( \
+                -iname '*.txt' \
+                -o -iname '*.pdf' \
+                -o -iname '*.epub' \
+                -o -iname '*.mobi' \
+                -o -iname '*.azw3' \
+            \) \
+            -print0 2>/dev/null
+    )    
 
     if [[ ${#found_files[@]} -eq 0 ]]; then
         whiptail --msgbox "No files found matching pattern: $pattern" 8 60
