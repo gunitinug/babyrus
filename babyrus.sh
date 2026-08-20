@@ -22805,6 +22805,1586 @@ do_stuff_shortlisted() {
         done
     }
 
+    edit_plan() {
+        #####################################
+        # get selected project path as $1
+        #####################################
+
+        # Check if projects database exists and has entries
+        [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]] && {
+            whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 </dev/tty >/dev/tty
+            return 1
+        }
+
+        save_to_projects_db() {
+            local entry="${project_title}|${project_path}|"
+            [[ -z "$project_title" || -z "$project_path" ]] && return
+
+            if grep -Fxq -- "$entry" "$PROJECTS_DB" 2>/dev/null; then
+                return 0  # already present
+            fi
+
+            printf '%s\n' "$entry" >> "$PROJECTS_DB"
+        }
+
+        # ============================================================
+        # Babyrus - Goal / Project Manager
+        #
+        # Project file format:
+        #
+        # TYPE|ID|PARENT_ID|POSITION|STATUS|IMPORTANCE|CONTENT
+        #
+        # H|1|0|0|NS|N|Programming
+        # H|2|1|0|IP|I|Bash
+        # H|3|2|0|IP|VI|Whiptail
+        # T|4|3|0|C|VI|create checklist menu->implement checklist
+        # T|5|3|1|NS|I|support pagination->add prev/next
+        #
+        # TYPE:
+        #   H = heading
+        #   T = task
+        #
+        # STATUS:
+        #   NS = not started
+        #   IP = in progress
+        #   PA = paused
+        #   C  = completed
+        #
+        # IMPORTANCE:
+        #   VI = very important
+        #   I  = important
+        #   N  = normal
+        #   NI = not important
+        #
+        # ============================================================
+
+
+        # ------------------------------------------------------------
+        # Configuration
+        # ------------------------------------------------------------
+
+        PROJECT_FILE="$1"
+
+        # Verify project file exists
+        [[ ! -f "$PROJECT_FILE" ]] && {
+            whiptail --msgbox "Project file not found: ${PROJECT_FILE}" 10 60
+            return 1
+        }    
+
+        declare -a item_type
+        declare -a item_id
+        declare -a parent_id
+        declare -a item_position
+        declare -a item_status
+        declare -a item_importance
+        declare -a item_content
+
+        # Calculated/effective status.
+        #
+        # For tasks:
+        #     effective_status == stored status
+        #
+        # For leaf headings:
+        #     effective_status == stored status
+        #
+        # For container headings:
+        #     effective_status is calculated from children.
+        #
+        declare -a effective_status
+
+        NEXT_ID=1
+
+        # Return status/importance to their friendly names when displaying.
+        status_name() {
+            case "$1" in
+                NS) printf '%s' "Not started" ;;
+                IP) printf '%s' "In progress" ;;
+                PA) printf '%s' "Paused" ;;
+                C)  printf '%s' "Completed" ;;
+                *)  printf '%s' "$1" ;;
+            esac
+        }
+
+        importance_name() {
+            case "$1" in
+                VI) printf '%s' "Very important" ;;
+                I)  printf '%s' "Important" ;;
+                N)  printf '%s' "Normal" ;;
+                NI) printf '%s' "Not important" ;;
+                *)  printf '%s' "$1" ;;
+            esac
+        }
+
+
+        # ------------------------------------------------------------
+        # Validation helpers
+        # ------------------------------------------------------------
+
+        valid_status() {
+            case "$1" in
+                NS|IP|PA|C) return 0 ;;
+                *) return 1 ;;
+            esac
+        }
+
+        valid_importance() {
+            case "$1" in
+                VI|I|N|NI) return 0 ;;
+                *) return 1 ;;
+            esac
+        }
+
+        valid_type() {
+            [[ "$1" == "H" || "$1" == "T" ]]
+        }
+
+        # Find array index for persistent item ID.
+        #
+        # Returns:
+        #   global variable RESULT_INDEX
+        #
+        find_index_by_id() {
+            local wanted_id="$1"
+            local i
+
+            RESULT_INDEX=-1
+
+            for i in "${!item_id[@]}"; do
+                if [[ "${item_id[i]}" == "$wanted_id" ]]; then
+                    RESULT_INDEX=$i
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        # ------------------------------------------------------------
+        # Project loading
+        # ------------------------------------------------------------
+
+        load_project() {
+            local file="${1:-$PROJECT_FILE}"
+            local line
+            local type id parent position status importance content
+
+            item_type=()
+            item_id=()
+            parent_id=()
+            item_position=()
+            item_status=()
+            item_importance=()
+            item_content=()
+            effective_status=()
+
+            NEXT_ID=1
+
+            [[ -f "$file" ]] || return 0
+
+            while IFS= read -r line || [[ -n "$line" ]]; do
+
+                # Ignore empty lines.
+                [[ -z "$line" ]] && continue
+
+                # Comments may be useful during development.
+                [[ "$line" == \#* ]] && continue
+
+                IFS='|' read -r type id parent position status importance content <<< "$line"
+
+                if [[ -z "$content" ]]; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "Invalid line:\n\n$line" \
+                        10 70
+                    return 1
+                fi
+
+                if ! valid_type "$type"; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "Invalid item type '$type'.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
+                if ! valid_status "$status"; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "Invalid status '$status'.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
+                if ! valid_importance "$importance"; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "Invalid importance '$importance'.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
+                if [[ "$content" == *"|"* ]]; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "The content contains '|', which is reserved as a field separator.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
+                item_type+=("$type")
+                item_id+=("$id")
+                parent_id+=("$parent")
+                item_position+=("$position")
+                item_status+=("$status")
+                item_importance+=("$importance")
+                item_content+=("$content")
+
+                effective_status+=("$status")
+
+                if [[ "$id" =~ ^[0-9]+$ ]]; then
+                    (( id >= NEXT_ID )) && NEXT_ID=$((id + 1))
+                fi
+
+            done < "$file"
+
+            validate_project || return 1
+
+            calculate_all_statuses
+        }
+
+
+        # ------------------------------------------------------------
+        # Structural validation
+        # ------------------------------------------------------------
+
+        validate_project() {
+            local i parent_index
+
+            for i in "${!item_id[@]}"; do
+
+                # IDs must be numeric.
+                if ! [[ "${item_id[i]}" =~ ^[0-9]+$ ]]; then
+                    whiptail \
+                        --title "Invalid Project" \
+                        --msgbox "Item ID '${item_id[i]}' is not numeric." \
+                        8 60
+                    return 1
+                fi
+
+                # Parent 0 means root.
+                if [[ "${parent_id[i]}" == "0" ]]; then
+
+                    # Root tasks are not allowed.
+                    if [[ "${item_type[i]}" == "T" ]]; then
+                        whiptail \
+                            --title "Invalid Project" \
+                            --msgbox "Task '${item_content[i]}' has no heading parent." \
+                            8 70
+                        return 1
+                    fi
+
+                    continue
+                fi
+
+                find_index_by_id "${parent_id[i]}"
+
+                if (( RESULT_INDEX < 0 )); then
+                    whiptail \
+                        --title "Invalid Project" \
+                        --msgbox "Item '${item_content[i]}' refers to missing parent ID '${parent_id[i]}'." \
+                        8 70
+                    return 1
+                fi
+
+                parent_index=$RESULT_INDEX
+
+                # Tasks can only be children of headings.
+                if [[ "${item_type[i]}" == "T" &&
+                    "${item_type[parent_index]}" != "H" ]]; then
+
+                    whiptail \
+                        --title "Invalid Project" \
+                        --msgbox "Task '${item_content[i]}' is under another task.\n\nTasks may only belong to headings." \
+                        10 70
+                    return 1
+                fi
+
+                # Detect immediate self-parent.
+                if [[ "${item_id[i]}" == "${parent_id[i]}" ]]; then
+                    whiptail \
+                        --title "Invalid Project" \
+                        --msgbox "Item '${item_content[i]}' is its own parent." \
+                        8 70
+                    return 1
+                fi
+            done
+
+            # Detect circular parent chains.
+            for i in "${!item_id[@]}"; do
+                if ! hierarchy_is_valid_from "$i"; then
+                    whiptail \
+                        --title "Invalid Project" \
+                        --msgbox "A circular hierarchy was detected involving:\n\n${item_content[i]}" \
+                        10 70
+                    return 1
+                fi
+            done
+
+            return 0
+        }
+
+
+        hierarchy_is_valid_from() {
+            local start_index="$1"
+            local current_index="$start_index"
+            local parent
+            local -a visited=()
+
+            while :; do
+
+                # If we've seen this item already, there is a cycle.
+                for parent in "${visited[@]}"; do
+                    [[ "$parent" == "$current_index" ]] && return 1
+                done
+
+                visited+=("$current_index")
+
+                parent="${parent_id[current_index]}"
+
+                [[ "$parent" == "0" ]] && return 0
+
+                find_index_by_id "$parent"
+                (( RESULT_INDEX >= 0 )) || return 1
+
+                current_index=$RESULT_INDEX
+            done
+        }
+
+
+        # ------------------------------------------------------------
+        # Tree helpers
+        # ------------------------------------------------------------
+        get_children() {
+            local wanted_parent="$1"
+            local i
+            local position
+            local child_index
+
+            CHILDREN=()
+
+            # Output indices sorted by position.
+            while IFS=$'\t' read -r position child_index; do
+                [[ -n "$child_index" ]] && CHILDREN+=("$child_index")
+            done < <(
+                for i in "${!item_id[@]}"; do
+                    if [[ "${parent_id[i]}" == "$wanted_parent" ]]; then
+                        printf '%s\t%s\n' "${item_position[i]}" "$i"
+                    fi
+                done |
+                sort -n -k1,1 -k2,2
+            )
+        }
+
+        get_children_old() {
+            local wanted_parent="$1"
+            local i
+
+            CHILDREN=()
+
+            # Output indices sorted by position.
+            while IFS=$'\t' read -r position index; do
+                [[ -n "$index" ]] && CHILDREN+=("$index")
+            done < <(
+                for i in "${!item_id[@]}"; do
+                    if [[ "${parent_id[i]}" == "$wanted_parent" ]]; then
+                        printf '%s\t%s\n' "${item_position[i]}" "$i"
+                    fi
+                done |
+                sort -n -k1,1 -k2,2
+            )
+        }
+
+
+        is_container() {
+            local index="$1"
+
+            get_children "${item_id[index]}"
+            (( ${#CHILDREN[@]} > 0 ))
+        }
+
+
+        get_depth() {
+            local index="$1"
+            local depth=0
+            local current="$index"
+            local parent
+
+            while [[ "${parent_id[current]}" != "0" ]]; do
+                parent="${parent_id[current]}"
+
+                find_index_by_id "$parent"
+                (( RESULT_INDEX >= 0 )) || {
+                    printf '%s' "$depth"
+                    return
+                }
+
+                current=$RESULT_INDEX
+                ((depth++))
+            done
+
+            printf '%s' "$depth"
+        }
+
+
+        # ------------------------------------------------------------
+        # Status calculation
+        # ------------------------------------------------------------
+
+        calculate_status() {
+            local index="$1"
+            local type="${item_type[index]}"
+            local status
+            local child
+            local child_status
+
+            # Tasks always use their stored status.
+            if [[ "$type" == "T" ]]; then
+                effective_status[index]="${item_status[index]}"
+                printf '%s' "${effective_status[index]}"
+                return
+            fi
+
+            # Find children.
+            get_children "${item_id[index]}"
+
+            # Leaf heading: manually controlled.
+            if (( ${#CHILDREN[@]} == 0 )); then
+                effective_status[index]="${item_status[index]}"
+                printf '%s' "${effective_status[index]}"
+                return
+            fi
+
+            local has_ns=0
+            local has_ip=0
+            local has_pa=0
+            local has_c=0
+
+            # Container heading: calculate recursively.
+            for child in "${CHILDREN[@]}"; do
+                child_status="$(calculate_status "$child")"
+
+                case "$child_status" in
+                    NS) has_ns=1 ;;
+                    IP) has_ip=1 ;;
+                    PA) has_pa=1 ;;
+                    C)  has_c=1 ;;
+                esac
+            done
+
+            # Aggregation rules:
+            #
+            # Any active work => IN PROGRESS
+            # Otherwise any paused work => PAUSED
+            # Completed + not-started => IN PROGRESS
+            # All completed => COMPLETED
+            # All not-started => NOT STARTED
+
+            if (( has_ip )); then
+                status="IP"
+
+            elif (( has_pa )); then
+                status="PA"
+
+            elif (( has_c && has_ns )); then
+                status="IP"
+
+            elif (( has_c )); then
+                status="C"
+
+            else
+                status="NS"
+            fi
+
+            effective_status[index]="$status"
+            printf '%s' "$status"
+        }
+
+
+        calculate_all_statuses() {
+            local i
+
+            effective_status=()
+
+            for i in "${!item_id[@]}"; do
+                effective_status+=("${item_status[i]}")
+            done
+
+            # Calculate every item. Recursive calls ensure that children
+            # are resolved before their parents.
+            for i in "${!item_id[@]}"; do
+                calculate_status "$i" >/dev/null
+            done
+        }
+
+
+        # ------------------------------------------------------------
+        # Status / importance UI
+        # ------------------------------------------------------------
+
+        select_status() {
+            local current="$1"
+
+            whiptail \
+                --title "Change Status" \
+                --menu "Select status:" \
+                15 60 6 \
+                "NS" "Not started" \
+                "IP" "In progress" \
+                "PA" "Paused" \
+                "C"  "Completed" \
+                3>&1 1>&2 2>&3
+        }
+
+
+        select_importance() {
+            whiptail \
+                --title "Change Importance" \
+                --menu "Select importance:" \
+                15 60 6 \
+                "VI" "Very important" \
+                "I"  "Important" \
+                "N"  "Normal" \
+                "NI" "Not important" \
+                3>&1 1>&2 2>&3
+        }
+
+
+        # ------------------------------------------------------------
+        # Input helpers
+        # ------------------------------------------------------------
+
+        add_heading() {
+            local parent="$1"
+            local text
+
+            text="$(
+                whiptail \
+                    --title "Add Heading" \
+                    --inputbox "Heading name:" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$text" ]] && return
+
+            if [[ "$text" == *"|"* ]]; then
+                whiptail --msgbox "The heading cannot contain '|'.\n\nIt is reserved by the project file format." 9 70
+                return
+            fi
+
+            add_item "H" "$parent" "$text"
+        }
+
+
+        add_task() {
+            local parent="$1"
+            local task
+            local plan
+            local content
+
+            # Parent must be a heading.
+            find_index_by_id "$parent" || return
+
+            if [[ "${item_type[RESULT_INDEX]}" != "H" ]]; then
+                whiptail \
+                    --title "Invalid Parent" \
+                    --msgbox "Tasks can only be added under headings." \
+                    8 60
+                return
+            fi
+
+            task="$(
+                whiptail \
+                    --title "Add Task" \
+                    --inputbox "Task:" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$task" ]] && return
+
+            plan="$(
+                whiptail \
+                    --title "Add Task Plan" \
+                    --inputbox "Plan for:\n\n$task" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            content="${task}->${plan}"
+
+            if [[ "$content" == *"|"* ]]; then
+                whiptail \
+                    --msgbox "Task or plan cannot contain '|'.\n\nIt is reserved by the project file format." \
+                    9 70
+                return
+            fi
+
+            add_item "T" "$parent" "$content"
+        }
+
+
+        add_item() {
+            local type="$1"
+            local parent="$2"
+            local content="$3"
+
+            local position
+
+            position="$(next_position "$parent")"
+
+            item_type+=("$type")
+            item_id+=("$NEXT_ID")
+            parent_id+=("$parent")
+            item_position+=("$position")
+
+            # New items use default status and importance.
+            item_status+=("NS")
+            item_importance+=("N")
+
+            item_content+=("$content")
+            effective_status+=("NS")
+
+            ((NEXT_ID++))
+
+            calculate_all_statuses
+        }
+
+
+        next_position() {
+            local parent="$1"
+            local max=-1
+            local i
+
+            for i in "${!item_id[@]}"; do
+                if [[ "${parent_id[i]}" == "$parent" ]]; then
+                    (( item_position[i] > max )) && max="${item_position[i]}"
+                fi
+            done
+
+            printf '%s' "$((max + 1))"
+        }
+
+
+        # ------------------------------------------------------------
+        # Edit item
+        # ------------------------------------------------------------
+
+        edit_text() {
+            local index="$1"
+            local new_text
+
+            new_text="$(
+                whiptail \
+                    --title "Edit Text" \
+                    --inputbox \
+                    "Current text:" \
+                    10 80 \
+                    "${item_content[index]}" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$new_text" ]] && return
+
+            if [[ "$new_text" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid Text" \
+                    --msgbox "'|' cannot be used because it is the project-file field separator." \
+                    8 70
+                return
+            fi
+
+            item_content[index]="$new_text"
+        }
+
+        edit_task() {
+            local index="$1"
+            local task plan
+
+            if [[ "${item_content[index]}" == *"->"* ]]; then
+                task="${item_content[index]%%->*}"
+                plan="${item_content[index]#*->}"
+            else
+                task="${item_content[index]}"
+                plan=""
+            fi
+
+            task="$(
+                whiptail \
+                    --title "Edit Task" \
+                    --inputbox "Task:" \
+                    10 70 \
+                    "$task" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            # Validate task
+            if [[ -z "$task" || "$task" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid Task" \
+                    --msgbox "Task cannot be blank or contain the | character." \
+                    8 60
+                return
+            fi
+
+            plan="$(
+                whiptail \
+                    --title "Edit Plan" \
+                    --inputbox "Plan:" \
+                    10 70 \
+                    "$plan" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            # Validate plan
+            if [[ -z "$plan" || "$plan" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid Plan" \
+                    --msgbox "Plan cannot be blank or contain the | character." \
+                    8 60
+                return
+            fi
+
+            item_content[index]="${task}->${plan}"
+        }
+
+        # edit_task() {
+        #     local index="$1"
+        #     local task plan
+
+        #     if [[ "${item_content[index]}" == *"->"* ]]; then
+        #         task="${item_content[index]%%->*}"
+        #         plan="${item_content[index]#*->}"
+        #     else
+        #         task="${item_content[index]}"
+        #         plan=""
+        #     fi
+
+        #     task="$(
+        #         whiptail \
+        #             --title "Edit Task" \
+        #             --inputbox "Task:" \
+        #             10 70 \
+        #             "$task" \
+        #             3>&1 1>&2 2>&3
+        #     )" || return
+
+        #     plan="$(
+        #         whiptail \
+        #             --title "Edit Plan" \
+        #             --inputbox "Plan:" \
+        #             10 70 \
+        #             "$plan" \
+        #             3>&1 1>&2 2>&3
+        #     )" || return
+
+        #     item_content[index]="${task}->${plan}"
+        # }
+
+
+        # ------------------------------------------------------------
+        # Move
+        # ------------------------------------------------------------
+
+        is_descendant_of() {
+            local index="$1"
+            local ancestor_id="$2"
+            local current="$index"
+
+            while [[ "${parent_id[current]}" != "0" ]]; do
+
+                if [[ "${parent_id[current]}" == "$ancestor_id" ]]; then
+                    return 0
+                fi
+
+                find_index_by_id "${parent_id[current]}"
+                (( RESULT_INDEX >= 0 )) || return 1
+
+                current=$RESULT_INDEX
+            done
+
+            return 1
+        }
+
+
+        choose_move_destination() {
+            local moving_index="$1"
+            local moving_type="${item_type[moving_index]}"
+            local i
+            local depth
+            local indent
+            local label
+            local options=()
+
+            # Root destination is allowed for headings only.
+            if [[ "$moving_type" == "H" ]]; then
+                options+=("0" "[ROOT]")
+            fi
+
+            for i in "${!item_id[@]}"; do
+
+                # Can't move under itself.
+                [[ "$i" == "$moving_index" ]] && continue
+
+                # Destination must be a heading.
+                [[ "${item_type[i]}" == "H" ]] || continue
+
+                # A heading cannot be moved under one of its descendants.
+                if [[ "$moving_type" == "H" ]]; then
+                    if is_descendant_of "$i" "${item_id[moving_index]}"; then
+                        continue
+                    fi
+                fi
+
+                depth="$(get_depth "$i")"
+                indent=""
+
+                for ((j=0; j<depth; j++)); do
+                    indent+="    "
+                done
+
+                label="${indent}${item_content[i]}"
+
+                options+=("${item_id[i]}" "$label")
+            done
+
+            (( ${#options[@]} == 0 )) && return 1
+
+            whiptail \
+                --title "Move Item" \
+                --menu \
+                "Move '${item_content[moving_index]}' under:" \
+                22 90 15 \
+                "${options[@]}" \
+                3>&1 1>&2 2>&3
+        }
+
+
+        move_item() {
+            local index="$1"
+            local old_parent="${parent_id[index]}"
+            local new_parent
+            local new_position
+
+            new_parent="$(choose_move_destination "$index")" || return
+
+            # Tasks cannot be moved to root.
+            if [[ "${item_type[index]}" == "T" && "$new_parent" == "0" ]]; then
+                whiptail \
+                    --title "Invalid Move" \
+                    --msgbox "Tasks must belong to a heading." \
+                    8 60
+                return
+            fi
+
+            new_position="$(next_position "$new_parent")"
+
+            parent_id[index]="$new_parent"
+            item_position[index]="$new_position"
+
+            normalize_positions "$old_parent"
+            normalize_positions "$new_parent"
+
+            calculate_all_statuses
+        }
+
+
+        normalize_positions() {
+            local parent="$1"
+            local -a children
+            local i position=0
+
+            get_children "$parent"
+            children=("${CHILDREN[@]}")
+
+            for i in "${children[@]}"; do
+                item_position[i]="$position"
+                ((position++))
+            done
+        }
+
+
+        # ------------------------------------------------------------
+        # Delete
+        # ------------------------------------------------------------
+
+        collect_descendants() {
+            local root_index="$1"
+            local child
+
+            DELETE_INDICES+=("$root_index")
+
+            get_children "${item_id[root_index]}"
+
+            for child in "${CHILDREN[@]}"; do
+                collect_descendants "$child"
+            done
+        }
+
+
+        delete_item() {
+            local index="$1"
+            local id="${item_id[index]}"
+            local old_parent="${parent_id[index]}"
+            local count
+            local i
+
+            DELETE_INDICES=()
+            collect_descendants "$index"
+
+            count="${#DELETE_INDICES[@]}"
+
+            if (( count > 1 )); then
+                if ! whiptail \
+                    --title "Delete Heading" \
+                    --yesno \
+                    "'${item_content[index]}' contains $((count - 1)) child item(s).\n\nDelete the entire subtree?" \
+                    12 70; then
+                    return
+                fi
+            else
+                if ! whiptail \
+                    --title "Delete Item" \
+                    --yesno \
+                    "Delete '${item_content[index]}'?" \
+                    10 60; then
+                    return
+                fi
+            fi
+
+            # Mark items to delete by their IDs.
+            declare -A delete_ids=()
+
+            for i in "${DELETE_INDICES[@]}"; do
+                delete_ids["${item_id[i]}"]=1
+            done
+
+            local -a new_type=()
+            local -a new_id=()
+            local -a new_parent=()
+            local -a new_position=()
+            local -a new_status=()
+            local -a new_importance=()
+            local -a new_content=()
+            local -a new_effective=()
+
+            for i in "${!item_id[@]}"; do
+
+                if [[ -n "${delete_ids[${item_id[i]}]+x}" ]]; then
+                    continue
+                fi
+
+                new_type+=("${item_type[i]}")
+                new_id+=("${item_id[i]}")
+                new_parent+=("${parent_id[i]}")
+                new_position+=("${item_position[i]}")
+                new_status+=("${item_status[i]}")
+                new_importance+=("${item_importance[i]}")
+                new_content+=("${item_content[i]}")
+                new_effective+=("${effective_status[i]}")
+            done
+
+            item_type=("${new_type[@]}")
+            item_id=("${new_id[@]}")
+            parent_id=("${new_parent[@]}")
+            item_position=("${new_position[@]}")
+            item_status=("${new_status[@]}")
+            item_importance=("${new_importance[@]}")
+            item_content=("${new_content[@]}")
+            effective_status=("${new_effective[@]}")
+
+            normalize_positions "$old_parent"
+
+            calculate_all_statuses
+
+            # Avoid unused-variable warning in some shells.
+            : "$id"
+        }
+
+
+        # ------------------------------------------------------------
+        # Save
+        # ------------------------------------------------------------
+
+        save_project() {
+            local file="$PROJECT_FILE"
+            local tmp="${file}.tmp"
+            local i
+
+            calculate_all_statuses
+
+            {
+                for i in "${!item_id[@]}"; do
+
+                    # Store EFFECTIVE status.
+                    #
+                    # This means the saved file always reflects the current
+                    # calculated status of container headings.
+                    printf '%s|%s|%s|%s|%s|%s|%s\n' \
+                        "${item_type[i]}" \
+                        "${item_id[i]}" \
+                        "${parent_id[i]}" \
+                        "${item_position[i]}" \
+                        "${effective_status[i]}" \
+                        "${item_importance[i]}" \
+                        "${item_content[i]}"
+                done
+            } > "$tmp" || {
+                rm -f "$tmp"
+                whiptail \
+                    --title "Save Error" \
+                    --msgbox "Unable to write temporary project file:\n\n$tmp" \
+                    10 70
+                return 1
+            }
+
+            if ! mv -- "$tmp" "$file"; then
+                rm -f "$tmp"
+                whiptail \
+                    --title "Save Error" \
+                    --msgbox "Unable to replace project file:\n\n$file" \
+                    10 70
+                return 1
+            fi
+
+            save_to_projects_db || {
+                rm -f "$tmp" "$file"
+                whiptail \
+                    --title "Save Error" \
+                    --msgbox "Unable to save entry to projects database:\n\n$file" \
+                    10 70
+                return 1            
+            }
+
+            return 0
+        }
+
+
+        # ------------------------------------------------------------
+        # Tree rendering
+        # ------------------------------------------------------------
+
+        status_symbol() {
+            case "$1" in
+                NS) printf '%s' "○" ;;
+                IP) printf '%s' "▶" ;;
+                PA) printf '%s' "Ⅱ" ;;
+                C)  printf '%s' "✓" ;;
+                *)  printf '%s' "?" ;;
+            esac
+        }
+
+
+        importance_symbol() {
+            case "$1" in
+                VI) printf '%s' "!!" ;;
+                I)  printf '%s' "!" ;;
+                N)  printf '%s' "-" ;;
+                NI) printf '%s' "." ;;
+                *)  printf '%s' "?" ;;
+            esac
+        }
+
+
+        format_item_label() {
+            local index="$1"
+            local depth="$2"
+            local indent=""
+            local kind
+            local status
+            local importance
+
+            for ((j=0; j<depth; j++)); do
+                indent+="    "
+            done
+
+            status="${effective_status[index]}"
+            importance="${item_importance[index]}"
+
+            if [[ "${item_type[index]}" == "H" ]]; then
+                kind="◆"
+            else
+                kind="•"
+            fi
+
+            printf '%s%s %s %s %s' \
+                "$indent" \
+                "$kind" \
+                "$(status_symbol "$status")" \
+                "$(importance_symbol "$importance")" \
+                "${item_content[index]}"
+        }
+
+
+        build_tree_options() {
+            TREE_OPTIONS=()
+
+            build_tree_options_from_parent "0"
+        }
+
+
+        build_tree_options_from_parent() {
+            local wanted_parent="$1"
+            local child
+            local depth
+            local label
+
+            get_children "$wanted_parent"
+
+            for child in "${CHILDREN[@]}"; do
+                depth="$(get_depth "$child")"
+                label="$(format_item_label "$child" "$depth")"
+
+                TREE_OPTIONS+=(
+                    "${item_id[child]}"
+                    "$label"
+                )
+
+                # Only headings can have children.
+                if [[ "${item_type[child]}" == "H" ]]; then
+                    build_tree_options_from_parent "${item_id[child]}"
+                fi
+            done
+        }
+
+
+        render_tree() {
+            local selected_id
+
+            build_tree_options
+
+            if (( ${#TREE_OPTIONS[@]} == 0 )); then
+                whiptail \
+                    --title "Project Goals" \
+                    --msgbox "This project contains no goals yet." \
+                    8 60
+                return 1
+            fi
+
+            selected_id="$(
+                whiptail \
+                    --title "Project Goals" \
+                    --cancel-button "Back" \
+                    --menu \
+                    "Select an item:" \
+                    24 110 17 \
+                    "${TREE_OPTIONS[@]}" \
+                    3>&1 1>&2 2>&3
+            )" || return 1
+
+            find_index_by_id "$selected_id"
+
+            if (( RESULT_INDEX < 0 )); then
+                return 1
+            fi
+
+            ITEM_SELECTED_INDEX=$RESULT_INDEX
+
+            return 0
+        }
+
+
+        # ------------------------------------------------------------
+        # Add menu
+        # ------------------------------------------------------------
+
+        add_menu() {
+            local destination
+
+            destination="$(
+                whiptail \
+                    --title "Add" \
+                    --menu \
+                    "What would you like to add?" \
+                    12 60 4 \
+                    "H" "Heading" \
+                    "T" "Task" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            if [[ "$destination" == "H" ]]; then
+                add_heading "0"
+                return
+            fi
+
+            if [[ "$destination" == "T" ]]; then
+                # A task needs a heading.
+                select_heading_for_parent "0" || return
+                add_task "$SELECTED_HEADING_ID"
+            fi
+        }
+
+        select_heading_for_parent() {
+            local parent="$1"
+
+            HEADING_OPTIONS=()
+
+            build_heading_options_from_parent "$parent"
+
+            (( ${#HEADING_OPTIONS[@]} == 0 )) && {
+                whiptail \
+                    --title "No Headings" \
+                    --msgbox "There are no headings available here." \
+                    8 60
+                return 1
+            }
+
+            SELECTED_HEADING_ID="$(
+                whiptail \
+                    --title "Select Heading" \
+                    --menu \
+                    "Select the heading:" \
+                    22 90 15 \
+                    "${HEADING_OPTIONS[@]}" \
+                    3>&1 1>&2 2>&3
+            )" || return 1
+
+            return 0
+        }
+
+        build_heading_options_from_parent() {
+            local wanted_parent="$1"
+            local child
+            local depth
+            local label
+
+            get_children "$wanted_parent"
+
+            for child in "${CHILDREN[@]}"; do
+
+                [[ "${item_type[child]}" == "H" ]] || continue
+
+                depth="$(get_depth "$child")"
+                label="$(format_item_label "$child" "$depth")"
+
+                HEADING_OPTIONS+=(
+                    "${item_id[child]}"
+                    "$label"
+                )
+
+                build_heading_options_from_parent "${item_id[child]}"
+            done
+        }
+
+
+        # ------------------------------------------------------------
+        # Item action menu
+        # ------------------------------------------------------------
+
+        item_menu() {
+            local index="$1"
+            local action
+            local type="${item_type[index]}"
+
+            while :; do
+
+                if [[ "$type" == "H" ]]; then
+
+                    action="$(
+                        whiptail \
+                            --title "${item_content[index]}" \
+                            --menu \
+                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            20 75 10 \
+                            "TEXT" "Change text" \
+                            "STATUS" "Change status" \
+                            "IMPORTANCE" "Change importance" \
+                            "ADD_H" "Add heading" \
+                            "ADD_T" "Add task" \
+                            "MOVE" "Move" \
+                            "DELETE" "Delete" \
+                            "BACK" "Back" \
+                            3>&1 1>&2 2>&3
+                    )" || return
+
+                else
+
+                    action="$(
+                        whiptail \
+                            --title "${item_content[index]}" \
+                            --menu \
+                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            18 75 8 \
+                            "TEXT" "Change task / plan" \
+                            "STATUS" "Change status" \
+                            "IMPORTANCE" "Change importance" \
+                            "MOVE" "Move" \
+                            "DELETE" "Delete" \
+                            "BACK" "Back" \
+                            3>&1 1>&2 2>&3
+                    )" || return
+
+                fi
+
+                case "$action" in
+
+                    TEXT)
+                        if [[ "$type" == "T" ]]; then
+                            edit_task "$index"
+                        else
+                            edit_text "$index"
+                        fi
+                        ;;
+
+                    STATUS)
+                        change_status "$index"
+                        ;;
+
+                    IMPORTANCE)
+                        change_importance "$index"
+                        ;;
+
+                    ADD_H)
+                        add_heading "${item_id[index]}"
+                        ;;
+
+                    ADD_T)
+                        add_task "${item_id[index]}"
+                        ;;
+
+                    MOVE)
+                        move_item "$index"
+
+                        # The arrays may have changed but this item itself
+                        # still exists, so locate it again.
+                        find_index_by_id "${item_id[index]}"
+                        (( RESULT_INDEX >= 0 )) && index=$RESULT_INDEX
+                        ;;
+
+                    DELETE)
+                        local deleted_id="${item_id[index]}"
+
+                        delete_item "$index"
+
+                        find_index_by_id "$deleted_id"
+
+                        if (( RESULT_INDEX < 0 )); then
+                            return
+                        fi
+
+                        index=$RESULT_INDEX
+                        type="${item_type[index]}"
+                        ;;
+
+                    BACK)
+                        return
+                        ;;
+                esac
+
+                calculate_all_statuses
+            done
+        }
+
+
+        change_status() {
+            local index="$1"
+            local new_status
+
+            # Container headings are derived from their children.
+            if [[ "${item_type[index]}" == "H" ]] && is_container "$index"; then
+
+                new_status="$(
+                    whiptail \
+                        --title "Container Heading" \
+                        --menu \
+                        "'${item_content[index]}' is a container heading.\n\nSelect an operation:" \
+                        16 75 5 \
+                        "C" "Complete entire goal" \
+                        "PA" "Pause unfinished descendants" \
+                        "RESET" "Reset descendants to not started" \
+                        3>&1 1>&2 2>&3
+                )" || return
+
+                case "$new_status" in
+                    C)
+                        set_subtree_status "$index" "C"
+                        ;;
+
+                    PA)
+                        set_unfinished_subtree_status "$index" "PA"
+                        ;;
+
+                    RESET)
+                        set_subtree_status "$index" "NS"
+                        ;;
+                esac
+
+                calculate_all_statuses
+                return
+            fi
+
+            new_status="$(select_status "${item_status[index]}")" || return
+
+            item_status[index]="$new_status"
+
+            calculate_all_statuses
+        }
+
+
+        change_importance() {
+            local index="$1"
+            local new_importance
+
+            new_importance="$(
+                select_importance "${item_importance[index]}"
+            )" || return
+
+            item_importance[index]="$new_importance"
+        }
+
+
+        set_subtree_status() {
+            local root_index="$1"
+            local new_status="$2"
+            local child
+
+            item_status[root_index]="$new_status"
+
+            get_children "${item_id[root_index]}"
+
+            for child in "${CHILDREN[@]}"; do
+                set_subtree_status "$child" "$new_status"
+            done
+        }
+
+
+        set_unfinished_subtree_status() {
+            local root_index="$1"
+            local child
+
+            if [[ "${effective_status[root_index]}" != "C" ]]; then
+                item_status[root_index]="PA"
+            fi
+
+            get_children "${item_id[root_index]}"
+
+            for child in "${CHILDREN[@]}"; do
+                set_unfinished_subtree_status "$child"
+            done
+        }
+
+
+        # ------------------------------------------------------------
+        # Main project UI
+        # ------------------------------------------------------------
+
+        project_menu() {
+            local choice
+            local project_file_tr="${PROJECT_FILE:0:80}"
+            (( ${#PROJECT_FILE} > 80 )) && project_file_tr+="..."
+
+            while :; do
+
+                calculate_all_statuses
+                build_tree_options
+
+                choice="$(
+                    whiptail \
+                        --title "Manage Goals" \
+                        --cancel-button "Back" \
+                        --menu \
+                        "Project: $project_file_tr" \
+                        28 110 20 \
+                        -- \
+                        "SYMBOLS" "Help" \
+                        "ADD_H" "Add top-level heading" \
+                        "ADD_T" "Add task" \
+                        "SAVE" "Save changes" \
+                        "REVERT" "Discard changes and reload from disk" \
+                        "---" "PROJECT TREE BELOW ---" \
+                        "" "" \
+                        "${TREE_OPTIONS[@]}" \
+                        3>&1 1>&2 2>&3
+                )" || break
+
+                case "$choice" in
+                    SYMBOLS)
+                        whiptail \
+                            --title "Symbol Help" \
+                            --msgbox "$(print_symbol_help)" \
+                            20 80                
+                        ;;
+
+                    "---"|"")
+                        continue
+                        ;;
+
+                    ADD_H)
+                        add_heading "0"
+                        ;;
+
+                    ADD_T)
+                        if select_heading_for_parent "0"; then
+                            add_task "$SELECTED_HEADING_ID"
+                        fi
+                        ;;
+
+                    SAVE)
+                        if save_project; then
+                            whiptail \
+                                --title "Saved" \
+                                --msgbox "Project saved successfully." \
+                                8 50
+                        fi
+                        ;;
+
+                    REVERT)
+                        if whiptail \
+                            --title "Revert Project" \
+                            --yesno \
+                            "Discard unsaved changes and reload the project from disk?" \
+                            10 70; then
+
+                            if load_project "$PROJECT_FILE"; then
+                                whiptail \
+                                    --title "Reverted" \
+                                    --msgbox "Unsaved changes discarded; project reloaded." \
+                                    8 50
+                            fi
+                        fi
+                        ;;
+
+                    *)
+                        # Tree entries use their persistent item ID as the menu tag.
+                        find_index_by_id "$choice"
+                        if (( RESULT_INDEX >= 0 )); then
+                            item_menu "$RESULT_INDEX"
+                        fi
+                        ;;
+                esac
+            done        
+        }
+
+        # ------------------------------------------------------------
+        # Start
+        # ------------------------------------------------------------
+
+        if ! command -v whiptail >/dev/null 2>&1; then
+            printf 'Error: whiptail is not installed.\n' >&2
+            exit 1
+        fi
+
+        if ! load_project "$PROJECT_FILE"; then
+            exit 1
+        fi
+
+        project_menu            
+    }    
+
     # Populate menu with current shortlist
     local projects=()
     mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
@@ -22847,7 +24427,8 @@ do_stuff_shortlisted() {
         local note_lines=() 
         local note_menu_options=()
 
-        # Add option 'Create new linked note' first
+        note_menu_options+=("Manage plan" "")
+        # Add option 'Create new linked note'
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -22884,6 +24465,9 @@ do_stuff_shortlisted() {
         elif [[ "$selected_note_tag" == "Unlink note" ]]; then
             dissociate_note_from_project_from_shortlist "$selected_project_path" || continue
             continue    # Display list of lined notes again after dissociating notes.
+        elif [[ "$selected_note_tag" == "Manage plan" ]]; then
+            edit_plan "$selected_project_path" || continue
+            continue
         fi
 
         local selected_note_index=$((selected_note_tag - 1))
