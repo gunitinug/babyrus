@@ -19129,7 +19129,7 @@ do_stuff_with_project_file() {
         #
         # Project file format:
         #
-        # TYPE|ID|PARENT_ID|POSITION|STATUS|IMPORTANCE|CONTENT
+        # TYPE|ID|PARENT_ID|POSITION|STATUS|IMPORTANCE|CONTENT|COMMENT
         #
         # H|1|0|0|NS|N|Programming
         # H|2|1|0|IP|I|Bash
@@ -19175,6 +19175,7 @@ do_stuff_with_project_file() {
         declare -a item_status
         declare -a item_importance
         declare -a item_content
+        declare -a item_comment
 
         # Calculated/effective status.
         #
@@ -19264,7 +19265,7 @@ do_stuff_with_project_file() {
         load_project() {
             local file="${1:-$PROJECT_FILE}"
             local line
-            local type id parent position status importance content
+            local type id parent position status importance content comment
 
             item_type=()
             item_id=()
@@ -19273,6 +19274,7 @@ do_stuff_with_project_file() {
             item_status=()
             item_importance=()
             item_content=()
+            item_comment=()
             effective_status=()
 
             NEXT_ID=1
@@ -19287,7 +19289,7 @@ do_stuff_with_project_file() {
                 # Comments may be useful during development.
                 [[ "$line" == \#* ]] && continue
 
-                IFS='|' read -r type id parent position status importance content <<< "$line"
+                IFS='|' read -r type id parent position status importance content comment <<< "$line"
 
                 if [[ -z "$content" ]]; then
                     whiptail \
@@ -19329,6 +19331,14 @@ do_stuff_with_project_file() {
                     return 1
                 fi
 
+                if [[ "$comment" == *"|"* ]]; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "The comment contains '|', which is reserved as a field separator.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
                 item_type+=("$type")
                 item_id+=("$id")
                 parent_id+=("$parent")
@@ -19336,6 +19346,7 @@ do_stuff_with_project_file() {
                 item_status+=("$status")
                 item_importance+=("$importance")
                 item_content+=("$content")
+                item_comment+=("$comment")
 
                 effective_status+=("$status")
 
@@ -19754,6 +19765,7 @@ do_stuff_with_project_file() {
             item_importance+=("N")
 
             item_content+=("$content")
+            item_comment+=("")
             effective_status+=("NS")
 
             ((NEXT_ID++))
@@ -19857,6 +19869,104 @@ do_stuff_with_project_file() {
             fi
 
             item_content[index]="${task}->${plan}"
+        }
+
+        edit_comment() {            
+            local index="$1"
+            local existing_comment="${item_comment[index]}"
+            local tempfile
+            local comment
+
+            if ! tempfile=$(mktemp); then
+                return 1
+            fi
+
+            # Ensure cleanup on return or exit
+            trap 'rm -f -- "$tempfile"' EXIT RETURN
+
+            # Populate with existing comment
+            if [[ -n "$existing_comment" ]]; then
+                existing_comment="${existing_comment//\[N\]/$'\n'}"
+                if ! printf '%s' "$existing_comment" > "$tempfile"; then
+                    return 1
+                fi
+            fi
+
+            while :; do
+                if ! nano "$tempfile"; then
+                    return 1
+                fi
+
+                # Read file contents without losing trailing newlines
+                comment=$(cat "$tempfile"; printf 'x')
+                comment="${comment%x}"
+
+                # Strip the trailing newline added by nano/editor if present
+                comment="${comment%$'\n'}"
+
+                # Check for literal reserved string
+                if [[ "$comment" == *'[N]'* ]]; then
+                    whiptail \
+                        --title "Invalid Comment" \
+                        --msgbox "The sequence [N] is reserved for newlines and cannot be used in a comment." \
+                        8 70
+                    continue
+                fi
+
+                # Convert remaining newlines to [N]
+                comment="${comment//$'\n'/[N]}"
+
+                item_comment[index]="$comment"
+                return 0
+            done
+        }
+
+        view_comment() {
+            local index="$1"
+            local comment="${item_comment[index]}"
+
+            [[ -n "$comment" ]] || comment="No comment has been added."
+
+            comment="${comment//\[N\]/$'\n'}"
+
+            whiptail \
+                --title "Comment" \
+                --msgbox "$comment" \
+                20 80
+        }
+
+        edit_comment_old() {
+            local index="$1"
+            local comment
+
+            comment="$(
+                whiptail \
+                    --title "Comment: ${item_content[index]}" \
+                    --inputbox "Comment (optional):" \
+                    14 90 \
+                    "${item_comment[index]}" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            if [[ "$comment" == *"|"* || "$comment" == *$'\n'* ]]; then
+                whiptail --msgbox "A comment cannot contain '|' or newline.\n\nThey are reserved by the project file format." 9 70
+                return
+            fi
+
+            item_comment[index]="$comment"
+        }
+
+
+        view_comment_old() {
+            local index="$1"
+            local comment="${item_comment[index]}"
+
+            [[ -n "$comment" ]] || comment="No comment has been added."
+
+            whiptail \
+                --title "Comment: ${item_content[index]}" \
+                --msgbox "$comment" \
+                16 90
         }
 
         # edit_task() {
@@ -20077,6 +20187,7 @@ do_stuff_with_project_file() {
             local -a new_status=()
             local -a new_importance=()
             local -a new_content=()
+            local -a new_comment=()
             local -a new_effective=()
 
             for i in "${!item_id[@]}"; do
@@ -20092,6 +20203,7 @@ do_stuff_with_project_file() {
                 new_status+=("${item_status[i]}")
                 new_importance+=("${item_importance[i]}")
                 new_content+=("${item_content[i]}")
+                new_comment+=("${item_comment[i]}")
                 new_effective+=("${effective_status[i]}")
             done
 
@@ -20102,6 +20214,7 @@ do_stuff_with_project_file() {
             item_status=("${new_status[@]}")
             item_importance=("${new_importance[@]}")
             item_content=("${new_content[@]}")
+            item_comment=("${new_comment[@]}")
             effective_status=("${new_effective[@]}")
 
             normalize_positions "$old_parent"
@@ -20131,14 +20244,15 @@ do_stuff_with_project_file() {
                     #
                     # This means the saved file always reflects the current
                     # calculated status of container headings.
-                    printf '%s|%s|%s|%s|%s|%s|%s\n' \
+                    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
                         "${item_type[i]}" \
                         "${item_id[i]}" \
                         "${parent_id[i]}" \
                         "${item_position[i]}" \
                         "${effective_status[i]}" \
                         "${item_importance[i]}" \
-                        "${item_content[i]}"
+                        "${item_content[i]}" \
+                        "${item_comment[i]}"
                 done
             } > "$tmp" || {
                 rm -f "$tmp"
@@ -20396,10 +20510,12 @@ do_stuff_with_project_file() {
                             --title "${item_content[index]}" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
-                            20 75 10 \
+                            22 75 10 \
                             "TEXT" "Change text" \
                             "STATUS" "Change status" \
                             "IMPORTANCE" "Change importance" \
+                            "COMMENT" "Add / edit comment" \
+                            "VIEW_COMMENT" "View comment" \
                             "ADD_H" "Add heading" \
                             "ADD_T" "Add task" \
                             "MOVE" "Move" \
@@ -20415,10 +20531,12 @@ do_stuff_with_project_file() {
                             --title "${item_content[index]}" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
-                            18 75 8 \
+                            20 75 8 \
                             "TEXT" "Change task / plan" \
                             "STATUS" "Change status" \
                             "IMPORTANCE" "Change importance" \
+                            "COMMENT" "Add / edit comment" \
+                            "VIEW_COMMENT" "View comment" \
                             "MOVE" "Move" \
                             "DELETE" "Delete" \
                             "BACK" "Back" \
@@ -20443,6 +20561,14 @@ do_stuff_with_project_file() {
 
                     IMPORTANCE)
                         change_importance "$index"
+                        ;;
+
+                    COMMENT)
+                        edit_comment "$index"
+                        ;;
+
+                    VIEW_COMMENT)
+                        view_comment "$index"
                         ;;
 
                     ADD_H)
@@ -22832,7 +22958,7 @@ do_stuff_shortlisted() {
         #
         # Project file format:
         #
-        # TYPE|ID|PARENT_ID|POSITION|STATUS|IMPORTANCE|CONTENT
+        # TYPE|ID|PARENT_ID|POSITION|STATUS|IMPORTANCE|CONTENT|COMMENT
         #
         # H|1|0|0|NS|N|Programming
         # H|2|1|0|IP|I|Bash
@@ -22878,6 +23004,7 @@ do_stuff_shortlisted() {
         declare -a item_status
         declare -a item_importance
         declare -a item_content
+        declare -a item_comment
 
         # Calculated/effective status.
         #
@@ -22967,7 +23094,7 @@ do_stuff_shortlisted() {
         load_project() {
             local file="${1:-$PROJECT_FILE}"
             local line
-            local type id parent position status importance content
+            local type id parent position status importance content comment
 
             item_type=()
             item_id=()
@@ -22976,6 +23103,7 @@ do_stuff_shortlisted() {
             item_status=()
             item_importance=()
             item_content=()
+            item_comment=()
             effective_status=()
 
             NEXT_ID=1
@@ -22990,7 +23118,7 @@ do_stuff_shortlisted() {
                 # Comments may be useful during development.
                 [[ "$line" == \#* ]] && continue
 
-                IFS='|' read -r type id parent position status importance content <<< "$line"
+                IFS='|' read -r type id parent position status importance content comment <<< "$line"
 
                 if [[ -z "$content" ]]; then
                     whiptail \
@@ -23032,6 +23160,14 @@ do_stuff_shortlisted() {
                     return 1
                 fi
 
+                if [[ "$comment" == *"|"* ]]; then
+                    whiptail \
+                        --title "Invalid Project File" \
+                        --msgbox "The comment contains '|', which is reserved as a field separator.\n\nLine:\n$line" \
+                        10 70
+                    return 1
+                fi
+
                 item_type+=("$type")
                 item_id+=("$id")
                 parent_id+=("$parent")
@@ -23039,6 +23175,7 @@ do_stuff_shortlisted() {
                 item_status+=("$status")
                 item_importance+=("$importance")
                 item_content+=("$content")
+                item_comment+=("$comment")
 
                 effective_status+=("$status")
 
@@ -23457,6 +23594,7 @@ do_stuff_shortlisted() {
             item_importance+=("N")
 
             item_content+=("$content")
+            item_comment+=("")
             effective_status+=("NS")
 
             ((NEXT_ID++))
@@ -23560,6 +23698,41 @@ do_stuff_shortlisted() {
             fi
 
             item_content[index]="${task}->${plan}"
+        }
+
+
+        edit_comment() {
+            local index="$1"
+            local comment
+
+            comment="$(
+                whiptail \
+                    --title "Comment: ${item_content[index]}" \
+                    --inputbox "Comment (optional):" \
+                    14 90 \
+                    "${item_comment[index]}" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            if [[ "$comment" == *"|"* || "$comment" == *$'\n'* ]]; then
+                whiptail --msgbox "A comment cannot contain '|' or a line break.\n\nThey are reserved by the project file format." 9 70
+                return
+            fi
+
+            item_comment[index]="$comment"
+        }
+
+
+        view_comment() {
+            local index="$1"
+            local comment="${item_comment[index]}"
+
+            [[ -n "$comment" ]] || comment="No comment has been added."
+
+            whiptail \
+                --title "Comment: ${item_content[index]}" \
+                --msgbox "$comment" \
+                16 90
         }
 
         # edit_task() {
@@ -23780,6 +23953,7 @@ do_stuff_shortlisted() {
             local -a new_status=()
             local -a new_importance=()
             local -a new_content=()
+            local -a new_comment=()
             local -a new_effective=()
 
             for i in "${!item_id[@]}"; do
@@ -23795,6 +23969,7 @@ do_stuff_shortlisted() {
                 new_status+=("${item_status[i]}")
                 new_importance+=("${item_importance[i]}")
                 new_content+=("${item_content[i]}")
+                new_comment+=("${item_comment[i]}")
                 new_effective+=("${effective_status[i]}")
             done
 
@@ -23805,6 +23980,7 @@ do_stuff_shortlisted() {
             item_status=("${new_status[@]}")
             item_importance=("${new_importance[@]}")
             item_content=("${new_content[@]}")
+            item_comment=("${new_comment[@]}")
             effective_status=("${new_effective[@]}")
 
             normalize_positions "$old_parent"
@@ -23834,14 +24010,15 @@ do_stuff_shortlisted() {
                     #
                     # This means the saved file always reflects the current
                     # calculated status of container headings.
-                    printf '%s|%s|%s|%s|%s|%s|%s\n' \
+                    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
                         "${item_type[i]}" \
                         "${item_id[i]}" \
                         "${parent_id[i]}" \
                         "${item_position[i]}" \
                         "${effective_status[i]}" \
                         "${item_importance[i]}" \
-                        "${item_content[i]}"
+                        "${item_content[i]}" \
+                        "${item_comment[i]}"
                 done
             } > "$tmp" || {
                 rm -f "$tmp"
@@ -24099,10 +24276,12 @@ do_stuff_shortlisted() {
                             --title "${item_content[index]}" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
-                            20 75 10 \
+                            22 75 10 \
                             "TEXT" "Change text" \
                             "STATUS" "Change status" \
                             "IMPORTANCE" "Change importance" \
+                            "COMMENT" "Add / edit comment" \
+                            "VIEW_COMMENT" "View comment" \
                             "ADD_H" "Add heading" \
                             "ADD_T" "Add task" \
                             "MOVE" "Move" \
@@ -24118,10 +24297,12 @@ do_stuff_shortlisted() {
                             --title "${item_content[index]}" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
-                            18 75 8 \
+                            20 75 8 \
                             "TEXT" "Change task / plan" \
                             "STATUS" "Change status" \
                             "IMPORTANCE" "Change importance" \
+                            "COMMENT" "Add / edit comment" \
+                            "VIEW_COMMENT" "View comment" \
                             "MOVE" "Move" \
                             "DELETE" "Delete" \
                             "BACK" "Back" \
@@ -24146,6 +24327,14 @@ do_stuff_shortlisted() {
 
                     IMPORTANCE)
                         change_importance "$index"
+                        ;;
+
+                    COMMENT)
+                        edit_comment "$index"
+                        ;;
+
+                    VIEW_COMMENT)
+                        view_comment "$index"
                         ;;
 
                     ADD_H)
