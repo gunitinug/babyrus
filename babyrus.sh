@@ -23700,8 +23700,71 @@ do_stuff_shortlisted() {
             item_content[index]="${task}->${plan}"
         }
 
+        edit_comment() {            
+            local index="$1"
+            local existing_comment="${item_comment[index]}"
+            local tempfile
+            local comment
 
-        edit_comment() {
+            if ! tempfile=$(mktemp); then
+                return 1
+            fi
+
+            # Ensure cleanup on return or exit
+            trap 'rm -f -- "$tempfile"' EXIT RETURN
+
+            # Populate with existing comment
+            if [[ -n "$existing_comment" ]]; then
+                existing_comment="${existing_comment//\[N\]/$'\n'}"
+                if ! printf '%s' "$existing_comment" > "$tempfile"; then
+                    return 1
+                fi
+            fi
+
+            while :; do
+                if ! nano "$tempfile"; then
+                    return 1
+                fi
+
+                # Read file contents without losing trailing newlines
+                comment=$(cat "$tempfile"; printf 'x')
+                comment="${comment%x}"
+
+                # Strip the trailing newline added by nano/editor if present
+                comment="${comment%$'\n'}"
+
+                # Check for literal reserved string
+                if [[ "$comment" == *'[N]'* ]]; then
+                    whiptail \
+                        --title "Invalid Comment" \
+                        --msgbox "The sequence [N] is reserved for newlines and cannot be used in a comment." \
+                        8 70
+                    continue
+                fi
+
+                # Convert remaining newlines to [N]
+                comment="${comment//$'\n'/[N]}"
+
+                item_comment[index]="$comment"
+                return 0
+            done
+        }
+
+        view_comment() {
+            local index="$1"
+            local comment="${item_comment[index]}"
+
+            [[ -n "$comment" ]] || comment="No comment has been added."
+
+            comment="${comment//\[N\]/$'\n'}"
+
+            whiptail \
+                --title "Comment" \
+                --msgbox "$comment" \
+                20 80
+        }
+
+        edit_comment_old() {
             local index="$1"
             local comment
 
@@ -23723,7 +23786,7 @@ do_stuff_shortlisted() {
         }
 
 
-        view_comment() {
+        view_comment_old() {
             local index="$1"
             local comment="${item_comment[index]}"
 
