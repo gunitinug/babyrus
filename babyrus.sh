@@ -20959,13 +20959,52 @@ do_stuff_with_project_file() {
         done        
         # Refresh code end.                       
 
+        choose_tag_goal() {
+            local tag
+            local menu_items=()
+            local choice
+
+            # Add NO TAG option first.
+            menu_items+=("NO TAG" "")
+
+            # Add tags from NOTES_TAGS_DB.
+            while IFS= read -r tag; do
+                [[ -n "$tag" ]] && menu_items+=("$tag" "")
+            done < "$NOTES_TAGS_DB"
+
+            if ! choice=$(whiptail \
+                --title "Choose Tag" \
+                --menu "Select a tag for new linked note:" \
+                20 70 12 \
+                "${menu_items[@]}" \
+                3>&1 1>&2 2>&3
+            ); then
+                return 1
+            fi
+
+            if [[ "$choice" == "NO TAG" ]]; then
+                printf '%s' "[NO TAG]"
+            else
+                printf '%s' "$choice"
+            fi
+
+            return 0
+        }
+
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
         selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
 
         # Handle case when user selects "Create new lnked note".
         if [[ "$selected_note_tag" == "Create new linked note" ]]; then
-            add_note || continue
+            local chosen_tag_goal
+            chosen_tag_goal="$(choose_tag_goal)" || continue
+            if [[ "$chosen_tag_goal" == "[NO TAG]" ]]; then
+                add_note || continue
+            else
+                add_note "$chosen_tag_goal" || continue
+            fi
+
             associate_new_note_to_project_from_do_stuff "$selected_project_path"
             continue    # Continue since we need to update the linked notes list now.
         elif [[ "$selected_note_tag" == "Link note" ]]; then
