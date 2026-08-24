@@ -13760,7 +13760,11 @@ add_project() {
                 3>&1 1>&2 2>&3
         )" || return
 
-        content="${task}->${plan}"
+        if [[ -n "$plan" ]]; then
+            content="${task}->${plan}"
+        else
+            content="$task"
+        fi
 
         if [[ "$content" == *"|"* ]]; then
             whiptail \
@@ -13887,15 +13891,20 @@ add_project() {
         )" || return
 
         # Validate plan
-        if [[ -z "$plan" || "$plan" == *"|"* ]]; then
+        if [[ "$plan" == *"|"* ]]; then
             whiptail \
                 --title "Invalid Plan" \
-                --msgbox "Plan cannot be blank or contain the | character." \
+                --msgbox "Plan cannot contain the | character." \
                 8 60
             return
         fi
 
-        item_content[index]="${task}->${plan}"
+        # deal with case where there is no ->
+        if [[ -n "$plan" ]]; then
+            item_content[index]="${task}->${plan}"
+        else
+            item_content[index]="$task"
+        fi
     }
 
     edit_comment() {            
@@ -15692,7 +15701,11 @@ edit_project() {
                 3>&1 1>&2 2>&3
         )" || return
 
-        content="${task}->${plan}"
+        if [[ -n "$plan" ]]; then
+            content="${task}->${plan}"
+        else
+            content="$task"
+        fi
 
         if [[ "$content" == *"|"* ]]; then
             whiptail \
@@ -15819,15 +15832,20 @@ edit_project() {
         )" || return
 
         # Validate plan
-        if [[ -z "$plan" || "$plan" == *"|"* ]]; then
+        if [[ "$plan" == *"|"* ]]; then
             whiptail \
                 --title "Invalid Plan" \
-                --msgbox "Plan cannot be blank or contain the | character." \
+                --msgbox "Plan cannot contain the | character." \
                 8 60
             return
         fi
 
-        item_content[index]="${task}->${plan}"
+        # deal with case where there is no ->
+        if [[ -n "$plan" ]]; then
+            item_content[index]="${task}->${plan}"
+        else
+            item_content[index]="$task"
+        fi
     }
 
     edit_comment() {            
@@ -19823,7 +19841,11 @@ do_stuff_with_project_file() {
                     3>&1 1>&2 2>&3
             )" || return
 
-            content="${task}->${plan}"
+            if [[ -n "$plan" ]]; then
+                content="${task}->${plan}"
+            else
+                content="$task"
+            fi
 
             if [[ "$content" == *"|"* ]]; then
                 whiptail \
@@ -19910,56 +19932,61 @@ do_stuff_with_project_file() {
             item_content[index]="$new_text"
         }
 
-        edit_task() {
-            local index="$1"
-            local task plan
+    edit_task() {
+        local index="$1"
+        local task plan
 
-            if [[ "${item_content[index]}" == *"->"* ]]; then
-                task="${item_content[index]%%->*}"
-                plan="${item_content[index]#*->}"
-            else
-                task="${item_content[index]}"
-                plan=""
-            fi
+        if [[ "${item_content[index]}" == *"->"* ]]; then
+            task="${item_content[index]%%->*}"
+            plan="${item_content[index]#*->}"
+        else
+            task="${item_content[index]}"
+            plan=""
+        fi
 
-            task="$(
-                whiptail \
-                    --title "Edit Task" \
-                    --inputbox "Task:" \
-                    10 70 \
-                    "$task" \
-                    3>&1 1>&2 2>&3
-            )" || return
+        task="$(
+            whiptail \
+                --title "Edit Task" \
+                --inputbox "Task:" \
+                10 70 \
+                "$task" \
+                3>&1 1>&2 2>&3
+        )" || return
 
-            # Validate task
-            if [[ -z "$task" || "$task" == *"|"* ]]; then
-                whiptail \
-                    --title "Invalid Task" \
-                    --msgbox "Task cannot be blank or contain the | character." \
-                    8 60
-                return
-            fi
+        # Validate task
+        if [[ -z "$task" || "$task" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Task" \
+                --msgbox "Task cannot be blank or contain the | character." \
+                8 60
+            return
+        fi
 
-            plan="$(
-                whiptail \
-                    --title "Edit Plan" \
-                    --inputbox "Plan:" \
-                    10 70 \
-                    "$plan" \
-                    3>&1 1>&2 2>&3
-            )" || return
+        plan="$(
+            whiptail \
+                --title "Edit Plan" \
+                --inputbox "Plan:" \
+                10 70 \
+                "$plan" \
+                3>&1 1>&2 2>&3
+        )" || return
 
-            # Validate plan
-            if [[ -z "$plan" || "$plan" == *"|"* ]]; then
-                whiptail \
-                    --title "Invalid Plan" \
-                    --msgbox "Plan cannot be blank or contain the | character." \
-                    8 60
-                return
-            fi
+        # Validate plan
+        if [[ "$plan" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Plan" \
+                --msgbox "Plan cannot contain the | character." \
+                8 60
+            return
+        fi
 
+        # deal with case where there is no ->
+        if [[ -n "$plan" ]]; then
             item_content[index]="${task}->${plan}"
-        }
+        else
+            item_content[index]="$task"
+        fi
+    }
 
         edit_comment() {            
             local index="$1"
@@ -23691,7 +23718,11 @@ do_stuff_shortlisted() {
                     3>&1 1>&2 2>&3
             )" || return
 
-            content="${task}->${plan}"
+            if [[ -n "$plan" ]]; then
+                content="${task}->${plan}"
+            else
+                content="$task"
+            fi
 
             if [[ "$content" == *"|"* ]]; then
                 whiptail \
@@ -23818,15 +23849,20 @@ do_stuff_shortlisted() {
             )" || return
 
             # Validate plan
-            if [[ -z "$plan" || "$plan" == *"|"* ]]; then
+            if [[ "$plan" == *"|"* ]]; then
                 whiptail \
                     --title "Invalid Plan" \
-                    --msgbox "Plan cannot be blank or contain the | character." \
+                    --msgbox "Plan cannot contain the | character." \
                     8 60
                 return
             fi
 
-            item_content[index]="${task}->${plan}"
+            # deal with case where there is no ->
+            if [[ -n "$plan" ]]; then
+                item_content[index]="${task}->${plan}"
+            else
+                item_content[index]="$task"
+            fi
         }
 
         edit_comment() {            
