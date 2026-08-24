@@ -13929,7 +13929,7 @@ add_project() {
         fi
 
         while :; do
-            if ! nano "$tempfile"; then
+            if ! "$DEFAULT_EDITOR" "$tempfile"; then
                 return 1
             fi
 
@@ -15870,7 +15870,7 @@ edit_project() {
         fi
 
         while :; do
-            if ! nano "$tempfile"; then
+            if ! "$DEFAULT_EDITOR" "$tempfile"; then
                 return 1
             fi
 
@@ -20010,7 +20010,7 @@ do_stuff_with_project_file() {
             fi
 
             while :; do
-                if ! nano "$tempfile"; then
+                if ! "$DEFAULT_EDITOR" "$tempfile"; then
                     return 1
                 fi
 
@@ -23887,7 +23887,7 @@ do_stuff_shortlisted() {
             fi
 
             while :; do
-                if ! nano "$tempfile"; then
+                if ! "$DEFAULT_EDITOR" "$tempfile"; then
                     return 1
                 fi
 
