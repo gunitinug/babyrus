@@ -435,7 +435,40 @@ in_operation_msg() {
     #TERM=ansi whiptail --infobox "In operation..." 8 40 >/dev/tty
 }
 
+# Optimsed for speed when listing files under current directory.
 list_files() {
+    local path="$1"
+    local mode="$2"
+    local entry name
+
+    local entries=(".." "up")
+
+    if [[ "$mode" == "D" ]]; then
+        for entry in "$path"/*/ "$path"/.[!.]*/ "$path"/..?*/; do
+            [[ -d "$entry" ]] || continue
+
+            # Remove duplicate leading slashes.
+            [[ "$entry" == //* ]] && entry="/${entry#//}"
+
+            entries+=("${entry%/}" "")
+        done
+
+    elif [[ "$mode" == "F" ]]; then
+        for entry in "$path"/* "$path"/.[!.]* "$path"/..?*; do
+            [[ -f "$entry" ]] || continue
+
+            # Remove duplicate leading slashes.
+            [[ "$entry" == //* ]] && entry="/${entry#//}"
+
+            name="${entry##*/}"
+            entries+=("$entry" "$name")
+        done
+    fi
+
+    printf '%s\x1E' "${entries[@]}"
+}
+
+list_files_old() {
     local path="$1"
     local mode="$2"
 
@@ -465,16 +498,16 @@ navigate() {
     local current_path="$1"
 
     while true; do
-        in_operation_msg # show 'in operation...' when directory changes
+        #in_operation_msg # show 'in operation...' when directory changes
 
-	#mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D" | sed 's/\x1E$//')
-	# fix here because otherwise $choices array gets last empty element missing
-	# so they are no longer in pairs for whiptail menu.
-	mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D")
+        #mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D" | sed 's/\x1E$//')
+        # fix here because otherwise $choices array gets last empty element missing
+        # so they are no longer in pairs for whiptail menu.
+        mapfile -t -d $'\x1E' choices < <(printf "SELECT\x1Eselect\x1E"; list_files "$current_path" "D")
 
-	# debug - switched off because too vebose.
-	#echo choices: >&2
-	#declare -p choices >&2
+        # debug - switched off because too vebose.
+        #echo choices: >&2
+        #declare -p choices >&2
 
         selected=$(whiptail --title "File Browser" \
                             --menu "Current Directory: $current_path\nSelect a folder to search files." 20 170 10 \
@@ -486,13 +519,13 @@ navigate() {
         fi
 
         # If .. then move up a level in the tree
-	[[ "$selected" == ".." ]] && selected_path="$(dirname "$current_path")" || selected_path="$selected"
+        [[ "$selected" == ".." ]] && selected_path="$(dirname "$current_path")" || selected_path="$selected"
 
-	# debug
-	#echo selected_path: "$selected_path" >&2
+        # debug
+        #echo selected_path: "$selected_path" >&2
 
-	# Choose this item and quit
-	[[ "$selected"  == ":::SELECT:::" ]] && echo "$current_path" && break 
+        # Choose this item and quit
+        [[ "$selected"  == "SELECT" ]] && echo "$current_path" && break 
 
         if [ -d "$selected_path" ]; then
             # If directory, navigate into it
@@ -3040,61 +3073,12 @@ It involves the following steps:\n\
     # Directory selection
     local selected_dir
     selected_dir=$(navigate "$(pwd)")
+
     if [[ -z "$selected_dir" ]]; then
         #whiptail --msgbox "Directory selection canceled." 8 40
         return 1
     fi
 
-#     # Pattern input
-#     local pattern_input
-#     pattern_input=$(whiptail --inputbox "Enter glob file patterns (use || to separate multiple):\n\n\
-# Example: *.pdf||*.epub\n\
-# Matches any PDF or EPUB files" \
-#     --title "Search Patterns" 12 70 3>&1 1>&2 2>&3)
-#     [[ $? -ne 0 ]] && return 1  # User canceled
-
-#     # Check for illegal pattern.
-#     illegal_pattern "$pattern_input" || { 
-#         whiptail --title "Alert" --msgbox "Illegal pattern. Try again." 8 78
-#         return 1
-#     }
-
-#     # Split patterns and validate
-#     local patterns=()
-#     IFS='||' read -ra temp_patterns <<< "$pattern_input"
-#     for p in "${temp_patterns[@]}"; do
-#         p="${p#"${p%%[![:space:]]*}"}"  # Trim leading whitespace
-#         p="${p%"${p##*[![:space:]]}"}"  # Trim trailing whitespace
-#         [[ -n "$p" ]] && patterns+=("$p")
-#     done
-
-#     if [[ ${#patterns[@]} -eq 0 ]]; then
-#         whiptail --msgbox "No valid patterns entered." 8 40
-#         return 1
-#     fi
-
-#     # Build find command
-#     local find_cmd=(-type f)
-#     if [[ ${#patterns[@]} -gt 0 ]]; then
-#         find_cmd+=(\()
-#         for ((i=0; i<${#patterns[@]}; i++)); do
-#             ((i > 0)) && find_cmd+=(-o)
-#             find_cmd+=(-iname "${patterns[i]}")
-#         done
-#         find_cmd+=(\))
-#     fi
-
-#     # Perform search
-#     TERM=ansi whiptail --infobox "Performing search..." 8 40 >/dev/tty
-#     local found_files=()
-#     while IFS= read -r -d $'\0'; do
-#         found_files+=("$REPLY")
-#     done < <(find "$selected_dir" "${find_cmd[@]}" -print0 2>/dev/null)
-
-#     if [[ ${#found_files[@]} -eq 0 ]]; then
-#         whiptail --msgbox "No files found matching patterns." 8 40
-#         return 1
-#     fi
 
     # Ask for a single glob pattern (example: *.pdf)
     local pattern
