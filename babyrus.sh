@@ -16452,6 +16452,117 @@ edit_project() {
         done
     }
 
+    # -------------------------------------------------------------
+    # Sort children  based on item's numerical prefix.
+    # eg. 1) heading or 1. task
+    # Sorts parent's immediate children either headings or tasks.
+    # -------------------------------------------------------------
+
+    # Return the numeric prefix from an item's content.
+    #
+    # Examples:
+    #   "1. Heading one"  -> 1
+    #   "3) Heading three" -> 3
+    #   "10. Task ten"    -> 10
+    #
+    # Returns failure if there is no valid numeric prefix.
+    get_number_prefix() {
+        local content="$1"
+
+        if [[ "$content" =~ ^([0-9]+)[.\)][[:space:]]+ ]]; then
+            printf '%s\n' "${BASH_REMATCH[1]}"
+            return 0
+        fi
+
+        return 1
+    }
+
+
+    has_number_prefix() {
+        local content="$1"
+
+        [[ "$content" =~ ^[0-9]+[.\)][[:space:]]+ ]]
+    }
+
+
+    sort_numbered_items() {
+        local -n items="$1"
+
+        local item
+        local number
+        local sorted=()
+        local entries=()
+
+        for item in "${items[@]}"; do
+            number="$(get_number_prefix "${item_content[item]}")" || continue
+
+            # Include the original item index after the number.
+            entries+=("$number"$'\t'"$item")
+        done
+
+        # Numeric sort by the first field.
+        #
+        # sort -n is stable on GNU coreutils when --stable is specified.
+        if ((${#entries[@]})); then
+            mapfile -t entries < <(
+                printf '%s\n' "${entries[@]}" |
+                    sort -n -k1,1 -s
+            )
+        fi
+
+        for entry in "${entries[@]}"; do
+            sorted+=("${entry#*$'\t'}")
+        done
+
+        items=("${sorted[@]}")
+    }
+
+
+    sort_children() {
+        local children
+        local numbered_headings=()
+        local unnumbered_headings=()
+        local numbered_tasks=()
+        local unnumbered_tasks=()
+
+        get_children "$1"   # arg is item id NOT index.
+        children=("${CHILDREN[@]}")
+
+        for child in "${children[@]}"; do
+            case "${item_type[child]}" in
+                H)
+                    if has_number_prefix "${item_content[child]}"; then
+                        numbered_headings+=("$child")
+                    else
+                        unnumbered_headings+=("$child")
+                    fi
+                    ;;
+
+                T)
+                    if has_number_prefix "${item_content[child]}"; then
+                        numbered_tasks+=("$child")
+                    else
+                        unnumbered_tasks+=("$child")
+                    fi
+                    ;;
+            esac
+        done
+
+        sort_numbered_items numbered_headings
+        sort_numbered_items numbered_tasks
+
+        children=(
+            "${numbered_headings[@]}"
+            "${unnumbered_headings[@]}"
+            "${numbered_tasks[@]}"
+            "${unnumbered_tasks[@]}"
+        )
+
+        # Update global 0-based positions.
+        for position in "${!children[@]}"; do
+            item_position[children[position]]="$position"
+        done
+    }
 
     # ------------------------------------------------------------
     # Item action menu
@@ -16471,7 +16582,7 @@ edit_project() {
                         --title "${item_content[index]}" \
                         --menu \
                         "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
-                        22 75 10 \
+                        24 80 12 \
                         "TEXT" "Change text" \
                         "STATUS" "Change status" \
                         "IMPORTANCE" "Change importance" \
@@ -16480,6 +16591,7 @@ edit_project() {
                         "ADD_H" "Add heading" \
                         "ADD_T" "Add task" \
                         "MOVE" "Move" \
+                        "SORT" "Sort children by number prefix" \
                         "DELETE" "Delete" \
                         "BACK" "Back" \
                         3>&1 1>&2 2>&3
@@ -16547,6 +16659,10 @@ edit_project() {
                     # still exists, so locate it again.
                     find_index_by_id "${item_id[index]}"
                     (( RESULT_INDEX >= 0 )) && index=$RESULT_INDEX
+                    ;;
+
+                SORT)
+                    sort_children "${item_id[index]}"
                     ;;
 
                 DELETE)
