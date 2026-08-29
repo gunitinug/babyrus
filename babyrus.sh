@@ -14639,6 +14639,7 @@ add_project() {
                 action="$(
                     whiptail \
                         --title "${item_content[index]}" \
+                        --cancel-button "Back" \
                         --menu \
                         "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         24 80 12 \
@@ -14661,6 +14662,7 @@ add_project() {
                 action="$(
                     whiptail \
                         --title "${item_content[index]}" \
+                        --cancel-button "Back" \
                         --menu \
                         "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         20 75 8 \
@@ -16700,6 +16702,7 @@ edit_project() {
                 action="$(
                     whiptail \
                         --title "${item_content[index]}" \
+                        --cancel-button "Back" \
                         --menu \
                         "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         24 80 12 \
@@ -16722,6 +16725,7 @@ edit_project() {
                 action="$(
                     whiptail \
                         --title "${item_content[index]}" \
+                        --cancel-button "Back" \
                         --menu \
                         "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         20 75 8 \
@@ -20961,6 +20965,7 @@ do_stuff_with_project_file() {
                     action="$(
                         whiptail \
                             --title "${item_content[index]}" \
+                            --cancel-button "Back" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             24 80 12 \
@@ -20983,6 +20988,7 @@ do_stuff_with_project_file() {
                     action="$(
                         whiptail \
                             --title "${item_content[index]}" \
+                            --cancel-button "Back" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             20 75 8 \
@@ -24960,6 +24966,7 @@ do_stuff_shortlisted() {
                     action="$(
                         whiptail \
                             --title "${item_content[index]}" \
+                            --cancel-button "Back" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             24 80 12 \
@@ -24982,6 +24989,7 @@ do_stuff_shortlisted() {
                     action="$(
                         whiptail \
                             --title "${item_content[index]}" \
+                            --cancel-button "Back" \
                             --menu \
                             "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             20 75 8 \
