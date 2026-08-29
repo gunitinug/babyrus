@@ -16803,6 +16803,7 @@ edit_project() {
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
                     "ADD_T" "Add task" \
+                    "SORT" "Sort root's children by number prefix" \
                     "SAVE" "Save changes" \
                     "REVERT" "Discard changes and reload from disk" \
                     "---" "PROJECT TREE BELOW ---" \
@@ -16831,6 +16832,10 @@ edit_project() {
                     if select_heading_for_parent "0"; then
                         add_task "$SELECTED_HEADING_ID"
                     fi
+                    ;;
+
+                SORT)
+                    sort_children "0"
                     ;;
 
                 SAVE)
