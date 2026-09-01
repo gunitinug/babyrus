@@ -21277,6 +21277,42 @@ do_stuff_with_project_file() {
         project_menu    
     }
 
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     local projects=()
     mapfile -d '' -t projects < <(filter_projects_by_name)	
 
@@ -21329,9 +21365,9 @@ do_stuff_with_project_file() {
                     note_lines+=("$line")         
 
                     # truncate tag string
-                    trunc_tag="$(truncate_tag "$tags")"    
+                    trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"    
 
-                    note_menu_options+=("${#note_lines[@]}" "$title [${trunc_tag}]")
+                    note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
                     break
                 fi
             done < "$NOTES_DB"
@@ -25278,6 +25314,42 @@ do_stuff_shortlisted() {
         project_menu            
     }    
 
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     # Populate menu with current shortlist
     local projects=()
     mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
@@ -25334,9 +25406,9 @@ do_stuff_shortlisted() {
                     note_lines+=("$line")
 
                     # truncate tag string
-                    trunc_tag="$(truncate_tag "$tags")"
+                    trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"
 
-                    note_menu_options+=("${#note_lines[@]}" "$title [${trunc_tag}]")
+                    note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
                     break
                 fi
             done < "$NOTES_DB"
