@@ -14382,7 +14382,7 @@ add_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$label"
+                "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -16445,7 +16445,7 @@ edit_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$label"
+                "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -20708,7 +20708,7 @@ do_stuff_with_project_file() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$label"
+                    "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
@@ -24744,7 +24744,7 @@ do_stuff_shortlisted() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$label"
+                    "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
