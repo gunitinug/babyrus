@@ -10313,7 +10313,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             choice_text=$(
                 whiptail --title "Select notes" \
                     --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
-                    20 170 10 \
+                    35 170 25 \
                     "${checklist[@]}" \
                     3>&1 1>&2 2>&3
             ) || return 1
