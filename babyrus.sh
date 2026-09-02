@@ -8188,7 +8188,7 @@ paginate_get_notes() {
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
-            20 170 10 \
+            35 170 25 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
@@ -10508,7 +10508,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 whiptail \
                     --title "Lookup notes" \
                     --menu "Select a note (Page $((page + 1))/$total_pages)" \
-                    20 170 10 \
+                    35 170 25 \
                     "${menu_items[@]}" \
                     3>&1 1>&2 2>&3
             ) || return 1
@@ -12387,7 +12387,7 @@ lookup_note_tags() {
                 whiptail \
                     --title "Lookup notes" \
                     --menu "Select a note (Page $((page + 1))/$total_pages)" \
-                    20 170 10 \
+                    35 170 25 \
                     "${menu_items[@]}" \
                     3>&1 1>&2 2>&3
             ) || return 1
