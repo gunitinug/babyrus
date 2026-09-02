@@ -19231,7 +19231,7 @@ do_stuff_with_project_file() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 20 170 10 \
+                    --checklist "$prompt" 35 170 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
@@ -23267,7 +23267,7 @@ do_stuff_shortlisted() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 20 170 10 \
+                    --checklist "$prompt" 35 170 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
