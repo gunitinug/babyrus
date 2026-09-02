@@ -9285,7 +9285,7 @@ associate_notes_by_tag_to_project() {
 
             local choice
             choice=$(whiptail --title "Select Notes (Page $((current_page+1))/$total_pages)" \
-                            --checklist "Select notes by tag" 20 170 10 \
+                            --checklist "Select notes by tag" 35 170 25 \
                             "${options[@]}" \
                             3>&1 1>&2 2>&3
             )
@@ -13041,7 +13041,7 @@ paginate_get_projects() {
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)" \
-            20 170 10 \
+            35 170 25 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
