@@ -17832,6 +17832,42 @@ dissociate_note_from_project() {
     local line="${lines[selected_project]}"
     IFS='|' read -r title path notes <<< "$line"
 
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     # Begin dissociation loop
     while true; do
         if [[ -z "$notes" ]]; then
@@ -17853,7 +17889,7 @@ dissociate_note_from_project() {
         local note_index note_matching_tags
         for note_index in "${!notes_arr[@]}"; do
             note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-            note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
+            note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
         done
 
         # Show note selection menu
@@ -19433,6 +19469,42 @@ do_stuff_with_project_file() {
         local line="${lines[selected_project]}"
         IFS='|' read -r title path notes <<< "$line"
 
+        truncate_note_tags_by_tag() {
+            local tags="$1"
+            local inner
+            local -a tag_array
+            local count
+            local extra
+
+            # Remove surrounding [ ]
+            inner="${tags#[}"
+            inner="${inner%]}"
+
+            # Empty list
+            if [[ -z "$inner" ]]; then
+                printf '[]\n'
+                return
+            fi
+
+            # Split on commas
+            IFS=',' read -r -a tag_array <<< "$inner"
+
+            count=${#tag_array[@]}
+
+            if (( count <= 3 )); then
+                printf '[%s]\n' "$inner"
+                return
+            fi
+
+            extra=$((count - 3))
+
+            printf '[%s,%s,%s +%d]\n' \
+                "${tag_array[0]}" \
+                "${tag_array[1]}" \
+                "${tag_array[2]}" \
+                "$extra"
+        }
+
         # Begin dissociation loop
         while true; do
             if [[ -z "$notes" ]]; then
@@ -19457,7 +19529,7 @@ do_stuff_with_project_file() {
             local note_index note_matching_tags
             for note_index in "${!notes_arr[@]}"; do
                 note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-                note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
+                note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
             done
 
             # Show note selection menu            
@@ -23508,6 +23580,42 @@ do_stuff_shortlisted() {
         local line="${lines[selected_project]}"
         IFS='|' read -r title path notes <<< "$line"
 
+        truncate_note_tags_by_tag() {
+            local tags="$1"
+            local inner
+            local -a tag_array
+            local count
+            local extra
+
+            # Remove surrounding [ ]
+            inner="${tags#[}"
+            inner="${inner%]}"
+
+            # Empty list
+            if [[ -z "$inner" ]]; then
+                printf '[]\n'
+                return
+            fi
+
+            # Split on commas
+            IFS=',' read -r -a tag_array <<< "$inner"
+
+            count=${#tag_array[@]}
+
+            if (( count <= 3 )); then
+                printf '[%s]\n' "$inner"
+                return
+            fi
+
+            extra=$((count - 3))
+
+            printf '[%s,%s,%s +%d]\n' \
+                "${tag_array[0]}" \
+                "${tag_array[1]}" \
+                "${tag_array[2]}" \
+                "$extra"
+        }
+
         # Begin dissociation loop
         while true; do
             if [[ -z "$notes" ]]; then
@@ -23532,7 +23640,7 @@ do_stuff_shortlisted() {
             local note_index note_matching_tags
             for note_index in "${!notes_arr[@]}"; do
                 note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-                note_options+=("$note_index" "${notes_arr[note_index]} [${note_matching_tags}]")
+                note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
             done
 
             # Show note selection menu            
