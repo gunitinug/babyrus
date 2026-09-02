@@ -17611,28 +17611,67 @@ associate_note_to_project() {
     local selected_note_tag
     selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
 
+    truncate_note_tags_by_tag() {
+        local tags="$1"
+        local inner
+        local -a tag_array
+        local count
+        local extra
+
+        # Remove surrounding [ ]
+        inner="${tags#[}"
+        inner="${inner%]}"
+
+        # Empty list
+        if [[ -z "$inner" ]]; then
+            printf '[]\n'
+            return
+        fi
+
+        # Split on commas
+        IFS=',' read -r -a tag_array <<< "$inner"
+
+        count=${#tag_array[@]}
+
+        if (( count <= 3 )); then
+            printf '[%s]\n' "$inner"
+            return
+        fi
+
+        extra=$((count - 3))
+
+        printf '[%s,%s,%s +%d]\n' \
+            "${tag_array[0]}" \
+            "${tag_array[1]}" \
+            "${tag_array[2]}" \
+            "$extra"
+    }
+
     # Read notes into menu
     local note_menu_options=()
     local note_tags_arr
     while IFS='|' read -r note_title note_path note_tags rest; do
+        local note_tags_old="$note_tags"
+        note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
+
         # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
         if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-            note_menu_options+=("$note_path" "[${note_tags}]")
+            note_menu_options+=("$note_path" "$note_tags")
             continue
         fi
 
         if [[ "$selected_note_tag" == "NO TAG" ]]; then
-            [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "[${note_tags}]")
+            [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
             continue
         fi
 
         # FIX: FILTER BY NOTE TAG
-        IFS=',' read -r -a note_tags_arr <<< "$note_tags"
+        IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
 
         # only enters here if line already has a tag
         for tag in "${note_tags_arr[@]}"; do
             if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "[${note_tags}]")
+                note_menu_options+=("$note_path" "$note_tags")
                 break
             fi
         done
@@ -19006,28 +19045,67 @@ do_stuff_with_project_file() {
         local selected_note_tag
         selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
 
+        truncate_note_tags_by_tag() {
+            local tags="$1"
+            local inner
+            local -a tag_array
+            local count
+            local extra
+
+            # Remove surrounding [ ]
+            inner="${tags#[}"
+            inner="${inner%]}"
+
+            # Empty list
+            if [[ -z "$inner" ]]; then
+                printf '[]\n'
+                return
+            fi
+
+            # Split on commas
+            IFS=',' read -r -a tag_array <<< "$inner"
+
+            count=${#tag_array[@]}
+
+            if (( count <= 3 )); then
+                printf '[%s]\n' "$inner"
+                return
+            fi
+
+            extra=$((count - 3))
+
+            printf '[%s,%s,%s +%d]\n' \
+                "${tag_array[0]}" \
+                "${tag_array[1]}" \
+                "${tag_array[2]}" \
+                "$extra"
+        }
+
         # Read notes into menu
         local note_menu_options=()
         local note_tags_arr
         while IFS='|' read -r note_title note_path note_tags rest; do
+            local note_tags_old="$note_tags"
+            note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
+
             # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
             if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "[${note_tags}]")
+                note_menu_options+=("$note_path" "$note_tags")
                 continue
             fi
 
             if [[ "$selected_note_tag" == "NO TAG" ]]; then
-                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "[${note_tags}]")
+                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
                 continue
             fi
 
             # FIX: FILTER BY NOTE TAG
-            IFS=',' read -r -a note_tags_arr <<< "$note_tags"
+            IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
 
             # only enters here if line already has a tag
             for tag in "${note_tags_arr[@]}"; do
                 if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                    note_menu_options+=("$note_path" "[${note_tags}]")
+                    note_menu_options+=("$note_path" "$note_tags")
                     break
                 fi
             done
@@ -23042,28 +23120,67 @@ do_stuff_shortlisted() {
         local selected_note_tag
         selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
 
+        truncate_note_tags_by_tag() {
+            local tags="$1"
+            local inner
+            local -a tag_array
+            local count
+            local extra
+
+            # Remove surrounding [ ]
+            inner="${tags#[}"
+            inner="${inner%]}"
+
+            # Empty list
+            if [[ -z "$inner" ]]; then
+                printf '[]\n'
+                return
+            fi
+
+            # Split on commas
+            IFS=',' read -r -a tag_array <<< "$inner"
+
+            count=${#tag_array[@]}
+
+            if (( count <= 3 )); then
+                printf '[%s]\n' "$inner"
+                return
+            fi
+
+            extra=$((count - 3))
+
+            printf '[%s,%s,%s +%d]\n' \
+                "${tag_array[0]}" \
+                "${tag_array[1]}" \
+                "${tag_array[2]}" \
+                "$extra"
+        }
+
         # Read notes into menu
         local note_menu_options=()
         local note_tags_arr
         while IFS='|' read -r note_title note_path note_tags rest; do
+            local note_tags_old="$note_tags"
+            note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
+
             # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
             if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "[${note_tags}]")
+                note_menu_options+=("$note_path" "$note_tags")
                 continue
             fi
 
             if [[ "$selected_note_tag" == "NO TAG" ]]; then
-                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "[${note_tags}]")
+                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
                 continue
             fi            
 
             # FIX: FILTER BY NOTE TAG
-            IFS=',' read -r -a note_tags_arr <<< "$note_tags"
+            IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
 
             # only enters here if line already has a tag
             for tag in "${note_tags_arr[@]}"; do
                 if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                    note_menu_options+=("$note_path" "[${note_tags}]")
+                    note_menu_options+=("$note_path" "$note_tags")
                     break
                 fi
             done
