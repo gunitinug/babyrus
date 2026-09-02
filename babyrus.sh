@@ -18096,7 +18096,7 @@ do_stuff_with_project_file() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -22122,7 +22122,7 @@ do_stuff_shortlisted() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:" 20 170 10 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
