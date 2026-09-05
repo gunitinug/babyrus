@@ -26038,7 +26038,8 @@ do_stuff_shortlisted() {
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
-        note_menu_options+=("Add tag to linked notes" "")        
+        note_menu_options+=("Add tag to linked notes" "")
+        note_menu_options+=("Remove tag from linked notes" "")
 
         local trunc_tag
         for np in "${note_paths[@]}"; do
@@ -26366,6 +26367,101 @@ Tag you have chosen will be added to the selected notes." 10 60
             done
         }
 
+        retrieve_linked_note_tags() {
+            local line
+            local tags
+            local tag
+
+            declare -A seen_tags=()
+
+            for line in "$@"; do
+                # Extract the third field (tags)
+                IFS='|' read -r _ _ tags _ <<< "$line"
+
+                # Extract comma-separated tags
+                local IFS=','
+                read -r -a tag_array <<< "$tags"
+
+                for tag in "${tag_array[@]}"; do
+                    [[ -z "$tag" ]] && continue
+                    seen_tags["$tag"]=1
+                done
+            done
+
+            # Print unique tags alphabetically
+            printf '%s\n' "${!seen_tags[@]}" | sort
+        }
+
+        remove_linked_note_tag() {
+            local tag="$1"
+            shift
+
+            local matched_line
+            local title
+            local note_path
+            local note_tags
+            local rest
+            local new_tags
+            local current_tag
+            local found
+
+            # Nothing to process
+            [[ $# -eq 0 ]] && return 0
+
+            # Create a temporary file
+            local temp_file
+            temp_file=$(mktemp) || return 1
+
+            while IFS= read -r line; do
+                local should_update=false
+
+                # Check whether this line is one of the matched lines
+                for matched_line in "$@"; do
+                    if [[ "$line" == "$matched_line" ]]; then
+                        should_update=true
+                        break
+                    fi
+                done
+
+                if [[ "$should_update" == true ]]; then
+                    # NOTES_DB:
+                    # note title|note path|tag1,tag2|rest
+                    IFS='|' read -r title note_path note_tags rest <<< "$line"
+
+                    new_tags=""
+
+                    # Remove the requested tag
+                    local old_ifs="$IFS"
+                    IFS=','
+                    read -r -a tag_array <<< "$note_tags"
+                    IFS="$old_ifs"
+
+                    for current_tag in "${tag_array[@]}"; do
+                        [[ "$current_tag" == "$tag" ]] && continue
+
+                        if [[ -z "$new_tags" ]]; then
+                            new_tags="$current_tag"
+                        else
+                            new_tags+=",$current_tag"
+                        fi
+                    done
+
+                    # Reconstruct the line
+                    printf '%s|%s|%s|%s\n' \
+                        "$title" \
+                        "$note_path" \
+                        "$new_tags" \
+                        "$rest"
+                else
+                    # Leave all other lines unchanged
+                    printf '%s\n' "$line"
+                fi
+            done < "$NOTES_DB" > "$temp_file"
+
+            # Replace the original database
+            mv "$temp_file" "$NOTES_DB"
+        }        
+
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
         selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
@@ -26397,6 +26493,41 @@ Tag you have chosen will be added to the selected notes." 10 60
             )
             add_tag_to_notes_from_filtered "${linked_notes_array[@]}"
             continue
+        elif [[ "$selected_note_tag" == "Remove tag from linked notes" ]]; then
+            # retrieve linked notes for selected project path
+            mapfile -t linked_notes_array < <(
+                retrieve_linked_notes "$selected_project_path"
+            )
+
+            # extract tags from linked notes, let user select one tag from list.
+            mapfile -t note_tags < <(
+                retrieve_linked_note_tags "${linked_notes_array[@]}"
+            )
+
+            local chosen_tag_for_removal
+            local tag_menu_options=()
+            local tag
+
+            for tag in "${note_tags[@]}"; do
+                tag_menu_options+=("$tag" "")
+            done
+
+            if chosen_tag_for_removal=$(whiptail \
+                --title "Remove Linked Note Tag" \
+                --menu "Select a tag to remove:" \
+                20 80 10 \
+                "${tag_menu_options[@]}" \
+                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+            ); then
+                if remove_linked_note_tag "$chosen_tag_for_removal" "${linked_notes_array[@]}"; then
+                    whiptail \
+                        --title "Tag Removed" \
+                        --msgbox "The tag \"$chosen_tag_for_removal\" has been removed from the linked notes." \
+                        10 70 \
+                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+                fi                
+            fi
+            continue            
         fi
 
         local selected_note_index=$((selected_note_tag - 1))
