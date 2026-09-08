@@ -17933,123 +17933,6 @@ dissociate_note_from_project() {
     done
 }
 
-# OLD VERSION - JUST FOR RECORD (NEW VERSION ALLOWS MULTIPLE DISSOCIATE NOTE SELECTION)
-# dissociate_note_from_project() {
-#     #local PROJECTS_DB=${PROJECTS_DB:-"$HOME/projects_db"}  # Default path if not set
-    
-#     # Check if database exists
-#     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-#         whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
-#         return 1
-#     fi
-
-#     # FIX: FILTER BY PROJECT NAME.
-#     # Read all lines from database
-# #    local -a lines
-# #    mapfile -t lines < "$PROJECTS_DB"
-#     local lines=()
-#     mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
-
-#     # if [[ ${#lines[@]} -eq 0 ]]; then
-#     #     whiptail --msgbox "No projects found in database." 10 60 >/dev/tty
-#     #     return 1
-#     # fi
-
-#     # Generate project selection menu options
-# #    local -a project_options
-# #    local index title path notes
-# #    for index in "${!lines[@]}"; do
-# #        IFS='|' read -r title path notes <<< "${lines[index]}"
-# #        project_options+=("$index" "$path")
-# #    done
-#     local project_options=("<< Back" "")
-#     local title path notes line lineno
-#     for line in "${lines[@]}"; do
-#         IFS='|' read -r title path notes <<< "$line"
-#         lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-# 	# Store matching index from PROJECTS_DB file.
-#         [[ -n "$lineno" ]] && project_options+=($((lineno-1)) "$path")
-#     done
-
-#     mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
-#     # END FIX.
-
-#     # Show project selection menu
-#     paginate_get_projects "Select Project" "${project_options[@]}"
-#     local selected_project
-#     selected_project="$SELECTED_ITEM_PROJECT"
-#     [[ -z "$selected_project" || "$selected_project" == "<< Back" ]] && return 1
-
-#     #local selected_project
-#     #selected_project=$(whiptail --title "Select Project" --menu "Choose a project to dissociate note from:" \
-#     #    20 80 10 "${project_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-#     #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
-
-#     # Get selected project details
-#     local line="${lines[selected_project]}"
-#     IFS='|' read -r title path notes <<< "$line"
-
-#     # Check for existing notes
-#     if [[ -z "$notes" ]]; then
-#         whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
-#         return 1
-#     fi
-
-#     # Split notes into array
-#     local -a notes_arr
-#     IFS=',' read -ra notes_arr <<< "$notes"
-#     if [[ ${#notes_arr[@]} -eq 0 ]]; then
-#         whiptail --msgbox "Selected project has no associated notes" 10 60 >/dev/tty
-#         return 1
-#     fi
-
-#     # Generate note selection menu options
-#     local -a note_options
-#     local note_index
-#     for note_index in "${!notes_arr[@]}"; do
-#         note_options+=("$note_index" "${notes_arr[note_index]}")
-#     done
-
-#     # Show note selection menu
-#     paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
-#     local selected_note
-#     selected_note="$SELECTED_ITEM_PROJECT"
-#     [[ -z "$selected_note" ]] && return 1
-
-#     #local selected_note
-#     #selected_note=$(whiptail --title "Select Note" --menu "Choose note to remove:" \
-#     #    20 80 10 "${note_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-#     #if [[ $? -ne 0 ]]; then return 1; fi  # User canceled
-
-#     # Remove selected note from array
-#     local -a new_notes
-#     for note_index in "${!notes_arr[@]}"; do
-#         if [[ $note_index -ne $selected_note ]]; then
-#             new_notes+=("${notes_arr[note_index]}")
-#         fi
-#     done
-
-#     # Update the database entry
-#     local new_notes_str
-#     # If after removing selected note there is a note left over in entry...
-#     if [[ ${#new_notes[@]} -gt 0 ]]; then
-#         new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
-#     else
-#         new_notes_str=""
-#     fi
-
-#     lines[selected_project]="$title|$path|$new_notes_str"
-
-#     # Write updated database
-#     local tmp_db
-#     tmp_db=$(mktemp) || return 1
-#     printf "%s\n" "${lines[@]}" > "$tmp_db"
-#     mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
-
-#     whiptail --msgbox "Note successfully dissociated from project." 10 60
-# }
-
 open_note_ebook_page_from_project() {
     local selected_line="$1"
 
@@ -18096,6 +17979,8 @@ open_note_ebook_page_from_project() {
 }
 
 do_stuff_with_project_file() {
+    local selected_project_title
+
     truncate_tag() {
         local tags="$1"
         local max_len=60    # tweak this!
@@ -18137,7 +18022,7 @@ do_stuff_with_project_file() {
     }
 
     show_note_menu() {
-        local selected_project_title="$1"
+        selected_project_title="$1"
         # might as well truncate it here.
         (( ${#selected_project_title} > 50 )) && selected_project_title="${selected_project_title:0:50}..."
         shift
@@ -21485,21 +21370,24 @@ do_stuff_with_project_file() {
     selected_project_tag="$SELECTED_ITEM_PROJECT"
     [[ -z "$selected_project_tag" || "$selected_project_tag" == "<< Back" ]] && return 1
 
-    # FIX: WHILE LOOP TO ALLOW MULTIPLE LINKED NOTE SELECTIONS
-    while :; do
-        # Refresh linked notes list at the start of each iteration.
+    local selected_project_path
+    local note_lines=()
+    local note_menu_options=()
+
+    # MOVED OUT OF WHILE LOOP!!!
+    refresh_all_linked_notes() {
         mapfile -t projects < "$PROJECTS_DB"    # Reload from PROJECTS DB file.
         local selected_project_index=$((selected_project_tag - 1))
         local selected_project_line="${projects[$selected_project_index]}"
 
-        local selected_project_title selected_project_path associated_notes
+        local associated_notes
         IFS='|' read -r selected_project_title selected_project_path associated_notes <<< "$selected_project_line"
 
         # Process associated notes
         local note_paths=()
         IFS=',' read -ra note_paths <<< "$associated_notes"
-        local note_lines=() 
-        local note_menu_options=()
+        note_lines=() 
+        note_menu_options=()
 
         note_menu_options+=("Manage plan" "")
         # Add option 'Create new linked note'
@@ -21508,23 +21396,157 @@ do_stuff_with_project_file() {
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
         note_menu_options+=("Remove tag from linked notes" "")
+        note_menu_options+=("Filter linked notes by tag" "")
+        note_menu_options+=("Reset filter" "")
 
         local trunc_tag
         for np in "${note_paths[@]}"; do
             while IFS= read -r line; do
                 IFS='|' read -r title path tags _ <<< "$line"
                 if [ "$path" = "$np" ]; then
+                    # array containing matching lines from NOTES_DB of all the linked notes.
                     note_lines+=("$line")         
 
                     # truncate tag string
                     trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"    
 
+                    # so, a particular line would be accessed by note_lines[tag-1].
                     note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
                     break
                 fi
             done < "$NOTES_DB"
         done        
-        # Refresh code end.                       
+        # Refresh code end.  
+    }
+
+    #-- Helpers for refresh_filtered_linked_notes()
+    retrieve_linked_notes() {
+        local selected_project_path="$1"
+        local project_line
+        local project_title
+        local project_path
+        local linked_notes
+        local note_path
+
+        # Find the project line whose second field matches the selected path
+        while IFS= read -r project_line; do
+            IFS='|' read -r project_title project_path linked_notes <<< "$project_line"
+
+            if [[ "$project_path" == "$selected_project_path" ]]; then
+                break
+            fi
+
+            linked_notes=""
+        done < "$PROJECTS_DB"
+
+        # No matching project or no linked notes
+        [[ -z "$linked_notes" ]] && return 0
+
+        # Extract each comma-separated note path
+        local IFS=','
+        read -r -a note_paths <<< "$linked_notes"
+
+        # Find and print each corresponding line from NOTES_DB
+        for note_path in "${note_paths[@]}"; do
+            while IFS= read -r note_line; do
+                IFS='|' read -r note_title note_db_path note_tags note_rest <<< "$note_line"
+
+                if [[ "$note_db_path" == "$note_path" ]]; then
+                    printf '%s\n' "$note_line"
+                    break
+                fi
+            done < "$NOTES_DB"
+        done
+    }
+
+    filter_linked_notes_by_tag() {
+        local selected_tag="$1"
+        shift
+
+        local line
+        local title
+        local note_path
+        local note_tags
+        local rest
+        local current_tag
+
+        for line in "$@"; do
+            IFS='|' read -r title note_path note_tags rest <<< "$line"
+
+            IFS=',' read -ra tag_array <<< "$note_tags"
+
+            for current_tag in "${tag_array[@]}"; do
+                if [[ "$current_tag" == "$selected_tag" ]]; then
+                    printf '%s\n' "$line"
+                    break
+                fi
+            done
+        done
+    }    
+    #-- Helpers end.
+
+    local TAG_FILTER_BY=""
+
+    refresh_filtered_linked_notes() {
+        local chosen_tag_filter="${1:-}"    # TAG_FILTER_BY
+
+        # if no filter by tag then don't filter when update.
+        [[ -z "$chosen_tag_filter" ]] && {
+            refresh_all_linked_notes
+            return 0
+        }
+
+        # retrieve $selected_project_path
+        mapfile -t projects < "$PROJECTS_DB"    # Reload from PROJECTS DB file.
+        local selected_project_index=$((selected_project_tag - 1))
+        local selected_project_line="${projects[$selected_project_index]}"
+
+        local associated_notes
+        IFS='|' read -r selected_project_title selected_project_path associated_notes <<< "$selected_project_line"
+        # retrieved!
+
+        # retrieve linked notes for selected project path - lines from NOTES_DB.
+        mapfile -t linked_notes_array < <(
+            retrieve_linked_notes "$selected_project_path"
+        )
+
+        local tag_menu_options=()
+        local filtered_linked_notes=()
+        local tag
+
+        mapfile -t filtered_linked_notes < <(
+            filter_linked_notes_by_tag "$chosen_tag_filter" "${linked_notes_array[@]}"
+        )
+
+        # update note_lines and note_menu_options!
+        note_lines=()
+        note_menu_options=()
+
+        note_menu_options+=("Manage plan" "")
+        note_menu_options+=("Create new linked note" "")
+        note_menu_options+=("Link note" "")
+        note_menu_options+=("Unlink note" "")
+        note_menu_options+=("Add tag to linked notes" "")
+        note_menu_options+=("Remove tag from linked notes" "")
+        note_menu_options+=("Filter linked notes by tag" "")
+        note_menu_options+=("Reset filter" "")
+
+        for line in "${filtered_linked_notes[@]}"; do
+            IFS='|' read -r title path tags _ <<< "$line"
+            note_lines+=("$line")         
+
+            # truncate tag string
+            trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"    
+
+            note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")             
+        done
+    }
+
+    refresh_all_linked_notes
+
+    # FIX: WHILE LOOP TO ALLOW MULTIPLE LINKED NOTE SELECTIONS
+    while :; do
+        refresh_filtered_linked_notes "$TAG_FILTER_BY"
 
         choose_tag_goal() {
             local tag
@@ -21928,7 +21950,32 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             # Replace the original database
             mv "$temp_file" "$NOTES_DB"
-        }        
+        }
+
+        filter_linked_notes_by_tag() {
+            local selected_tag="$1"
+            shift
+
+            local line
+            local title
+            local note_path
+            local note_tags
+            local rest
+            local current_tag
+
+            for line in "$@"; do
+                IFS='|' read -r title note_path note_tags rest <<< "$line"
+
+                IFS=',' read -ra tag_array <<< "$note_tags"
+
+                for current_tag in "${tag_array[@]}"; do
+                    if [[ "$current_tag" == "$selected_tag" ]]; then
+                        printf '%s\n' "$line"
+                        break
+                    fi
+                done
+            done
+        }
 
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
@@ -21959,18 +22006,39 @@ Tag you have chosen will be added to the selected notes." 10 60
             mapfile -t linked_notes_array < <(
                 retrieve_linked_notes "$selected_project_path"
             )
+
+            if [[ -n "$TAG_FILTER_BY" ]]; then
+                mapfile -t filtered_linked_notes < <(
+                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
+                )                
+                add_tag_to_notes_from_filtered "${filtered_linked_notes[@]}"
+                continue
+            fi
+
             add_tag_to_notes_from_filtered "${linked_notes_array[@]}"
             continue
         elif [[ "$selected_note_tag" == "Remove tag from linked notes" ]]; then
-            # retrieve linked notes for selected project path
+            # retrieve linked notes for selected project path - lines from NOTES_DB.
             mapfile -t linked_notes_array < <(
                 retrieve_linked_notes "$selected_project_path"
             )
 
-            # extract tags from linked notes, let user select one tag from list.
-            mapfile -t note_tags < <(
-                retrieve_linked_note_tags "${linked_notes_array[@]}"
-            )
+            if [[ -n "$TAG_FILTER_BY" ]];then
+                mapfile -t filtered_linked_notes < <(
+                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
+                )                
+            fi
+
+            if [[ -n "$TAG_FILTER_BY" ]]; then
+                mapfile -t note_tags < <(
+                retrieve_linked_note_tags "${filtered_linked_notes[@]}"
+            )                
+            else
+                # extract tags from linked notes, let user select one tag from list.
+                mapfile -t note_tags < <(
+                    retrieve_linked_note_tags "${linked_notes_array[@]}"
+                )
+            fi
 
             local chosen_tag_for_removal
             local tag_menu_options=()
@@ -21987,7 +22055,11 @@ Tag you have chosen will be added to the selected notes." 10 60
                 "${tag_menu_options[@]}" \
                 3>&1 1>&2 2>&3 </dev/tty >/dev/tty
             ); then
-                remove_linked_note_tag "$chosen_tag_for_removal" "${linked_notes_array[@]}"
+                if [[ -n "$TAG_FILTER_BY" ]]; then
+                    remove_linked_note_tag "$chosen_tag_for_removal" "${filtered_linked_notes[@]}"
+                else
+                    remove_linked_note_tag "$chosen_tag_for_removal" "${linked_notes_array[@]}"
+                fi
                 whiptail \
                     --title "Tag Removed" \
                     --msgbox "The tag \"$chosen_tag_for_removal\" has been removed from the linked notes." \
@@ -21995,6 +22067,38 @@ Tag you have chosen will be added to the selected notes." 10 60
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty                
             fi
             continue
+        elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
+            # retrieve linked notes for selected project path - lines from NOTES_DB.
+            mapfile -t linked_notes_array < <(
+                retrieve_linked_notes "$selected_project_path"
+            )
+
+        	# extract tags from linked notes, let user select one tag from list.
+            mapfile -t note_tags < <(
+                retrieve_linked_note_tags "${linked_notes_array[@]}"
+            )
+
+            local chosen_tag_for_filter
+            local tag_menu_options=()
+            local tag
+
+            for tag in "${note_tags[@]}"; do
+                tag_menu_options+=("$tag" "")
+            done
+
+            if chosen_tag_for_filter=$(whiptail \
+                --title "Filter Linked Notes" \
+                --menu "Select a tag to filter by:" \
+                20 80 10 \
+                "${tag_menu_options[@]}" \
+                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+            ); then
+        		TAG_FILTER_BY="$chosen_tag_for_filter"                
+            fi
+            continue        
+        elif [[ "$selected_note_tag" == "Reset filter" ]]; then
+            TAG_FILTER_BY=""
+            continue    
         fi
 
         
