@@ -22101,14 +22101,137 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue    
         fi
 
-        
+        #-- Helper fn's for 'Add tag to item' and 'Remove tag from item'
+        add_tag_to_item() {
+            local selected_note_line="$1"
+
+            local note_title note_path note_tags rest
+            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
+
+            local tag_menu=()
+            local tag
+
+            while IFS= read -r tag; do
+                [[ -z "$tag" ]] && continue
+
+                # Don't offer tags the note already has
+                if [[ ",$note_tags," != *",$tag,"* ]]; then
+                    tag_menu+=("$tag" "")
+                fi
+            done < "$NOTES_TAGS_DB"
+
+            if ((${#tag_menu[@]} == 0)); then
+                whiptail --msgbox "There are no tags available to add." 8 50
+                return 1
+            fi
+
+            local selected_tag
+
+            selected_tag=$(
+                whiptail \
+                    --title "Add tag" \
+                    --menu "Select a tag to add:" \
+                    20 70 12 \
+                    "${tag_menu[@]}" \
+                    3>&1 1>&2 2>&3
+            ) || return 1
+
+            # Add the selected tag
+            if [[ -n "$note_tags" ]]; then
+                note_tags+=",$selected_tag"
+            else
+                note_tags="$selected_tag"
+            fi
+
+            local new_line
+            new_line="$note_title|$note_path|$note_tags|$rest"
+
+            local tmp_file
+            tmp_file=$(mktemp) || return 1
+
+            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
+                $2 == path {
+                    print replacement
+                    next
+                }
+                { print }
+            ' "$NOTES_DB" > "$tmp_file"
+
+            mv "$tmp_file" "$NOTES_DB"
+        }
+
+
+        remove_tag_from_item() {
+            local selected_note_line="$1"
+
+            local note_title note_path note_tags rest
+            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
+
+            if [[ -z "$note_tags" ]]; then
+                whiptail --msgbox "This note has no tags to remove." 8 50
+                return 1
+            fi
+
+            local tag_menu=()
+            local tag
+
+            IFS=',' read -ra note_tag_array <<< "$note_tags"
+
+            for tag in "${note_tag_array[@]}"; do
+                [[ -z "$tag" ]] && continue
+                tag_menu+=("$tag" "")
+            done
+
+            if ((${#tag_menu[@]} == 0)); then
+                whiptail --msgbox "This note has no tags to remove." 8 50
+                return 1
+            fi
+
+            local selected_tag
+
+            selected_tag=$(
+                whiptail \
+                    --title "Remove tag" \
+                    --menu "Select a tag to remove:" \
+                    20 70 12 \
+                    "${tag_menu[@]}" \
+                    3>&1 1>&2 2>&3
+            ) || return 1
+
+            # Remove the selected tag
+            local new_tags=()
+            for tag in "${note_tag_array[@]}"; do
+                [[ "$tag" == "$selected_tag" ]] && continue
+                [[ -n "$tag" ]] && new_tags+=("$tag")
+            done
+
+            local updated_note_tags=""
+            ((${#new_tags[@]} > 0)) && updated_note_tags=$(IFS=,; echo "${new_tags[*]}")
+
+            local new_line
+            new_line="$note_title|$note_path|$updated_note_tags|$rest"
+
+            local tmp_file
+            tmp_file=$(mktemp) || return 1
+
+            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
+                $2 == path {
+                    print replacement
+                    next
+                }
+                { print }
+            ' "$NOTES_DB" > "$tmp_file"
+
+            mv "$tmp_file" "$NOTES_DB"
+        }
+        #-- Helpers end.        
 
         local selected_note_index=$((selected_note_tag - 1))
         local selected_note_line="${note_lines[$selected_note_index]}"
 
         # Action selection
         local action
-        action=$(whiptail --menu "Note Action" 20 50 9 \
+        action=$(whiptail --menu "Note Action" 24 60 11 \
             "1" "View Note" \
             "2" "Copy note content to clipboard" \
             "3" "Open ebooks linked to note" \
@@ -22117,7 +22240,9 @@ Tag you have chosen will be added to the selected notes." 10 60
             "6" "Associate URL to note" \
             "7" "Dissociate URL from note" \
             "8" "Associate Note to Project" \
-            "9" "Print Note using Printer" 3>&1 1>&2 2>&3)
+            "9" "Print Note using Printer" \
+            "10" "Add tag to item" \
+            "11" "Remove tag from item" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] && continue    # i want to return to list of linked note files so continue
 
         case "$action" in
@@ -22174,6 +22299,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             "9")
                 IFS='|' read -r note_title note_path _ _ <<< "$selected_note_line"
                 print_chosen_note "$note_path"
+                ;;
+            "10")
+                add_tag_to_item "$selected_note_line"
+                ;;
+            "11")
+                remove_tag_from_item "$selected_note_line"
                 ;;
         esac
     done
