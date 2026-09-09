@@ -21390,6 +21390,7 @@ do_stuff_with_project_file() {
         note_menu_options=()
 
         note_menu_options+=("Manage plan" "")
+        note_menu_options+=("Create new note tag" "")
         # Add option 'Create new linked note'
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Link note" "")
@@ -21523,6 +21524,7 @@ do_stuff_with_project_file() {
         note_menu_options=()
 
         note_menu_options+=("Manage plan" "")
+        note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -21977,6 +21979,112 @@ Tag you have chosen will be added to the selected notes." 10 60
             done
         }
 
+        add_note_tag_stuff() {
+            local subject=""
+            local topic=""
+            local tag_name=""
+            local choice
+
+            while true; do
+                # Construct tag name
+                if [[ -n "$subject" && -n "$topic" ]]; then
+                    tag_name="${subject}->${topic}"
+                else
+                    tag_name="$subject"
+                fi
+
+                # Silently remove banned characters
+                tag_name="${tag_name//[|,#:;]/}"
+
+                choice=$(
+                    whiptail \
+                        --title "Add Note Tag" \
+                        --menu "Create a new tag (formatted 'subject->topic'):" \
+                        18 70 8 \
+                        "Subject" "${subject:-<not set>}" \
+                        "Topic" "${topic:-<not set>}" \
+                        "Tag Name" "'${tag_name}'" \
+                        "Save" "" \
+                        3>&1 1>&2 2>&3
+                ) || return 1
+
+                case "$choice" in
+                    Subject)
+                        subject=$(
+                            whiptail \
+                                --title "Subject" \
+                                --inputbox "Enter subject:" \
+                                10 60 "$subject" \
+                                3>&1 1>&2 2>&3
+                        ) || continue
+                        ;;
+
+                    Topic)
+                        topic=$(
+                            whiptail \
+                                --title "Topic" \
+                                --inputbox "Enter topic (optional):" \
+                                10 60 "$topic" \
+                                3>&1 1>&2 2>&3
+                        ) || continue
+                        ;;
+
+                    Save)
+                        # Reconstruct again to ensure latest values
+                        if [[ -n "$subject" && -n "$topic" ]]; then
+                            tag_name="${subject}->${topic}"
+                        else
+                            tag_name="$subject"
+                        fi
+
+                        # Remove banned characters
+                        tag_name="${tag_name//[|,#:;]/}"
+
+                        # Trim whitespace
+                        tag_name="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$tag_name")"
+
+                        if [[ -z "$tag_name" ]]; then
+                            whiptail \
+                                --title "Error" \
+                                --msgbox "Tag Name cannot be empty." \
+                                8 40
+                            continue
+                        fi
+
+                        if [[ "$tag_name" == "ANY TAG" ]]; then
+                            whiptail \
+                                --title "Error" \
+                                --msgbox "'ANY TAG' is a reserved tag name." \
+                                8 45
+                            continue
+                        fi
+
+                        if grep -Fxq -- "$tag_name" "$NOTES_TAGS_DB"; then
+                            whiptail \
+                                --title "Duplicate" \
+                                --msgbox "Tag already exists." \
+                                8 40
+                            continue
+                        fi
+
+                        {
+                            cat "$NOTES_TAGS_DB"
+                            printf '%s\n' "$tag_name"
+                        } | sort -u > "${NOTES_TAGS_DB}.tmp" &&
+                            mv "${NOTES_TAGS_DB}.tmp" "$NOTES_TAGS_DB"
+
+                        whiptail \
+                            --title "Success" \
+                            --msgbox "Tag added:\n\n$tag_name" \
+                            10 50
+
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
+
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
         selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
@@ -22098,7 +22206,10 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue        
         elif [[ "$selected_note_tag" == "Reset filter" ]]; then
             TAG_FILTER_BY=""
-            continue    
+            continue
+        elif [[ "$selected_note_tag" == "Create new note tag" ]]; then
+            add_note_tag_stuff
+            continue
         fi
 
         #-- Helper fn's for 'Add tag to item' and 'Remove tag from item'
