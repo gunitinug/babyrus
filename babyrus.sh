@@ -14858,7 +14858,7 @@ add_project() {
                     --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
-                    28 110 20 \
+                    45 120 37 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
@@ -16922,7 +16922,7 @@ edit_project() {
                     --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
-                    28 110 20 \
+                    45 120 37 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
@@ -21220,7 +21220,7 @@ do_stuff_with_project_file() {
                         --cancel-button "Back" \
                         --menu \
                         "Project: $project_file_tr" \
-                        28 110 20 \
+                        45 120 37 \
                         -- \
                         "SYMBOLS" "Help" \
                         "ADD_H" "Add top-level heading" \
@@ -26231,7 +26231,7 @@ do_stuff_shortlisted() {
                         --cancel-button "Back" \
                         --menu \
                         "Project: $project_file_tr" \
-                        28 110 20 \
+                        45 120 37 \
                         -- \
                         "SYMBOLS" "Help" \
                         "ADD_H" "Add top-level heading" \
