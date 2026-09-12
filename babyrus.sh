@@ -21474,6 +21474,12 @@ do_stuff_with_project_file() {
         for line in "$@"; do
             IFS='|' read -r title note_path note_tags rest <<< "$line"
 
+            # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
+            if [[ "$selected_tag" == "NO TAG" ]]; then
+                [[ -z "$note_tags" ]] && printf '%s\n' "$line"
+                continue
+            fi
+
             IFS=',' read -ra tag_array <<< "$note_tags"
 
             for current_tag in "${tag_array[@]}"; do
@@ -21968,6 +21974,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             for line in "$@"; do
                 IFS='|' read -r title note_path note_tags rest <<< "$line"
 
+                # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
+                if [[ "$selected_tag" == "NO TAG" ]]; then
+                    [[ -z "$note_tags" ]] && printf '%s\n' "$line"
+                    continue
+                fi
+
                 IFS=',' read -ra tag_array <<< "$note_tags"
 
                 for current_tag in "${tag_array[@]}"; do
@@ -22190,6 +22202,9 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag_menu_options=()
             local tag
 
+            # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
+            tag_menu_options+=("[NO TAG]" "Linked notes with no tag")
+
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
             done
@@ -22201,9 +22216,14 @@ Tag you have chosen will be added to the selected notes." 10 60
                 "${tag_menu_options[@]}" \
                 3>&1 1>&2 2>&3 </dev/tty >/dev/tty
             ); then
-        		TAG_FILTER_BY="$chosen_tag_for_filter"                
+                # NEW: map the menu label to a sentinel that can't be a real tag.
+                if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
+                    TAG_FILTER_BY="NO TAG"
+                else
+                    TAG_FILTER_BY="$chosen_tag_for_filter"
+                fi
             fi
-            continue        
+            continue 
         elif [[ "$selected_note_tag" == "Reset filter" ]]; then
             TAG_FILTER_BY=""
             continue
@@ -26470,6 +26490,12 @@ do_stuff_shortlisted() {
         for line in "$@"; do
             IFS='|' read -r title note_path note_tags rest <<< "$line"
 
+            # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
+            if [[ "$selected_tag" == "NO TAG" ]]; then
+                [[ -z "$note_tags" ]] && printf '%s\n' "$line"
+                continue
+            fi
+
             IFS=',' read -ra tag_array <<< "$note_tags"
 
             for current_tag in "${tag_array[@]}"; do
@@ -26964,6 +26990,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             for line in "$@"; do
                 IFS='|' read -r title note_path note_tags rest <<< "$line"
 
+                # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
+                if [[ "$selected_tag" == "NO TAG" ]]; then
+                    [[ -z "$note_tags" ]] && printf '%s\n' "$line"
+                    continue
+                fi
+
                 IFS=',' read -ra tag_array <<< "$note_tags"
 
                 for current_tag in "${tag_array[@]}"; do
@@ -27185,6 +27217,9 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag_menu_options=()
             local tag
 
+            # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
+            tag_menu_options+=("[NO TAG]" "Linked notes with no tag")
+
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
             done
@@ -27196,9 +27231,14 @@ Tag you have chosen will be added to the selected notes." 10 60
                 "${tag_menu_options[@]}" \
                 3>&1 1>&2 2>&3 </dev/tty >/dev/tty
             ); then
-        		TAG_FILTER_BY="$chosen_tag_for_filter"                
+                # NEW: map the menu label to a sentinel that can't be a real tag.
+                if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
+                    TAG_FILTER_BY="NO TAG"
+                else
+                    TAG_FILTER_BY="$chosen_tag_for_filter"
+                fi
             fi
-            continue        
+            continue    
         elif [[ "$selected_note_tag" == "Reset filter" ]]; then
             TAG_FILTER_BY=""
             continue    
