@@ -14382,7 +14382,7 @@ add_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
+                "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -14858,7 +14858,7 @@ add_project() {
                     --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
-                    45 120 37 \
+                    45 180 37 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
@@ -16445,7 +16445,7 @@ edit_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
+                "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -16922,7 +16922,7 @@ edit_project() {
                     --cancel-button "Back" \
                     --menu \
                     "Project: $project_file_tr" \
-                    45 120 37 \
+                    45 180 37 \
                     -- \
                     "SYMBOLS" "Help" \
                     "ADD_H" "Add top-level heading" \
@@ -20743,7 +20743,7 @@ do_stuff_with_project_file() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
+                    "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
@@ -21220,7 +21220,7 @@ do_stuff_with_project_file() {
                         --cancel-button "Back" \
                         --menu \
                         "Project: $project_file_tr" \
-                        45 120 37 \
+                        45 180 37 \
                         -- \
                         "SYMBOLS" "Help" \
                         "ADD_H" "Add top-level heading" \
@@ -25753,7 +25753,7 @@ do_stuff_shortlisted() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$([[ ${#label} -gt 100 ]] && printf '%s...' "${label:0:97}" || printf '%s' "$label")"
+                    "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
@@ -26231,7 +26231,7 @@ do_stuff_shortlisted() {
                         --cancel-button "Back" \
                         --menu \
                         "Project: $project_file_tr" \
-                        45 120 37 \
+                        45 180 37 \
                         -- \
                         "SYMBOLS" "Help" \
                         "ADD_H" "Add top-level heading" \
