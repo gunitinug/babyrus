@@ -16172,6 +16172,9 @@ edit_project() {
 
         new_parent="$(choose_move_destination "$index")" || return
 
+        # Guard--if old_parent is the same as new_parent, no nothing--no move required!
+        [[ "$old_parent" == "$new_parent" ]] && return
+
         # Tasks cannot be moved to root.
         if [[ "${item_type[index]}" == "T" && "$new_parent" == "0" ]]; then
             whiptail \
@@ -16207,6 +16210,158 @@ edit_project() {
         done
     }
 
+    # ------------------------------------------------------------
+    # Reorder: move an item before/after a sibling of the same kind
+    # ------------------------------------------------------------
+
+    # Present the three move modes (before / after / under another heading).
+    move_item_menu() {
+        local index="$1"
+        local action
+        local type="${item_type[index]}"
+        local kind
+
+        if [[ "$type" == "H" ]]; then
+            kind="heading"
+        else
+            kind="task"
+        fi
+
+        while :; do
+
+            action="$(
+                whiptail \
+                    --title "Move: ${item_content[index]}" \
+                    --cancel-button "Back" \
+                    --menu \
+                    "Choose how to move this $kind:" \
+                    18 78 10 \
+                    "BEFORE" "Move before another $kind on this level" \
+                    "AFTER"  "Move after another $kind on this level" \
+                    "PARENT" "Move under another heading" \
+                    "BACK"   "Back" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            case "$action" in
+
+                BEFORE)
+                    move_item_relative "$index" "before"
+                    return
+                    ;;
+
+                AFTER)
+                    move_item_relative "$index" "after"
+                    return
+                    ;;
+
+                PARENT)
+                    move_item "$index"
+                    return
+                    ;;
+
+                BACK)
+                    return
+                    ;;
+            esac
+        done
+    }
+
+
+    # Move item $index before/after (mode) a same-type sibling on the
+    # same level. Sibling positions are reassigned sequentially so the
+    # position values on the level stay unique and consecutive.
+    move_item_relative() {
+        local index="$1"
+        local mode="$2"   # "before" or "after"
+        local parent="${parent_id[index]}"
+        local type="${item_type[index]}"
+        local kind
+        local child
+        local n=0
+        local target
+        local target_index=-1
+        local inserted=0
+        local pos=0
+        local -a candidates=()
+        local -a new_order=()
+
+        if [[ "$type" == "H" ]]; then
+            kind="heading"
+        else
+            kind="task"
+        fi
+
+        get_children "$parent"
+
+        # Candidates: siblings of the same type, excluding the item
+        # itself, in their current (position-sorted) order.
+        for child in "${CHILDREN[@]}"; do
+            [[ "$child" == "$index" ]] && continue
+            [[ "${item_type[child]}" != "$type" ]] && continue
+
+            ((n++))
+            candidates+=(
+                "${item_id[child]}"
+                "$n) ${item_content[child]}"
+            )
+        done
+
+        if (( n == 0 )); then
+            whiptail \
+                --title "Move" \
+                --msgbox \
+                "There is no other $kind on this level to move next to." \
+                8 60
+            return
+        fi
+
+        target="$(
+            whiptail \
+                --title "Move $mode" \
+                --cancel-button "Back" \
+                --menu \
+                "Move '${item_content[index]}' $mode which item?" \
+                18 180 10 \
+                "${candidates[@]}" \
+                3>&1 1>&2 2>&3
+        )" || return
+
+        # Resolve the chosen item ID back to an index.
+        find_index_by_id "$target"
+        (( RESULT_INDEX >= 0 )) && target_index=$RESULT_INDEX
+
+        if (( target_index < 0 )); then
+            return
+        fi
+
+        # Rebuild the sibling order of the whole level minus the moving
+        # item, then splice it back in before/after the target.
+        for child in "${CHILDREN[@]}"; do
+            [[ "$child" == "$index" ]] && continue
+
+            if [[ "$child" == "$target_index" ]]; then
+                if [[ "$mode" == "before" ]]; then
+                    new_order+=("$index" "$child")
+                else
+                    new_order+=("$child" "$index")
+                fi
+                inserted=1
+            else
+                new_order+=("$child")
+            fi
+        done
+
+        (( inserted )) || return
+
+        # Reassign positions sequentially, keeping the level consistent
+        # exactly as normalize_positions() does.
+        pos=0
+        for child in "${new_order[@]}"; do
+            item_position[child]="$pos"
+            ((pos++))
+        done
+    }
 
     # ------------------------------------------------------------
     # Delete
@@ -16777,7 +16932,8 @@ edit_project() {
                     ;;
 
                 MOVE)
-                    move_item "$index"
+                    #move_item "$index"
+                    move_item_menu "$index"
 
                     # The arrays may have changed but this item itself
                     # still exists, so locate it again.
