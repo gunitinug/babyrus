@@ -21884,11 +21884,13 @@ do_stuff_with_project_file() {
             done < "$NOTES_DB"
         done
 
-        # Sort note_lines alphabetically by title.
-        mapfile -t note_lines < <(
-            printf '%s\n' "${note_lines[@]}" |
-            sort -t'|' -k1,1f
-        )
+        # Sort note_lines alphabetically by title--guarded.
+        if ((${#note_lines[@]} > 0)); then
+            mapfile -t note_lines < <(
+                printf '%s\n' "${note_lines[@]}" |
+                sort -t'|' -k1,1f
+            )
+        fi
 
         # Build menu options in the exact same order as note_lines.
         for i in "${!note_lines[@]}"; do
@@ -22007,11 +22009,13 @@ do_stuff_with_project_file() {
             filter_linked_notes_by_tag "$chosen_tag_filter" "${linked_notes_array[@]}"
         )
 
-        # Sort filtered notes alphabetically by title.
-        mapfile -t filtered_linked_notes < <(
-            printf '%s\n' "${filtered_linked_notes[@]}" |
-            sort -t'|' -k1,1f
-        )
+        # Sort filtered notes alphabetically by title--guarded now.
+        if ((${#filtered_linked_notes[@]} > 0)); then
+            mapfile -t filtered_linked_notes < <(
+                printf '%s\n' "${filtered_linked_notes[@]}" |
+                sort -t'|' -k1,1f
+            )
+        fi
 
         # update note_lines and note_menu_options!
         note_lines=()
@@ -22030,6 +22034,8 @@ do_stuff_with_project_file() {
         note_menu_options+=("Reset filter" "")
 
         for line in "${filtered_linked_notes[@]}"; do
+            [[ -z "$line" ]] && continue    # guard
+
             IFS='|' read -r title path tags _ <<< "$line"
 
             note_lines+=("$line")
@@ -23159,6 +23165,17 @@ Tag you have chosen will be added to the selected notes." 10 60
                 mapfile -t note_tags < <(
                     retrieve_linked_note_tags "${linked_notes_array[@]}"
                 )
+            fi
+
+            # Remove the last element if it's empty
+            [[ -z "${note_tags[-1]}" ]] && unset 'note_tags[-1]'
+
+            if (( ${#note_tags[@]} == 0 )); then
+                whiptail \
+                    --title "No Matching Tags" \
+                    --msgbox "There are no matching tags." \
+                    10 50
+                continue
             fi
 
             local chosen_tag_for_removal
@@ -27621,11 +27638,13 @@ do_stuff_shortlisted() {
             done < "$NOTES_DB"
         done
 
-        # Sort note_lines alphabetically by title.
-        mapfile -t note_lines < <(
-            printf '%s\n' "${note_lines[@]}" |
-            sort -t'|' -k1,1f
-        )
+        # Sort note_lines alphabetically by title--guarded.
+        if ((${#note_lines[@]} > 0)); then
+            mapfile -t note_lines < <(
+                printf '%s\n' "${note_lines[@]}" |
+                sort -t'|' -k1,1f
+            )
+        fi
 
         # Build menu options in the exact same order as note_lines.
         for i in "${!note_lines[@]}"; do
@@ -27744,11 +27763,13 @@ do_stuff_shortlisted() {
             filter_linked_notes_by_tag "$chosen_tag_filter" "${linked_notes_array[@]}"
         )
 
-        # Sort filtered notes alphabetically by title.
-        mapfile -t filtered_linked_notes < <(
-            printf '%s\n' "${filtered_linked_notes[@]}" |
-            sort -t'|' -k1,1f
-        )
+        # Sort filtered notes alphabetically by title--now guarded.
+        if ((${#filtered_linked_notes[@]} > 0)); then
+            mapfile -t filtered_linked_notes < <(
+                printf '%s\n' "${filtered_linked_notes[@]}" |
+                sort -t'|' -k1,1f
+            )
+        fi
 
         # update note_lines and note_menu_options!
         note_lines=()
@@ -27767,6 +27788,8 @@ do_stuff_shortlisted() {
         note_menu_options+=("Reset filter" "")
 
         for line in "${filtered_linked_notes[@]}"; do
+            [[ -z "$line" ]] && continue    # guard.
+
             IFS='|' read -r title path tags _ <<< "$line"
 
             note_lines+=("$line")
@@ -28898,6 +28921,17 @@ Tag you have chosen will be added to the selected notes." 10 60
                     retrieve_linked_note_tags "${linked_notes_array[@]}"
                 )
             fi
+
+            # Remove the last element if it's empty
+            [[ -z "${note_tags[-1]}" ]] && unset 'note_tags[-1]'
+
+            if (( ${#note_tags[@]} == 0 )); then
+                whiptail \
+                    --title "No Matching Tags" \
+                    --msgbox "There are no matching tags." \
+                    10 50
+                continue
+            fi            
 
             local chosen_tag_for_removal
             local tag_menu_options=()
