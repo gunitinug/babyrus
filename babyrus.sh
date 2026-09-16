@@ -21855,12 +21855,11 @@ do_stuff_with_project_file() {
         # Process associated notes
         local note_paths=()
         IFS=',' read -ra note_paths <<< "$associated_notes"
-        note_lines=() 
+        note_lines=()
         note_menu_options=()
 
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
-        # Add option 'Create new linked note'
         note_menu_options+=("Create new linked note" "")
         note_menu_options+=("Open ebook" "")
         note_menu_options+=("Open URL" "")
@@ -21872,23 +21871,35 @@ do_stuff_with_project_file() {
         note_menu_options+=("Reset filter" "")
 
         local trunc_tag
+
+        # First collect all matching note lines.
         for np in "${note_paths[@]}"; do
             while IFS= read -r line; do
                 IFS='|' read -r title path tags _ <<< "$line"
+
                 if [ "$path" = "$np" ]; then
-                    # array containing matching lines from NOTES_DB of all the linked notes.
-                    note_lines+=("$line")         
-
-                    # truncate tag string
-                    trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"    
-
-                    # so, a particular line would be accessed by note_lines[tag-1].
-                    note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
+                    note_lines+=("$line")
                     break
                 fi
             done < "$NOTES_DB"
-        done        
-        # Refresh code end.  
+        done
+
+        # Sort note_lines alphabetically by title.
+        mapfile -t note_lines < <(
+            printf '%s\n' "${note_lines[@]}" |
+            sort -t'|' -k1,1f
+        )
+
+        # Build menu options in the exact same order as note_lines.
+        for i in "${!note_lines[@]}"; do
+            IFS='|' read -r title path tags _ <<< "${note_lines[$i]}"
+
+            trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"
+
+            note_menu_options+=("$((i + 1))" "$title $trunc_tag")
+        done
+
+        # Refresh code end.
     }
 
     #-- Helpers for refresh_filtered_linked_notes()
@@ -21988,12 +21999,18 @@ do_stuff_with_project_file() {
             retrieve_linked_notes "$selected_project_path"
         )
 
-        local tag_menu_options=()
-        local filtered_linked_notes=()
         local tag
+        local trunc_tag
+        local filtered_linked_notes=()
 
         mapfile -t filtered_linked_notes < <(
             filter_linked_notes_by_tag "$chosen_tag_filter" "${linked_notes_array[@]}"
+        )
+
+        # Sort filtered notes alphabetically by title.
+        mapfile -t filtered_linked_notes < <(
+            printf '%s\n' "${filtered_linked_notes[@]}" |
+            sort -t'|' -k1,1f
         )
 
         # update note_lines and note_menu_options!
@@ -22014,12 +22031,12 @@ do_stuff_with_project_file() {
 
         for line in "${filtered_linked_notes[@]}"; do
             IFS='|' read -r title path tags _ <<< "$line"
-            note_lines+=("$line")         
 
-            # truncate tag string
-            trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"    
+            note_lines+=("$line")
 
-            note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")             
+            trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"
+
+            note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
         done
     }
 
