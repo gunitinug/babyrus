@@ -23230,7 +23230,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 mapfile -t filtered_linked_notes < <(
                     filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
                 )
-                open_urls_filtered "${filtered_linked_notes[@]}"
+                open_ebook_filtered "${filtered_linked_notes[@]}"
                 continue                
             fi
 
