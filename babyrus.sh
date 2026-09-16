@@ -21862,6 +21862,8 @@ do_stuff_with_project_file() {
         note_menu_options+=("Create new note tag" "")
         # Add option 'Create new linked note'
         note_menu_options+=("Create new linked note" "")
+        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
@@ -22001,6 +22003,8 @@ do_stuff_with_project_file() {
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
+        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
@@ -22565,6 +22569,198 @@ Tag you have chosen will be added to the selected notes." 10 60
             done
         }
 
+        open_urls_filtered() {
+            # Control characters:
+            #   Ctrl-] = ^] = Group Separator
+            #   Ctrl-^ = ^^ = Record Separator
+            #   Ctrl-_ = ^_ = Unit Separator
+            local CTRL_GS=$'\035'
+            local CTRL_RS=$'\036'
+            local CTRL_US=$'\037'
+
+            _spawn() {
+                nohup "$@" >/dev/null 2>&1 </dev/null &
+            }
+
+            _dialog_msg() {
+                local message=$1
+                local height=${2:-10}
+                local width=${3:-60}
+
+                whiptail --msgbox "$message" "$height" "$width" \
+                    3>&1 1>&2 2>&3
+            }
+
+            if (($# == 0)); then
+                _dialog_msg "No note records were supplied." 10 55
+                return 1
+            fi
+
+            if [[ ! -r ${URLS_DB:?URLS_DB is not set} ]]; then
+                _dialog_msg "URLS_DB is not readable: $URLS_DB" 10 65
+                return 1
+            fi
+
+            local line note_path dbline record
+            local title entry url description
+            local selected_note selected_url
+            local id=1
+
+            local -a note_items=()
+            local -a url_items=()
+
+            local -A note_path_by_id=()
+            local -A url_by_id=()
+
+            # ------------------------------------------------------------
+            # Build menu of linked notes that have at least one URL.
+            # ------------------------------------------------------------
+
+            for line in "$@"; do
+                # NOTES_DB format:
+                # note title|note path|tag1,tag2|ebook information
+                IFS='|' read -r title note_path _ <<< "$line"
+                note_path=${note_path%$'\r'}
+
+                [[ -n $note_path ]] || continue
+
+                # Check whether this note has at least one URL.
+                local has_url=0
+
+                while IFS= read -r dbline || [[ -n $dbline ]]; do
+                    [[ $dbline == "$note_path$CTRL_GS"* ]] || continue
+
+                    record=${dbline#*"$CTRL_GS"}
+
+                    local -a url_records=()
+                    IFS="$CTRL_RS" read -r -a url_records <<< "$record"
+
+                    for entry in "${url_records[@]}"; do
+                        [[ -n $entry ]] || continue
+
+                        if [[ $entry == *"$CTRL_US"* ]]; then
+                            url=${entry%%"$CTRL_US"*}
+                        else
+                            url=$entry
+                        fi
+
+                        [[ -n $url ]] || continue
+
+                        has_url=1
+                        break
+                    done
+
+                    ((has_url)) && break
+                done < "$URLS_DB"
+
+                # Only add notes that actually have URLs.
+                if ((has_url)); then
+                    note_path_by_id[$id]=$note_path
+
+                    # Show title in the menu. Fall back to note path if needed.
+                    [[ -n $title ]] || title=$note_path
+
+                    note_items+=("$id" "$title")
+                    ((++id))
+                fi
+            done
+
+            if ((${#note_items[@]} == 0)); then
+                _dialog_msg "None of the supplied notes have associated URLs." 10 65
+                return 1
+            fi
+
+            while :; do
+                # ------------------------------------------------------------
+                # Select a note.
+                # ------------------------------------------------------------
+
+                selected_note=$(
+                    whiptail \
+                        --title "Select Note" \
+                        --cancel-button "Back" \
+                        --menu "Choose a linked note:" \
+                        22 100 14 \
+                        "${note_items[@]}" \
+                        3>&1 1>&2 2>&3
+                ) || return 1
+
+                note_path=${note_path_by_id[$selected_note]-}
+                [[ -n $note_path ]] || return 1
+
+                # ------------------------------------------------------------
+                # Build URL menu for the selected note.
+                # ------------------------------------------------------------
+
+                id=1
+                url_items=()
+                url_by_id=()
+
+                while IFS= read -r dbline || [[ -n $dbline ]]; do
+                    [[ $dbline == "$note_path$CTRL_GS"* ]] || continue
+
+                    record=${dbline#*"$CTRL_GS"}
+
+                    local -a url_records=()
+                    IFS="$CTRL_RS" read -r -a url_records <<< "$record"
+
+                    for entry in "${url_records[@]}"; do
+                        [[ -n $entry ]] || continue
+
+                        if [[ $entry == *"$CTRL_US"* ]]; then
+                            url=${entry%%"$CTRL_US"*}
+                            description=${entry#*"$CTRL_US"}
+                        else
+                            url=$entry
+                            description=""
+                        fi
+
+                        [[ -n $url ]] || continue
+
+                        url_by_id[$id]=$url
+
+                        if [[ -n $description ]]; then
+                            url_items+=("$id" "$description $url")
+                        else
+                            url_items+=("$id" "$url")
+                        fi
+
+                        ((++id))
+                    done
+                done < "$URLS_DB"
+
+                if ((${#url_items[@]} == 0)); then
+                    _dialog_msg "No URLs were found for the selected note." 10 65
+                    return 1
+                fi
+
+                while :; do
+                    # ------------------------------------------------------------
+                    # Select URL.
+                    # ------------------------------------------------------------
+
+                    selected_url=$(
+                        whiptail \
+                            --title "Select URL" \
+                            --cancel-button "Back" \
+                            --menu "Choose a URL to open in Google Chrome:" \
+                            22 100 14 \
+                            "${url_items[@]}" \
+                            3>&1 1>&2 2>&3
+                    ) || break
+
+                    [[ -n $selected_url ]] || continue
+
+                    url=${url_by_id[$selected_url]-}
+                    [[ -n $url ]] || continue
+
+                    _spawn google-chrome --new-window -- "$url"
+                done
+            done
+        }
+
+
+
 
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
@@ -22698,6 +22894,22 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue
         elif [[ "$selected_note_tag" == "Create new note tag" ]]; then
             add_note_tag_stuff
+            continue
+        elif [[ "$selected_note_tag" == "Open URL" ]]; then
+            # retrieve linked notes for selected project path - lines from NOTES_DB.
+            mapfile -t linked_notes_array < <(
+                retrieve_linked_notes "$selected_project_path"
+            )
+
+            if [[ -n "$TAG_FILTER_BY" ]];then
+                mapfile -t filtered_linked_notes < <(
+                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
+                )
+                open_urls_filtered "${filtered_linked_notes[@]}"
+                continue                
+            fi
+
+            open_urls_filtered "${linked_notes_array[@]}"
             continue
         fi
 
