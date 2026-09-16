@@ -22754,7 +22754,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     url=${url_by_id[$selected_url]-}
                     [[ -n $url ]] || continue
 
-                    _spawn google-chrome --new-window -- "$url"
+                    _spawn "$URL_BROWSER" --new-window -- "$url"
                 done
             done
         }
@@ -22985,7 +22985,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
-                    _spawn zathura -- "$ebook"
+                    _spawn "$(get_open_command "$ebook")" -- "$ebook"
                     ;;
 
                 bookmarks)
@@ -23060,7 +23060,17 @@ Tag you have chosen will be added to the selected notes." 10 60
                     page=${page_by_id[$bookmark_selection]-}
                     [[ -n $page ]] || return 1
 
-                    _spawn zathura --page="$page" -- "$ebook"
+
+                    local cmd__ vcmd__
+                    cmd__="$(get_open_command "$ebook")"
+                    vcmd__="${VIEWER_COMMANDS["$cmd__"]}"
+
+                    [[ -n "$vcmd__" ]] || return 1
+
+                    read -r -a viewer_cmd__ <<< "$vcmd__"
+                    _spawn "${viewer_cmd__[@]}" "$page" -- "$ebook"
+
+                    #_spawn "$vcmd__" "$page" -- "$ebook"
                     ;;
 
                 *)
