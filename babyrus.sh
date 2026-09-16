@@ -22759,6 +22759,315 @@ Tag you have chosen will be added to the selected notes." 10 60
             done
         }
 
+        open_ebook_filtered() {
+            _spawn() {
+                nohup "$@" >/dev/null 2>&1 </dev/null &
+            }
+
+            _dialog_msg() {
+                local message=$1
+                local height=${2:-10}
+                local width=${3:-60}
+
+                whiptail --msgbox "$message" "$height" "$width" \
+                    3>&1 1>&2 2>&3
+            }
+
+            if (($# == 0)); then
+                _dialog_msg "No note records were supplied." 10 55
+                return 1
+            fi
+
+            if [[ ! -r ${NOTES_DB:?NOTES_DB is not set} ]]; then
+                _dialog_msg "NOTES_DB is not readable: $NOTES_DB" 10 65
+                return 1
+            fi
+
+            local line
+            local note_path
+            local dbline
+            local db_note_path
+            local db_bookspec
+
+            local entry
+            local ebook
+            local bookmark_spec
+
+            local title
+            local selected_note
+            local selected_ebook
+
+            local action
+            local status
+
+            local id
+
+            local -a note_items=()
+            local -A note_path_by_id=()
+
+            local -a ebook_items=()
+            local -A ebook_by_id=()
+            local -A bookmarks_by_id=()
+
+            # ------------------------------------------------------------
+            # Build menu of linked notes that have at least one ebook.
+            # ------------------------------------------------------------
+
+            id=1
+
+            for line in "$@"; do
+                # NOTES_DB format:
+                # note title|note path|tag1,tag2|ebook information
+                IFS='|' read -r title note_path _ <<< "$line"
+                note_path=${note_path%$'\r'}
+
+                [[ -n $note_path ]] || continue
+
+                local has_ebook=0
+
+                # Find the NOTES_DB record whose second field exactly matches
+                # the note path.
+                while IFS= read -r dbline || [[ -n $dbline ]]; do
+                    IFS='|' read -r _ db_note_path _ db_bookspec <<< "$dbline"
+
+                    [[ $db_note_path == "$note_path" ]] || continue
+
+                    # Ebook records are separated by semicolons:
+                    # /book/one.pdf#bookmark:10,other:20;/book/two.pdf#
+                    local -a ebook_records=()
+                    IFS=';' read -r -a ebook_records <<< "$db_bookspec"
+
+                    for entry in "${ebook_records[@]}"; do
+                        [[ -n $entry ]] || continue
+
+                        if [[ $entry == *'#'* ]]; then
+                            ebook=${entry%%#*}
+                        else
+                            ebook=$entry
+                        fi
+
+                        [[ -n $ebook ]] || continue
+
+                        has_ebook=1
+                        break
+                    done
+
+                    ((has_ebook)) && break
+                done < "$NOTES_DB"
+
+                # Only show notes that have at least one ebook.
+                if ((has_ebook)); then
+                    [[ -n $title ]] || title=$note_path
+
+                    note_path_by_id[$id]=$note_path
+                    note_items+=("$id" "$title")
+
+                    ((++id))
+                fi
+            done
+
+            if ((${#note_items[@]} == 0)); then
+                _dialog_msg \
+                    "None of the supplied notes have associated ebook files." \
+                    10 70
+                return 1
+            fi
+
+            # ------------------------------------------------------------
+            # Select note.
+            # ------------------------------------------------------------
+
+            selected_note=$(
+                whiptail \
+                    --title "Select Note" \
+                    --cancel-button "Back" \
+                    --menu "Choose a linked note:" \
+                    22 100 14 \
+                    "${note_items[@]}" \
+                    3>&1 1>&2 2>&3
+            )
+            status=$?
+
+            ((status != 0)) && return "$status"
+
+            note_path=${note_path_by_id[$selected_note]-}
+            [[ -n $note_path ]] || return 1
+
+            # ------------------------------------------------------------
+            # Build ebook menu for the selected note.
+            # ------------------------------------------------------------
+
+            id=1
+            ebook_items=()
+            ebook_by_id=()
+            bookmarks_by_id=()
+
+            while IFS= read -r dbline || [[ -n $dbline ]]; do
+                IFS='|' read -r _ db_note_path _ db_bookspec <<< "$dbline"
+
+                [[ $db_note_path == "$note_path" ]] || continue
+
+                local -a ebook_records=()
+                IFS=';' read -r -a ebook_records <<< "$db_bookspec"
+
+                for entry in "${ebook_records[@]}"; do
+                    [[ -n $entry ]] || continue
+
+                    # Separate ebook path from bookmark list.
+                    if [[ $entry == *'#'* ]]; then
+                        ebook=${entry%%#*}
+                        bookmark_spec=${entry#*#}
+                    else
+                        ebook=$entry
+                        bookmark_spec=""
+                    fi
+
+                    [[ -n $ebook ]] || continue
+
+                    ebook_by_id[$id]=$ebook
+                    bookmarks_by_id[$id]=$bookmark_spec
+
+                    ebook_items+=("$id" "$ebook")
+
+                    ((++id))
+                done
+
+                # There should only be one matching note record.
+                break
+            done < "$NOTES_DB"
+
+            if ((${#ebook_items[@]} == 0)); then
+                _dialog_msg \
+                    "No ebook files were found for the selected note." \
+                    10 65
+                return 1
+            fi
+
+            # ------------------------------------------------------------
+            # Select ebook.
+            # ------------------------------------------------------------
+
+            selected_ebook=$(
+                whiptail \
+                    --title "Select Ebook" \
+                    --cancel-button "Back" \
+                    --menu "Choose an ebook to open in zathura:" \
+                    22 100 14 \
+                    "${ebook_items[@]}" \
+                    3>&1 1>&2 2>&3
+            )
+            status=$?
+
+            ((status != 0)) && return "$status"
+
+            ebook=${ebook_by_id[$selected_ebook]-}
+            bookmark_spec=${bookmarks_by_id[$selected_ebook]-}
+
+            [[ -n $ebook ]] || return 1
+
+            # ------------------------------------------------------------
+            # Choose how to open the ebook.
+            # ------------------------------------------------------------
+
+            action=$(
+                whiptail \
+                    --title "Open Ebook" \
+                    --cancel-button "Back" \
+                    --menu "How should zathura open this ebook?" \
+                    15 90 4 \
+                    "open"       "Just open" \
+                    "bookmarks"  "Browse bookmarks" \
+                    3>&1 1>&2 2>&3
+            )
+            status=$?
+
+            ((status != 0)) && return "$status"
+
+            case $action in
+                open)
+                    _spawn zathura -- "$ebook"
+                    ;;
+
+                bookmarks)
+                    # ----------------------------------------------------
+                    # Build bookmark menu.
+                    #
+                    # Bookmark format:
+                    # bookmark label:page,another bookmark:another page
+                    # ----------------------------------------------------
+
+                    local bookmark
+                    local label
+                    local page
+                    local bookmark_id
+
+                    local bookmark_selection
+                    local bookmark_status
+
+                    bookmark_id=1
+
+                    local -a bookmark_items=()
+                    local -A page_by_id=()
+
+                    if [[ -n $bookmark_spec ]]; then
+                        local -a bookmarks=()
+                        IFS=',' read -r -a bookmarks <<< "$bookmark_spec"
+
+                        for bookmark in "${bookmarks[@]}"; do
+                            [[ -n $bookmark ]] || continue
+                            [[ $bookmark == *:* ]] || continue
+
+                            label=${bookmark%:*}
+                            page=${bookmark##*:}
+
+                            [[ $page =~ ^[0-9]+$ ]] || continue
+
+                            page_by_id[$bookmark_id]=$page
+
+                            bookmark_items+=(
+                                "$bookmark_id"
+                                "$label    [page $page]"
+                            )
+
+                            ((++bookmark_id))
+                        done
+                    fi
+
+                    if ((${#bookmark_items[@]} == 0)); then
+                        _dialog_msg \
+                            "This ebook has no valid bookmarks in NOTES_DB." \
+                            10 65
+                        return 1
+                    fi
+
+                    # ----------------------------------------------------
+                    # Select bookmark.
+                    # ----------------------------------------------------
+
+                    bookmark_selection=$(
+                        whiptail \
+                            --title "Select Bookmark" \
+                            --cancel-button "Back" \
+                            --menu "Choose a bookmark:" \
+                            22 90 14 \
+                            "${bookmark_items[@]}" \
+                            3>&1 1>&2 2>&3
+                    )
+                    bookmark_status=$?
+
+                    ((bookmark_status != 0)) && return "$bookmark_status"
+
+                    page=${page_by_id[$bookmark_selection]-}
+                    [[ -n $page ]] || return 1
+
+                    _spawn zathura --page="$page" -- "$ebook"
+                    ;;
+
+                *)
+                    return 1
+                    ;;
+            esac
+        }
 
 
 
@@ -22910,6 +23219,22 @@ Tag you have chosen will be added to the selected notes." 10 60
             fi
 
             open_urls_filtered "${linked_notes_array[@]}"
+            continue
+        elif [[ "$selected_note_tag" == "Open ebook" ]]; then
+            # retrieve linked notes for selected project path - lines from NOTES_DB.
+            mapfile -t linked_notes_array < <(
+                retrieve_linked_notes "$selected_project_path"
+            )
+
+            if [[ -n "$TAG_FILTER_BY" ]];then
+                mapfile -t filtered_linked_notes < <(
+                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
+                )
+                open_urls_filtered "${filtered_linked_notes[@]}"
+                continue                
+            fi
+
+            open_ebook_filtered "${linked_notes_array[@]}"
             continue
         fi
 
