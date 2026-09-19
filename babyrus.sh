@@ -23150,33 +23150,47 @@ Tag you have chosen will be added to the selected notes." 10 60
                 retrieve_linked_notes "$selected_project_path"
             )
 
-            if [[ -n "$TAG_FILTER_BY" ]];then
+            if [[ -n "$TAG_FILTER_BY" ]]; then
                 mapfile -t filtered_linked_notes < <(
                     filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )                
-            fi
-
-            if [[ -n "$TAG_FILTER_BY" ]]; then
-                mapfile -t note_tags < <(
-                retrieve_linked_note_tags "${filtered_linked_notes[@]}"
-            )                
-            else
-                # extract tags from linked notes, let user select one tag from list.
-                mapfile -t note_tags < <(
-                    retrieve_linked_note_tags "${linked_notes_array[@]}"
                 )
             fi
 
-            # Remove the last element if it's empty
+            # Determine which notes we're working with.
+            local notes_for_tag_workflow
+
+            if [[ -n "$TAG_FILTER_BY" ]]; then
+                notes_for_tag_workflow=("${filtered_linked_notes[@]}")
+            else
+                notes_for_tag_workflow=("${linked_notes_array[@]}")
+            fi
+
+            # ------------------------------------------------------------
+            # Retrieve tags from the relevant linked notes.
+            # ------------------------------------------------------------
+
+            local note_tags=()
+
+            mapfile -t note_tags < <(
+                retrieve_linked_note_tags "${notes_for_tag_workflow[@]}"
+            )
+
+            # Remove the last element if it's empty.
             [[ -z "${note_tags[-1]}" ]] && unset 'note_tags[-1]'
 
             if (( ${#note_tags[@]} == 0 )); then
                 whiptail \
                     --title "No Matching Tags" \
                     --msgbox "There are no matching tags." \
-                    10 50
+                    10 50 \
+                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
                 continue
             fi
+
+            # ------------------------------------------------------------
+            # Build tag menu.
+            # ------------------------------------------------------------
 
             local chosen_tag_for_removal
             local tag_menu_options=()
@@ -23186,24 +23200,329 @@ Tag you have chosen will be added to the selected notes." 10 60
                 tag_menu_options+=("$tag" "")
             done
 
-            if chosen_tag_for_removal=$(whiptail \
+            # ------------------------------------------------------------
+            # Select tag.
+            # ------------------------------------------------------------
+
+            if ! chosen_tag_for_removal=$(whiptail \
                 --title "Remove Linked Note Tag" \
                 --menu "Select a tag to remove:" \
                 20 80 10 \
                 "${tag_menu_options[@]}" \
                 3>&1 1>&2 2>&3 </dev/tty >/dev/tty
             ); then
-                if [[ -n "$TAG_FILTER_BY" ]]; then
-                    remove_linked_note_tag "$chosen_tag_for_removal" "${filtered_linked_notes[@]}"
-                else
-                    remove_linked_note_tag "$chosen_tag_for_removal" "${linked_notes_array[@]}"
-                fi
-                whiptail \
-                    --title "Tag Removed" \
-                    --msgbox "The tag \"$chosen_tag_for_removal\" has been removed from the linked notes." \
-                    10 70 \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty                
+                continue
             fi
+
+            # ------------------------------------------------------------
+            # Find NOTES_DB lines containing the selected tag, then
+            # extract the note path from field 2.
+            # ------------------------------------------------------------
+
+            local notes_with_selected_tag=()
+            local note_line
+            local note_path
+
+            while IFS= read -r note_line; do
+
+                [[ -z "$note_line" ]] && continue
+
+                # NOTES_DB format:
+                # title|path|tags|rest
+                IFS='|' read -r _ note_path _ _ <<< "$note_line"
+
+                [[ -n "$note_path" ]] &&
+                    notes_with_selected_tag+=("$note_path")
+
+            done < <(
+                filter_linked_notes_by_tag \
+                    "$chosen_tag_for_removal" \
+                    "${notes_for_tag_workflow[@]}"
+            )
+
+            if (( ${#notes_with_selected_tag[@]} == 0 )); then
+                whiptail \
+                    --title "No Matching Notes" \
+                    --msgbox \
+                    "There are no linked notes with the tag \"$chosen_tag_for_removal\"." \
+                    10 70 \
+                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+                continue
+            fi
+
+            # ------------------------------------------------------------
+            # Paginated checklist settings.
+            # ------------------------------------------------------------
+
+            local -A selected_note_map=()
+
+            local notes_per_page=50
+            local current_page=0
+            local total_notes=${#notes_with_selected_tag[@]}
+            local total_pages=$(( (total_notes + notes_per_page - 1) / notes_per_page ))
+
+            local next_page="__NEXT_PAGE__"
+            local prev_page="__PREV_PAGE__"
+            local remove_notes="__REMOVE__"
+
+            local checklist_output
+            local selected_items=()
+
+            # ------------------------------------------------------------
+            # Pagination loop.
+            # ------------------------------------------------------------
+
+            while :; do
+
+                local page_start=$((current_page * notes_per_page))
+                local page_end=$((page_start + notes_per_page))
+
+                (( page_end > total_notes )) && page_end=$total_notes
+
+                local checklist_options=()
+                local i
+                local status
+
+                # --------------------------------------------------------
+                # Add notes belonging to current page.
+                # --------------------------------------------------------
+
+                for ((i = page_start; i < page_end; i++)); do
+
+                    status="OFF"
+
+                    if [[ -n "${selected_note_map[$i]+x}" ]]; then
+                        status="ON"
+                    fi
+
+                    checklist_options+=(
+                        "$i"
+                        "${notes_with_selected_tag[$i]}"
+                        "$status"
+                    )
+                done
+
+                # --------------------------------------------------------
+                # Add previous-page navigation.
+                # --------------------------------------------------------
+
+                if (( current_page > 0 )); then
+                    checklist_options+=(
+                        "$prev_page"
+                        "prev_page"
+                        "OFF"
+                    )
+                fi
+
+                # --------------------------------------------------------
+                # Add next-page navigation.
+                # --------------------------------------------------------
+
+                if (( current_page < total_pages - 1 )); then
+                    checklist_options+=(
+                        "$next_page"
+                        "next_page"
+                        "OFF"
+                    )
+                fi
+
+                # --------------------------------------------------------
+                # Add remove action.
+                # --------------------------------------------------------
+
+                checklist_options+=(
+                    "$remove_notes"
+                    "remove"
+                    "OFF"
+                )
+
+                # --------------------------------------------------------
+                # Show checklist.
+                # --------------------------------------------------------
+
+                if ! checklist_output=$(whiptail \
+                    --title "Select Notes - Page $((current_page + 1))/$total_pages" \
+                    --checklist \
+                    "Select notes to remove selected tag:" \
+                    35 170 25 \
+                    "${checklist_options[@]}" \
+                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+                ); then
+
+                    # User selected Back/Cancel.
+                    break
+                fi
+
+                # --------------------------------------------------------
+                # Clear previous selections for notes on this page.
+                #
+                # Selections from other pages remain untouched.
+                # --------------------------------------------------------
+
+                for ((i = page_start; i < page_end; i++)); do
+                    unset 'selected_note_map[$i]'
+                done
+
+                # --------------------------------------------------------
+                # Parse whiptail checklist output.
+                # --------------------------------------------------------
+
+                read -r -a selected_items <<< "$checklist_output"
+
+                local next_selected=0
+                local prev_selected=0
+                local remove_selected=0
+                local selected_item
+
+                for selected_item in "${selected_items[@]}"; do
+
+                    # whiptail returns checklist tags surrounded by quotes.
+                    selected_item=${selected_item//\"/}
+
+                    case "$selected_item" in
+
+                        "$next_page")
+                            next_selected=1
+                            ;;
+
+                        "$prev_page")
+                            prev_selected=1
+                            ;;
+
+                        "$remove_notes")
+                            remove_selected=1
+                            ;;
+
+                        *)
+                            # Numeric checklist item = note index.
+                            if [[ "$selected_item" =~ ^[0-9]+$ ]]; then
+                                selected_note_map["$selected_item"]=1
+                            fi
+                            ;;
+
+                    esac
+                done
+
+                # --------------------------------------------------------
+                # Do not allow next_page + prev_page.
+                # --------------------------------------------------------
+
+                if (( next_selected && prev_selected )); then
+
+                    whiptail \
+                        --title "Invalid Selection" \
+                        --msgbox \
+                        "You cannot select both \"next_page\" and \"prev_page\"." \
+                        10 70 \
+                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+                    continue
+                fi
+
+                # --------------------------------------------------------
+                # Do not allow next_page/prev_page + remove.
+                # --------------------------------------------------------
+
+                if (( remove_selected && (next_selected || prev_selected) )); then
+
+                    whiptail \
+                        --title "Invalid Selection" \
+                        --msgbox \
+                        "You cannot select \"remove\" together with \"next_page\" or \"prev_page\"." \
+                        10 80 \
+                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+                    continue
+                fi
+
+                # --------------------------------------------------------
+                # Go to next page.
+                # --------------------------------------------------------
+
+                if (( next_selected )); then
+                    ((current_page++))
+                    continue
+                fi
+
+                # --------------------------------------------------------
+                # Go to previous page.
+                # --------------------------------------------------------
+
+                if (( prev_selected )); then
+                    ((current_page--))
+                    continue
+                fi
+
+                # --------------------------------------------------------
+                # Remove tag from selected notes.
+                # --------------------------------------------------------
+
+                if (( remove_selected )); then
+
+                    local selected_notes_for_removal=()
+                    local selected_index
+
+                    for ((selected_index = 0; selected_index < total_notes; selected_index++)); do
+
+                        if [[ -n "${selected_note_map[$selected_index]+x}" ]]; then
+                            local note_path__="${notes_with_selected_tag[$selected_index]}"
+                            local matching_line__
+                            
+                            matching_line__=$(
+                                awk -F'|' -v path="$note_path__" '$2 == path { print; exit }' "$NOTES_DB"
+                            )
+
+                            [[ -n "$matching_line__" ]] &&
+                                selected_notes_for_removal+=("$matching_line__")
+                        
+
+                            # selected_notes_for_removal+=(
+                            #     "${notes_with_selected_tag[$selected_index]}"
+                            # )
+                        fi
+
+                    done
+
+                    # ----------------------------------------------------
+                    # Make sure at least one note was selected.
+                    # ----------------------------------------------------
+
+                    if (( ${#selected_notes_for_removal[@]} == 0 )); then
+
+                        whiptail \
+                            --title "No Notes Selected" \
+                            --msgbox \
+                            "Select at least one note before choosing \"remove\"." \
+                            10 70 \
+                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+                        continue
+                    fi
+
+                    # ----------------------------------------------------
+                    # Remove tag from all selected notes across all pages.
+                    # ----------------------------------------------------  
+
+                    if remove_linked_note_tag \
+                        "$chosen_tag_for_removal" \
+                        "${selected_notes_for_removal[@]}"
+                    then
+
+                        whiptail \
+                            --title "Tag Removed" \
+                            --msgbox \
+                            "The tag \"$chosen_tag_for_removal\" has been removed from the selected notes." \
+                            10 80 \
+                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+                        break
+
+                    fi                    
+
+                fi
+
+            done
             continue
         elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
             # retrieve linked notes for selected project path - lines from NOTES_DB.
