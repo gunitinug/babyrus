@@ -28095,6 +28095,10 @@ do_stuff_shortlisted() {
     local projects=()
     mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
 
+    mapfile -t projects < <(
+        printf '%s\n' "${projects[@]}" | sort
+    )
+
     local project_menu_options=("<< Back" "")
     local p title line lineno
     for p in "${projects[@]}"; do
