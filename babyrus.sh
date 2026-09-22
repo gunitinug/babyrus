@@ -21742,28 +21742,51 @@ do_stuff_with_project_file() {
             local project_file_tr="${PROJECT_FILE:0:80}"
             (( ${#PROJECT_FILE} > 80 )) && project_file_tr+="..."
 
+            local tree_page=0
+            local tree_page_size=25   # tree items per page            
+
             while :; do
 
                 calculate_all_statuses
                 build_tree_options
+
+                # --- paginate TREE_OPTIONS ---
+                local tree_total=$(( ${#TREE_OPTIONS[@]} / 2 ))
+                local tree_pages=$(( (tree_total + tree_page_size - 1) / tree_page_size ))
+                (( tree_pages == 0 )) && tree_pages=1
+                (( tree_page >= tree_pages )) && tree_page=$(( tree_pages - 1 ))
+                (( tree_page < 0 )) && tree_page=0
+                local tree_start=$(( tree_page * tree_page_size * 2 ))
+                local tree_chunk=("${TREE_OPTIONS[@]:tree_start:tree_page_size*2}")
+
+                # static action rows first
+                local menu_items=(
+                    "SYMBOLS" "Help"
+                    "ADD_H" "Add top-level heading"
+                    "ADD_T" "Add task"
+                    "SORT" "Sort root's children by number prefix"
+                    "SAVE" "Save changes"
+                    "REVERT" "Discard changes and reload from disk"
+                    "---" "PROJECT TREE BELOW ---"
+                    "" ""
+                )
+
+                # navigation rows (only when applicable)
+                (( tree_page > 0 )) && menu_items+=("__prev__" "<< Previous page")
+                (( tree_page < tree_pages - 1 )) && menu_items+=("__next__" "Next page >>")
+
+                # then the current page of tree items
+                menu_items+=("${tree_chunk[@]}")
 
                 choice="$(
                     whiptail \
                         --title "Manage Goals" \
                         --cancel-button "Back" \
                         --menu \
-                        "Project: $project_file_tr" \
+                        "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)" \
                         45 180 37 \
                         -- \
-                        "SYMBOLS" "Help" \
-                        "ADD_H" "Add top-level heading" \
-                        "ADD_T" "Add task" \
-                        "SORT" "Sort root's children by number prefix" \
-                        "SAVE" "Save changes" \
-                        "REVERT" "Discard changes and reload from disk" \
-                        "---" "PROJECT TREE BELOW ---" \
-                        "" "" \
-                        "${TREE_OPTIONS[@]}" \
+                        "${menu_items[@]}" \
                         3>&1 1>&2 2>&3
                 )" || break
 
@@ -21774,6 +21797,15 @@ do_stuff_with_project_file() {
                             --msgbox "$(print_symbol_help)" \
                             20 80                
                         ;;
+
+                    __prev__)
+                        (( tree_page > 0 )) && (( tree_page-- ))
+                        continue
+                        ;;
+                    __next__)
+                        (( tree_page < tree_pages - 1 )) && (( tree_page++ ))
+                        continue
+                        ;;                        
 
                     "---"|"")
                         continue
