@@ -12976,6 +12976,12 @@ filter_projects_by_name() {
     done
     shopt -u nocasematch  # Disable case-insensitive matching (restore default)
 
+    # Sort by title--case insensitive.
+    mapfile -t filtered_lines < <(
+        printf '%s\n' "${filtered_lines[@]}" |
+            sort -t'|' -k1,1f
+    )    
+
     # DEBUG
     #echo "pattern:" >&2
     #echo "$pattern" >&2
