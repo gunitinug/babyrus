@@ -19722,6 +19722,22 @@ do_stuff_with_project_file() {
         mapfile -t lines < "$PROJECTS_DB"
 
         local selected_project_path="$1"
+        shift
+
+        # A filtered view supplies full NOTES_DB lines after this marker. Keep
+        # their paths so the removal chooser can exclude every other note.
+        local restrict_to_filtered_notes=false
+        local -A filtered_note_paths=()
+        if [[ "${1:-}" == "--filtered-notes" ]]; then
+            restrict_to_filtered_notes=true
+            shift
+
+            local filtered_note_line filtered_note_path
+            for filtered_note_line in "$@"; do
+                IFS='|' read -r _ filtered_note_path _ <<< "$filtered_note_line"
+                [[ -n "$filtered_note_path" ]] && filtered_note_paths["$filtered_note_path"]=1
+            done
+        fi
 
         local selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
         [[ -z "$selected_project" ]] && return 1
@@ -19785,13 +19801,27 @@ do_stuff_with_project_file() {
             # Reset menu options so they don't accumulate across loop iterations
             local -a note_options=()
 
+            if [[ "$restrict_to_filtered_notes" == true && ${#filtered_note_paths[@]} -eq 0 ]]; then
+                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
+                return 1
+            fi
+
             # Build menu options (add << Back at top)
             #local -a note_options=("<< Back" "")   # Back item breaks logic
             local note_index note_matching_tags
             for note_index in "${!notes_arr[@]}"; do
+                if [[ "$restrict_to_filtered_notes" == true && -z "${filtered_note_paths[${notes_arr[note_index]}]:-}" ]]; then
+                    continue
+                fi
+
                 note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
                 note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
             done
+
+            if [[ ${#note_options[@]} -eq 0 ]]; then
+                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
+                return 1
+            fi
 
             # Show note selection menu            
             paginate_get_projects_checklist3 "Choose Note to Dissociate" "${note_options[@]}"
@@ -23220,7 +23250,19 @@ Tag you have chosen will be added to the selected notes." 10 60
             associate_note_to_project_from_do_stuff "$selected_project_path" || continue
             continue    # Display list of linked notes again after associating a note.   
         elif [[ "$selected_note_tag" == "Unlink note" ]]; then
-            dissociate_note_from_project_from_do_stuff "$selected_project_path" || continue
+            mapfile -t linked_notes_array < <(
+                retrieve_linked_notes "$selected_project_path"
+            )
+
+            if [[ -n "$TAG_FILTER_BY" ]]; then
+                mapfile -t filtered_linked_notes < <(
+                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
+                )
+                dissociate_note_from_project_from_do_stuff \
+                    "$selected_project_path" --filtered-notes "${filtered_linked_notes[@]}" || continue
+            else
+                dissociate_note_from_project_from_do_stuff "$selected_project_path" || continue
+            fi
             continue    # Display list of lined notes again after dissociating notes.
         elif [[ "$selected_note_tag" == "Manage plan" ]]; then
             edit_plan "$selected_project_path" || continue
