@@ -22184,6 +22184,60 @@ do_stuff_with_project_file() {
     while :; do
         refresh_filtered_linked_notes "$TAG_FILTER_BY"
 
+        paginate_tags_menu() {
+            local title="$1"
+            shift
+            local items=("$@")
+            local per_page=20
+            local total_items=$(( ${#items[@]} / 2 ))
+            local total_pages=$(( (total_items + per_page - 1) / per_page ))
+            local current_page=1
+            local choice start_index end_index menu_items tag desc
+
+            while true; do
+                # Calculate start and end indices for current page
+                start_index=$(( (current_page - 1) * per_page * 2 ))
+                end_index=$(( start_index + per_page * 2 ))
+                menu_items=()
+
+                # Add items for current page
+                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                    tag="${items[i]}"
+                    desc="${items[i+1]}"
+                    menu_items+=("$tag" "$desc")
+                done
+
+                # Add navigation options
+                if (( current_page > 1 )); then
+                    menu_items+=("<< Prev" "")
+                fi
+                if (( current_page < total_pages )); then
+                    menu_items+=(">> Next" "")
+                fi
+
+                # Show whiptail menu
+                choice=$(whiptail --title "$title" \
+                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                case "$choice" in
+                    ">> Next")
+                        (( current_page++ ))
+                        ;;
+                    "<< Prev")
+                        (( current_page-- ))
+                        ;;
+                    *)
+                        # Return selected tag
+                        printf '%s\n' "$choice"
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
         choose_tag_goal() {
             local tag
             local menu_items=()
@@ -22197,15 +22251,17 @@ do_stuff_with_project_file() {
                 [[ -n "$tag" ]] && menu_items+=("$tag" "")
             done < "$NOTES_TAGS_DB"
 
-            if ! choice=$(whiptail \
-                --title "Choose Tag" \
-                --menu "Select a tag for new linked note:" \
-                20 70 12 \
-                "${menu_items[@]}" \
-                3>&1 1>&2 2>&3
-            ); then
-                return 1
-            fi
+            # if ! choice=$(whiptail \
+            #     --title "Choose Tag" \
+            #     --menu "Select a tag for new linked note:" \
+            #     20 70 12 \
+            #     "${menu_items[@]}" \
+            #     3>&1 1>&2 2>&3
+            # ); then
+            #     return 1
+            # fi
+
+            choice=$(paginate_tags_menu "Choose Tag" "${menu_items[@]}") || return 1
 
             if [[ "$choice" == "NO TAG" ]]; then
                 printf '%s' "[NO TAG]"
@@ -22273,13 +22329,15 @@ Tag you have chosen will be added to the selected notes." 10 60
             fi
 
             local selected_tag
-            selected_tag=$(
-                whiptail --title "Select tag" \
-                    --menu "Choose the tag to add:" \
-                    20 70 10 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
+            # selected_tag=$(
+            #     whiptail --title "Select tag" \
+            #         --menu "Choose the tag to add:" \
+            #         20 70 10 \
+            #         "${tag_menu[@]}" \
+            #         3>&1 1>&2 2>&3
+            # ) || return 1
+
+            selected_tag=$(paginate_tags_menu "Select tag" "${tag_menu[@]}") || return 1
 
             local -A selected_paths=()
             local page=0
@@ -23348,15 +23406,17 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Select tag.
             # ------------------------------------------------------------
 
-            if ! chosen_tag_for_removal=$(whiptail \
-                --title "Remove Linked Note Tag" \
-                --menu "Select a tag to remove:" \
-                20 80 10 \
-                "${tag_menu_options[@]}" \
-                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-            ); then
-                continue
-            fi
+            # if ! chosen_tag_for_removal=$(whiptail \
+            #     --title "Remove Linked Note Tag" \
+            #     --menu "Select a tag to remove:" \
+            #     20 80 10 \
+            #     "${tag_menu_options[@]}" \
+            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+            # ); then
+            #     continue
+            # fi
+
+            chosen_tag_for_removal=$(paginate_tags_menu "Remove Linked Note Tag" "${tag_menu_options[@]}") || continue
 
             # ------------------------------------------------------------
             # Find NOTES_DB lines containing the selected tag, then
@@ -23684,19 +23744,20 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag
 
             # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
-            tag_menu_options+=("[NO TAG]" "Linked notes with no tag")
+            tag_menu_options+=("[NO TAG]" "")
 
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
             done
 
-            if chosen_tag_for_filter=$(whiptail \
-                --title "Filter Linked Notes" \
-                --menu "Select a tag to filter by:" \
-                20 80 10 \
-                "${tag_menu_options[@]}" \
-                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-            ); then
+            # if chosen_tag_for_filter=$(whiptail \
+            #     --title "Filter Linked Notes" \
+            #     --menu "Select a tag to filter by:" \
+            #     20 80 10 \
+            #     "${tag_menu_options[@]}" \
+            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+
+            if chosen_tag_for_filter=$(paginate_tags_menu "Filter Linked Notes" "${tag_menu_options[@]}"); then
                 # NEW: map the menu label to a sentinel that can't be a real tag.
                 if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
                     TAG_FILTER_BY="NO TAG"
@@ -28348,15 +28409,17 @@ do_stuff_shortlisted() {
                 [[ -n "$tag" ]] && menu_items+=("$tag" "")
             done < "$NOTES_TAGS_DB"
 
-            if ! choice=$(whiptail \
-                --title "Choose Tag" \
-                --menu "Select a tag for new linked note:" \
-                20 70 12 \
-                "${menu_items[@]}" \
-                3>&1 1>&2 2>&3
-            ); then
-                return 1
-            fi
+            # if ! choice=$(whiptail \
+            #     --title "Choose Tag" \
+            #     --menu "Select a tag for new linked note:" \
+            #     20 70 12 \
+            #     "${menu_items[@]}" \
+            #     3>&1 1>&2 2>&3
+            # ); then
+            #     return 1
+            # fi
+
+            choice=$(paginate_tags_menu "Choose Tag" "${menu_items[@]}") || return 1
 
             if [[ "$choice" == "NO TAG" ]]; then
                 printf '%s' "[NO TAG]"
@@ -28424,13 +28487,69 @@ Tag you have chosen will be added to the selected notes." 10 60
             fi
 
             local selected_tag
-            selected_tag=$(
-                whiptail --title "Select tag" \
-                    --menu "Choose the tag to add:" \
-                    20 70 10 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
+            # selected_tag=$(
+            #     whiptail --title "Select tag" \
+            #         --menu "Choose the tag to add:" \
+            #         20 70 10 \
+            #         "${tag_menu[@]}" \
+            #         3>&1 1>&2 2>&3
+            # ) || return 1
+
+            paginate_tags_menu() {
+                local title="$1"
+                shift
+                local items=("$@")
+                local per_page=20
+                local total_items=$(( ${#items[@]} / 2 ))
+                local total_pages=$(( (total_items + per_page - 1) / per_page ))
+                local current_page=1
+                local choice start_index end_index menu_items tag desc
+
+                while true; do
+                    # Calculate start and end indices for current page
+                    start_index=$(( (current_page - 1) * per_page * 2 ))
+                    end_index=$(( start_index + per_page * 2 ))
+                    menu_items=()
+
+                    # Add items for current page
+                    for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                        tag="${items[i]}"
+                        desc="${items[i+1]}"
+                        menu_items+=("$tag" "$desc")
+                    done
+
+                    # Add navigation options
+                    if (( current_page > 1 )); then
+                        menu_items+=("<< Prev" "")
+                    fi
+                    if (( current_page < total_pages )); then
+                        menu_items+=(">> Next" "")
+                    fi
+
+                    # Show whiptail menu
+                    choice=$(whiptail --title "$title" \
+                        --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                        "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                    [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                    case "$choice" in
+                        ">> Next")
+                            (( current_page++ ))
+                            ;;
+                        "<< Prev")
+                            (( current_page-- ))
+                            ;;
+                        *)
+                            # Return selected tag
+                            printf '%s\n' "$choice"
+                            return 0
+                            ;;
+                    esac
+                done
+            }
+
+            selected_tag=$(paginate_tags_menu "Select tag" "${tag_menu[@]}") || return 1
 
             local -A selected_paths=()
             local page=0
@@ -29392,6 +29511,60 @@ Tag you have chosen will be added to the selected notes." 10 60
         local selected_note_tag
         selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
 
+        paginate_tags_menu() {
+            local title="$1"
+            shift
+            local items=("$@")
+            local per_page=20
+            local total_items=$(( ${#items[@]} / 2 ))
+            local total_pages=$(( (total_items + per_page - 1) / per_page ))
+            local current_page=1
+            local choice start_index end_index menu_items tag desc
+
+            while true; do
+                # Calculate start and end indices for current page
+                start_index=$(( (current_page - 1) * per_page * 2 ))
+                end_index=$(( start_index + per_page * 2 ))
+                menu_items=()
+
+                # Add items for current page
+                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                    tag="${items[i]}"
+                    desc="${items[i+1]}"
+                    menu_items+=("$tag" "$desc")
+                done
+
+                # Add navigation options
+                if (( current_page > 1 )); then
+                    menu_items+=("<< Prev" "")
+                fi
+                if (( current_page < total_pages )); then
+                    menu_items+=(">> Next" "")
+                fi
+
+                # Show whiptail menu
+                choice=$(whiptail --title "$title" \
+                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                case "$choice" in
+                    ">> Next")
+                        (( current_page++ ))
+                        ;;
+                    "<< Prev")
+                        (( current_page-- ))
+                        ;;
+                    *)
+                        # Return selected tag
+                        printf '%s\n' "$choice"
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
         # Handle case when user selects "Create new lnked note".
         if [[ "$selected_note_tag" == "Create new linked note" ]]; then
             local chosen_tag_goal
@@ -29500,15 +29673,71 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Select tag.
             # ------------------------------------------------------------
 
-            if ! chosen_tag_for_removal=$(whiptail \
-                --title "Remove Linked Note Tag" \
-                --menu "Select a tag to remove:" \
-                20 80 10 \
-                "${tag_menu_options[@]}" \
-                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-            ); then
-                continue
-            fi
+            paginate_tags_menu() {
+                local title="$1"
+                shift
+                local items=("$@")
+                local per_page=20
+                local total_items=$(( ${#items[@]} / 2 ))
+                local total_pages=$(( (total_items + per_page - 1) / per_page ))
+                local current_page=1
+                local choice start_index end_index menu_items tag desc
+
+                while true; do
+                    # Calculate start and end indices for current page
+                    start_index=$(( (current_page - 1) * per_page * 2 ))
+                    end_index=$(( start_index + per_page * 2 ))
+                    menu_items=()
+
+                    # Add items for current page
+                    for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                        tag="${items[i]}"
+                        desc="${items[i+1]}"
+                        menu_items+=("$tag" "$desc")
+                    done
+
+                    # Add navigation options
+                    if (( current_page > 1 )); then
+                        menu_items+=("<< Prev" "")
+                    fi
+                    if (( current_page < total_pages )); then
+                        menu_items+=(">> Next" "")
+                    fi
+
+                    # Show whiptail menu
+                    choice=$(whiptail --title "$title" \
+                        --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                        "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                    [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                    case "$choice" in
+                        ">> Next")
+                            (( current_page++ ))
+                            ;;
+                        "<< Prev")
+                            (( current_page-- ))
+                            ;;
+                        *)
+                            # Return selected tag
+                            printf '%s\n' "$choice"
+                            return 0
+                            ;;
+                    esac
+                done
+            }
+
+            # if ! chosen_tag_for_removal=$(whiptail \
+            #     --title "Remove Linked Note Tag" \
+            #     --menu "Select a tag to remove:" \
+            #     20 80 10 \
+            #     "${tag_menu_options[@]}" \
+            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+            # ); then
+            #     continue
+            # fi
+
+            chosen_tag_for_removal=$(paginate_tags_menu "Remove Linked Note Tag" "${tag_menu_options[@]}") || continue
 
             # ------------------------------------------------------------
             # Find NOTES_DB lines containing the selected tag, then
@@ -29837,19 +30066,21 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag
 
             # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
-            tag_menu_options+=("[NO TAG]" "Linked notes with no tag")
+            tag_menu_options+=("[NO TAG]" "")
 
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
             done
 
-            if chosen_tag_for_filter=$(whiptail \
-                --title "Filter Linked Notes" \
-                --menu "Select a tag to filter by:" \
-                20 80 10 \
-                "${tag_menu_options[@]}" \
-                3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-            ); then
+            # if chosen_tag_for_filter=$(whiptail \
+            #     --title "Filter Linked Notes" \
+            #     --menu "Select a tag to filter by:" \
+            #     20 80 10 \
+            #     "${tag_menu_options[@]}" \
+            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
+            # ); then
+
+            if chosen_tag_for_filter=$(paginate_tags_menu "Filter Linked Notes" "${tag_menu_options[@]}"); then
                 # NEW: map the menu label to a sentinel that can't be a real tag.
                 if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
                     TAG_FILTER_BY="NO TAG"
