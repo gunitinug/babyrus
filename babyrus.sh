@@ -22956,8 +22956,8 @@ Tag you have chosen will be added to the selected notes." 10 60
                         whiptail \
                             --title "Select URL" \
                             --cancel-button "Back" \
-                            --menu "Choose a URL to open in Google Chrome:" \
-                            22 100 14 \
+                            --menu "Choose a URL to open:" \
+                            20 170 10 \
                             "${url_items[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
@@ -29168,8 +29168,8 @@ Tag you have chosen will be added to the selected notes." 10 60
                         whiptail \
                             --title "Select URL" \
                             --cancel-button "Back" \
-                            --menu "Choose a URL to open in Google Chrome:" \
-                            22 100 14 \
+                            --menu "Choose a URL to open:" \
+                            20 170 10 \
                             "${url_items[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
