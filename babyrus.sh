@@ -27063,7 +27063,7 @@ do_stuff_shortlisted() {
             task="$(
                 whiptail \
                     --title "Add TODO Item" \
-                    --inputbox "TODO item:" \
+                    --inputbox "Description:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
