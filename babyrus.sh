@@ -20711,6 +20711,91 @@ do_stuff_with_project_file() {
             add_item "T" "$parent" "$content"
         }
 
+        find_todo_heading() {
+            local i
+
+            TODO_HEADING_ID=""
+
+            for i in "${!item_id[@]}"; do
+                if [[ "${item_type[i]}" == "H" &&
+                    "${parent_id[i]}" == "0" &&
+                    "${item_content[i]}" == "TODO" ]]; then
+
+                    TODO_HEADING_ID="${item_id[i]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        next_todo_task_number() {
+            local todo_id="$1"
+            local child
+            local number
+            local max=0
+
+            get_children "$todo_id"
+
+            for child in "${CHILDREN[@]}"; do
+                [[ "${item_type[child]}" == "T" ]] || continue
+
+                if number="$(get_number_prefix "${item_content[child]}")"; then
+                    # Treat the prefix as decimal, even if it has leading zeroes.
+                    number=$((10#$number))
+
+                    (( number > max )) && max="$number"
+                fi
+            done
+
+            printf '%s' "$((max + 1))"
+        }
+
+
+        add_todo_item() {
+            local todo_id
+            local todo_number
+            local task
+            local content
+
+            # Find the existing top-level TODO heading.
+            if find_todo_heading; then
+                todo_id="$TODO_HEADING_ID"
+            else
+                # Remember the ID before add_item increments NEXT_ID.
+                todo_id="$NEXT_ID"
+                add_item "H" "0" "TODO"
+            fi
+
+            task="$(
+                whiptail \
+                    --title "Add TODO Item" \
+                    --inputbox "Description:" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$task" ]] && return
+
+            if [[ "$task" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid TODO Item" \
+                    --msgbox "The TODO item cannot contain '|'.\n\nIt is reserved by the project file format." \
+                    9 70
+                return
+            fi
+
+            todo_number="$(next_todo_task_number "$todo_id")"
+            content="${todo_number}. ${task}"
+
+            add_item "T" "$todo_id" "$content"
+
+            # Sort numbered TODO tasks by their numeric prefix.
+            sort_children "$todo_id"
+        }        
+
 
         add_item() {
             local type="$1"
@@ -21978,6 +22063,7 @@ do_stuff_with_project_file() {
                     "SYMBOLS" "Help"
                     "ADD_H" "Add top-level heading"
                     "ADD_T" "Add task"
+                    "ADD_TODO" "Add TODO item"                    
                     "SORT" "Sort root's children by number prefix"
                     "SAVE" "Save changes"
                     "REVERT" "Discard changes and reload from disk"
@@ -22034,6 +22120,10 @@ do_stuff_with_project_file() {
                             add_task "$SELECTED_HEADING_ID"
                         fi
                         ;;
+
+                    ADD_TODO)
+                        add_todo_item
+                        ;;                    
 
                     SORT)
                         sort_children "0"
