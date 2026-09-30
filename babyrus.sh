@@ -13904,6 +13904,9 @@ add_project() {
         # ------------------------------------------------------------
 
         sort_children "$date_heading_id"
+
+        # Keep TODO as the first root-level heading.
+        sort_children "0"        
     }
 
     add_item() {
@@ -14879,6 +14882,7 @@ add_project() {
 
     sort_children() {
         local children
+        local todo_heading=()
         local numbered_headings=()
         local unnumbered_headings=()
         local numbered_tasks=()
@@ -14890,7 +14894,11 @@ add_project() {
         for child in "${children[@]}"; do
             case "${item_type[child]}" in
                 H)
-                    if has_number_prefix "${item_content[child]}"; then
+                    # TODO is always first when it is a root-level heading.
+                    if [[ "$1" == "0" &&
+                        "${item_content[child]}" == "TODO" ]]; then
+                        todo_heading+=("$child")
+                    elif has_number_prefix "${item_content[child]}"; then
                         numbered_headings+=("$child")
                     else
                         unnumbered_headings+=("$child")
@@ -14911,6 +14919,7 @@ add_project() {
         sort_numbered_items numbered_tasks
 
         children=(
+            "${todo_heading[@]}"
             "${numbered_headings[@]}"
             "${unnumbered_headings[@]}"
             "${numbered_tasks[@]}"
@@ -15153,6 +15162,7 @@ add_project() {
 
         while :; do
 
+            sort_children "0"
             calculate_all_statuses
             build_tree_options
 
