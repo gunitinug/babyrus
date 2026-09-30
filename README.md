@@ -45,7 +45,7 @@ If the whiptail UI in BABYRUS is too wide for your screen horizontally, you can 
 ```
 sed -i 's/ 170 / 160 /g' babyrus.sh
 ```
-Make sure to traverse to the directory where file `babyrus.sh` is located before running the command.
+Make sure to traverse to the directory where file `babyrus.sh` is located before running the command. If that breaks the script, you can safely replace it with the original.
 
 
 ### 🔍 Searching in Babyrus
