@@ -13785,13 +13785,35 @@ add_project() {
     }
 
 
-    next_todo_task_number() {
+    find_todo_date_heading() {
         local todo_id="$1"
+        local todo_date="$2"
+        local child
+
+        TODO_DATE_HEADING_ID=""
+
+        get_children "$todo_id"
+
+        for child in "${CHILDREN[@]}"; do
+            if [[ "${item_type[child]}" == "H" &&
+                  "${item_content[child]}" == "$todo_date" ]]; then
+
+                TODO_DATE_HEADING_ID="${item_id[child]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    next_todo_task_number() {
+        local date_heading_id="$1"
         local child
         local number
         local max=0
 
-        get_children "$todo_id"
+        get_children "$date_heading_id"
 
         for child in "${CHILDREN[@]}"; do
             [[ "${item_type[child]}" == "T" ]] || continue
@@ -13810,23 +13832,49 @@ add_project() {
 
     add_todo_item() {
         local todo_id
+        local todo_date
+        local date_heading_id
         local todo_number
         local task
         local content
 
-        # Find the existing top-level TODO heading.
+        # Today's date, for example:
+        # Tuesday 29 September 2026
+        todo_date="$(date '+%A %-d %B %Y')"
+
+        # ------------------------------------------------------------
+        # Find or create the top-level TODO heading.
+        # ------------------------------------------------------------
+
         if find_todo_heading; then
             todo_id="$TODO_HEADING_ID"
         else
-            # Remember the ID before add_item increments NEXT_ID.
+            # add_item() increments NEXT_ID, so capture the new
+            # heading's ID before calling it.
             todo_id="$NEXT_ID"
             add_item "H" "0" "TODO"
         fi
 
+        # ------------------------------------------------------------
+        # Find or create today's date heading under TODO.
+        # ------------------------------------------------------------
+
+        if find_todo_date_heading "$todo_id" "$todo_date"; then
+            date_heading_id="$TODO_DATE_HEADING_ID"
+        else
+            # Capture the ID that add_item() will assign.
+            date_heading_id="$NEXT_ID"
+            add_item "H" "$todo_id" "$todo_date"
+        fi
+
+        # ------------------------------------------------------------
+        # Ask for the TODO task text.
+        # ------------------------------------------------------------
+
         task="$(
             whiptail \
                 --title "Add TODO Item" \
-                --inputbox "Description:" \
+                --inputbox "TODO item for $todo_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13842,13 +13890,20 @@ add_project() {
             return
         fi
 
-        todo_number="$(next_todo_task_number "$todo_id")"
+        # ------------------------------------------------------------
+        # Determine the next number under today's date heading.
+        # ------------------------------------------------------------
+
+        todo_number="$(next_todo_task_number "$date_heading_id")"
         content="${todo_number}. ${task}"
 
-        add_item "T" "$todo_id" "$content"
+        add_item "T" "$date_heading_id" "$content"
 
-        # Sort numbered TODO tasks by their numeric prefix.
-        sort_children "$todo_id"
+        # ------------------------------------------------------------
+        # Keep today's TODO tasks sorted by their numeric prefix.
+        # ------------------------------------------------------------
+
+        sort_children "$date_heading_id"
     }
 
     add_item() {
@@ -16125,13 +16180,35 @@ edit_project() {
     }
 
 
-    next_todo_task_number() {
+    find_todo_date_heading() {
         local todo_id="$1"
+        local todo_date="$2"
+        local child
+
+        TODO_DATE_HEADING_ID=""
+
+        get_children "$todo_id"
+
+        for child in "${CHILDREN[@]}"; do
+            if [[ "${item_type[child]}" == "H" &&
+                  "${item_content[child]}" == "$todo_date" ]]; then
+
+                TODO_DATE_HEADING_ID="${item_id[child]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    next_todo_task_number() {
+        local date_heading_id="$1"
         local child
         local number
         local max=0
 
-        get_children "$todo_id"
+        get_children "$date_heading_id"
 
         for child in "${CHILDREN[@]}"; do
             [[ "${item_type[child]}" == "T" ]] || continue
@@ -16150,23 +16227,49 @@ edit_project() {
 
     add_todo_item() {
         local todo_id
+        local todo_date
+        local date_heading_id
         local todo_number
         local task
         local content
 
-        # Find the existing top-level TODO heading.
+        # Today's date, for example:
+        # Tuesday 29 September 2026
+        todo_date="$(date '+%A %-d %B %Y')"
+
+        # ------------------------------------------------------------
+        # Find or create the top-level TODO heading.
+        # ------------------------------------------------------------
+
         if find_todo_heading; then
             todo_id="$TODO_HEADING_ID"
         else
-            # Remember the ID before add_item increments NEXT_ID.
+            # add_item() increments NEXT_ID, so capture the new
+            # heading's ID before calling it.
             todo_id="$NEXT_ID"
             add_item "H" "0" "TODO"
         fi
 
+        # ------------------------------------------------------------
+        # Find or create today's date heading under TODO.
+        # ------------------------------------------------------------
+
+        if find_todo_date_heading "$todo_id" "$todo_date"; then
+            date_heading_id="$TODO_DATE_HEADING_ID"
+        else
+            # Capture the ID that add_item() will assign.
+            date_heading_id="$NEXT_ID"
+            add_item "H" "$todo_id" "$todo_date"
+        fi
+
+        # ------------------------------------------------------------
+        # Ask for the TODO task text.
+        # ------------------------------------------------------------
+
         task="$(
             whiptail \
                 --title "Add TODO Item" \
-                --inputbox "Description:" \
+                --inputbox "TODO item for $todo_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -16182,13 +16285,20 @@ edit_project() {
             return
         fi
 
-        todo_number="$(next_todo_task_number "$todo_id")"
+        # ------------------------------------------------------------
+        # Determine the next number under today's date heading.
+        # ------------------------------------------------------------
+
+        todo_number="$(next_todo_task_number "$date_heading_id")"
         content="${todo_number}. ${task}"
 
-        add_item "T" "$todo_id" "$content"
+        add_item "T" "$date_heading_id" "$content"
 
-        # Sort numbered TODO tasks by their numeric prefix.
-        sort_children "$todo_id"
+        # ------------------------------------------------------------
+        # Keep today's TODO tasks sorted by their numeric prefix.
+        # ------------------------------------------------------------
+
+        sort_children "$date_heading_id"
     }
 
     add_item() {
@@ -20730,13 +20840,35 @@ do_stuff_with_project_file() {
         }
 
 
-        next_todo_task_number() {
+        find_todo_date_heading() {
             local todo_id="$1"
+            local todo_date="$2"
+            local child
+
+            TODO_DATE_HEADING_ID=""
+
+            get_children "$todo_id"
+
+            for child in "${CHILDREN[@]}"; do
+                if [[ "${item_type[child]}" == "H" &&
+                    "${item_content[child]}" == "$todo_date" ]]; then
+
+                    TODO_DATE_HEADING_ID="${item_id[child]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        next_todo_task_number() {
+            local date_heading_id="$1"
             local child
             local number
             local max=0
 
-            get_children "$todo_id"
+            get_children "$date_heading_id"
 
             for child in "${CHILDREN[@]}"; do
                 [[ "${item_type[child]}" == "T" ]] || continue
@@ -20755,23 +20887,49 @@ do_stuff_with_project_file() {
 
         add_todo_item() {
             local todo_id
+            local todo_date
+            local date_heading_id
             local todo_number
             local task
             local content
 
-            # Find the existing top-level TODO heading.
+            # Today's date, for example:
+            # Tuesday 29 September 2026
+            todo_date="$(date '+%A %-d %B %Y')"
+
+            # ------------------------------------------------------------
+            # Find or create the top-level TODO heading.
+            # ------------------------------------------------------------
+
             if find_todo_heading; then
                 todo_id="$TODO_HEADING_ID"
             else
-                # Remember the ID before add_item increments NEXT_ID.
+                # add_item() increments NEXT_ID, so capture the new
+                # heading's ID before calling it.
                 todo_id="$NEXT_ID"
                 add_item "H" "0" "TODO"
             fi
 
+            # ------------------------------------------------------------
+            # Find or create today's date heading under TODO.
+            # ------------------------------------------------------------
+
+            if find_todo_date_heading "$todo_id" "$todo_date"; then
+                date_heading_id="$TODO_DATE_HEADING_ID"
+            else
+                # Capture the ID that add_item() will assign.
+                date_heading_id="$NEXT_ID"
+                add_item "H" "$todo_id" "$todo_date"
+            fi
+
+            # ------------------------------------------------------------
+            # Ask for the TODO task text.
+            # ------------------------------------------------------------
+
             task="$(
                 whiptail \
                     --title "Add TODO Item" \
-                    --inputbox "Description:" \
+                    --inputbox "TODO item for $todo_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -20787,13 +20945,20 @@ do_stuff_with_project_file() {
                 return
             fi
 
-            todo_number="$(next_todo_task_number "$todo_id")"
+            # ------------------------------------------------------------
+            # Determine the next number under today's date heading.
+            # ------------------------------------------------------------
+
+            todo_number="$(next_todo_task_number "$date_heading_id")"
             content="${todo_number}. ${task}"
 
-            add_item "T" "$todo_id" "$content"
+            add_item "T" "$date_heading_id" "$content"
 
-            # Sort numbered TODO tasks by their numeric prefix.
-            sort_children "$todo_id"
+            # ------------------------------------------------------------
+            # Keep today's TODO tasks sorted by their numeric prefix.
+            # ------------------------------------------------------------
+
+            sort_children "$date_heading_id"
         }        
 
 
@@ -27022,13 +27187,35 @@ do_stuff_shortlisted() {
         }
 
 
-        next_todo_task_number() {
+        find_todo_date_heading() {
             local todo_id="$1"
+            local todo_date="$2"
+            local child
+
+            TODO_DATE_HEADING_ID=""
+
+            get_children "$todo_id"
+
+            for child in "${CHILDREN[@]}"; do
+                if [[ "${item_type[child]}" == "H" &&
+                    "${item_content[child]}" == "$todo_date" ]]; then
+
+                    TODO_DATE_HEADING_ID="${item_id[child]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        next_todo_task_number() {
+            local date_heading_id="$1"
             local child
             local number
             local max=0
 
-            get_children "$todo_id"
+            get_children "$date_heading_id"
 
             for child in "${CHILDREN[@]}"; do
                 [[ "${item_type[child]}" == "T" ]] || continue
@@ -27047,23 +27234,49 @@ do_stuff_shortlisted() {
 
         add_todo_item() {
             local todo_id
+            local todo_date
+            local date_heading_id
             local todo_number
             local task
             local content
 
-            # Find the existing top-level TODO heading.
+            # Today's date, for example:
+            # Tuesday 29 September 2026
+            todo_date="$(date '+%A %-d %B %Y')"
+
+            # ------------------------------------------------------------
+            # Find or create the top-level TODO heading.
+            # ------------------------------------------------------------
+
             if find_todo_heading; then
                 todo_id="$TODO_HEADING_ID"
             else
-                # Remember the ID before add_item increments NEXT_ID.
+                # add_item() increments NEXT_ID, so capture the new
+                # heading's ID before calling it.
                 todo_id="$NEXT_ID"
                 add_item "H" "0" "TODO"
             fi
 
+            # ------------------------------------------------------------
+            # Find or create today's date heading under TODO.
+            # ------------------------------------------------------------
+
+            if find_todo_date_heading "$todo_id" "$todo_date"; then
+                date_heading_id="$TODO_DATE_HEADING_ID"
+            else
+                # Capture the ID that add_item() will assign.
+                date_heading_id="$NEXT_ID"
+                add_item "H" "$todo_id" "$todo_date"
+            fi
+
+            # ------------------------------------------------------------
+            # Ask for the TODO task text.
+            # ------------------------------------------------------------
+
             task="$(
                 whiptail \
                     --title "Add TODO Item" \
-                    --inputbox "Description:" \
+                    --inputbox "TODO item for $todo_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -27079,13 +27292,20 @@ do_stuff_shortlisted() {
                 return
             fi
 
-            todo_number="$(next_todo_task_number "$todo_id")"
+            # ------------------------------------------------------------
+            # Determine the next number under today's date heading.
+            # ------------------------------------------------------------
+
+            todo_number="$(next_todo_task_number "$date_heading_id")"
             content="${todo_number}. ${task}"
 
-            add_item "T" "$todo_id" "$content"
+            add_item "T" "$date_heading_id" "$content"
 
-            # Sort numbered TODO tasks by their numeric prefix.
-            sort_children "$todo_id"
+            # ------------------------------------------------------------
+            # Keep today's TODO tasks sorted by their numeric prefix.
+            # ------------------------------------------------------------
+
+            sort_children "$date_heading_id"
         }
 
         add_item() {
