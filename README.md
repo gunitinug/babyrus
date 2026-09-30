@@ -40,6 +40,14 @@ FIRST_RUN=0
 #+++ FIRST RUN END +++#
 ```
 
+### Screen dimensions ###
+If the whiptail UI in BABYRUS is too wide for your screen horizontally, you can run this command:
+```
+sed -i 's/ 170 / 160 /g' babyrus.sh
+```
+Make sure to traverse to the directory where file `babyrus.sh` is located before running the command.
+
+
 ### 🔍 Searching in Babyrus
 
 Babyrus provides two different search methods, whichever is most suitable for the search task at hand. Use the method indicated by the program. The rule of thumb is to use literal substring match for filtering tags and globbing for filtering file names.
