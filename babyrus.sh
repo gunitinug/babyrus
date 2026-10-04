@@ -13909,6 +13909,140 @@ add_project() {
         sort_children "0"        
     }
 
+    find_rules_for_today_heading() {
+        local i
+
+        RULES_FOR_TODAY_ID=""
+
+        for i in "${!item_id[@]}"; do
+            if [[ "${item_type[i]}" == "H" &&
+                  "${parent_id[i]}" == "0" &&
+                  "${item_content[i]}" == "RULES FOR TODAY" ]]; then
+
+                RULES_FOR_TODAY_ID="${item_id[i]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    find_rules_for_today_date_heading() {
+        local rules_id="$1"
+        local rules_date="$2"
+        local child
+
+        RULES_FOR_TODAY_DATE_ID=""
+
+        get_children "$rules_id"
+
+        for child in "${CHILDREN[@]}"; do
+            if [[ "${item_type[child]}" == "H" &&
+                  "${item_content[child]}" == "$rules_date" ]]; then
+
+                RULES_FOR_TODAY_DATE_ID="${item_id[child]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    next_rules_for_today_task_number() {
+        local date_heading_id="$1"
+        local child
+        local number
+        local max=0
+
+        get_children "$date_heading_id"
+
+        for child in "${CHILDREN[@]}"; do
+            [[ "${item_type[child]}" == "T" ]] || continue
+
+            if number="$(get_number_prefix "${item_content[child]}")"; then
+                number=$((10#$number))
+                (( number > max )) && max="$number"
+            fi
+        done
+
+        printf '%s' "$((max + 1))"
+    }
+
+
+    add_rules_for_today_item() {
+        local rules_id
+        local rules_date
+        local date_heading_id
+        local rules_number
+        local task
+        local content
+
+        # Today's date.
+        rules_date="$(date '+%A %-d %B %Y')"
+
+        # ------------------------------------------------------------
+        # Find or create the top-level RULES FOR TODAY heading.
+        # ------------------------------------------------------------
+
+        if find_rules_for_today_heading; then
+            rules_id="$RULES_FOR_TODAY_ID"
+        else
+            rules_id="$NEXT_ID"
+            add_item "H" "0" "RULES FOR TODAY"
+        fi
+
+        # ------------------------------------------------------------
+        # Find or create today's date heading.
+        # ------------------------------------------------------------
+
+        if find_rules_for_today_date_heading "$rules_id" "$rules_date"; then
+            date_heading_id="$RULES_FOR_TODAY_DATE_ID"
+        else
+            date_heading_id="$NEXT_ID"
+            add_item "H" "$rules_id" "$rules_date"
+        fi
+
+        # ------------------------------------------------------------
+        # Ask for the rule.
+        # ------------------------------------------------------------
+
+        task="$(
+            whiptail \
+                --title "Add Rule for Today" \
+                --inputbox "Rule for $rules_date:" \
+                10 70 \
+                "" \
+                3>&1 1>&2 2>&3
+        )" || return
+
+        [[ -z "$task" ]] && return
+
+        if [[ "$task" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Rule" \
+                --msgbox "The rule cannot contain '|'.\n\nIt is reserved by the project file format." \
+                9 70
+            return
+        fi
+
+        # ------------------------------------------------------------
+        # Determine next number for today's rules.
+        # ------------------------------------------------------------
+
+        rules_number="$(next_rules_for_today_task_number "$date_heading_id")"
+        content="${rules_number}. ${task}"
+
+        add_item "T" "$date_heading_id" "$content"
+
+        # Keep today's rules numerically sorted.
+        sort_children "$date_heading_id"
+
+        # Keep the special root headings in their required order.
+        sort_children "0"
+    }    
+
     add_item() {
         local type="$1"
         local parent="$2"
@@ -14883,6 +15017,7 @@ add_project() {
     sort_children() {
         local children
         local todo_heading=()
+        local rules_for_today_heading=()
         local numbered_headings=()
         local unnumbered_headings=()
         local numbered_tasks=()
@@ -14898,6 +15033,10 @@ add_project() {
                     if [[ "$1" == "0" &&
                         "${item_content[child]}" == "TODO" ]]; then
                         todo_heading+=("$child")
+                    elif [[ "$1" == "0" &&
+                            "${item_content[child]}" == "RULES FOR TODAY" ]]; then
+
+                        rules_for_today_heading+=("$child")                        
                     elif has_number_prefix "${item_content[child]}"; then
                         numbered_headings+=("$child")
                     else
@@ -14920,6 +15059,7 @@ add_project() {
 
         children=(
             "${todo_heading[@]}"
+            "${rules_for_today_heading[@]}"
             "${numbered_headings[@]}"
             "${unnumbered_headings[@]}"
             "${numbered_tasks[@]}"
@@ -15180,7 +15320,8 @@ add_project() {
                 "SYMBOLS" "Help"
                 "ADD_H" "Add top-level heading"
                 "ADD_T" "Add task"
-                "ADD_TODO" "Add TODO item"                
+                "ADD_TODO" "Add TODO item"
+                "ADD_RULES" "Add RULES FOR TODAY item"                
                 "SORT" "Sort root's children by number prefix"
                 "SAVE" "Save changes"
                 "REVERT" "Discard changes and reload from disk"
@@ -15240,7 +15381,11 @@ add_project() {
 
                 ADD_TODO)
                     add_todo_item
-                    ;;                    
+                    ;;
+
+                ADD_RULES)
+                    add_rules_for_today_item
+                    ;;                                    
 
                 SORT)
                     sort_children "0"
@@ -16234,6 +16379,139 @@ edit_project() {
         printf '%s' "$((max + 1))"
     }
 
+    find_rules_for_today_heading() {
+        local i
+
+        RULES_FOR_TODAY_ID=""
+
+        for i in "${!item_id[@]}"; do
+            if [[ "${item_type[i]}" == "H" &&
+                  "${parent_id[i]}" == "0" &&
+                  "${item_content[i]}" == "RULES FOR TODAY" ]]; then
+
+                RULES_FOR_TODAY_ID="${item_id[i]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    find_rules_for_today_date_heading() {
+        local rules_id="$1"
+        local rules_date="$2"
+        local child
+
+        RULES_FOR_TODAY_DATE_ID=""
+
+        get_children "$rules_id"
+
+        for child in "${CHILDREN[@]}"; do
+            if [[ "${item_type[child]}" == "H" &&
+                  "${item_content[child]}" == "$rules_date" ]]; then
+
+                RULES_FOR_TODAY_DATE_ID="${item_id[child]}"
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+
+    next_rules_for_today_task_number() {
+        local date_heading_id="$1"
+        local child
+        local number
+        local max=0
+
+        get_children "$date_heading_id"
+
+        for child in "${CHILDREN[@]}"; do
+            [[ "${item_type[child]}" == "T" ]] || continue
+
+            if number="$(get_number_prefix "${item_content[child]}")"; then
+                number=$((10#$number))
+                (( number > max )) && max="$number"
+            fi
+        done
+
+        printf '%s' "$((max + 1))"
+    }
+
+
+    add_rules_for_today_item() {
+        local rules_id
+        local rules_date
+        local date_heading_id
+        local rules_number
+        local task
+        local content
+
+        # Today's date.
+        rules_date="$(date '+%A %-d %B %Y')"
+
+        # ------------------------------------------------------------
+        # Find or create the top-level RULES FOR TODAY heading.
+        # ------------------------------------------------------------
+
+        if find_rules_for_today_heading; then
+            rules_id="$RULES_FOR_TODAY_ID"
+        else
+            rules_id="$NEXT_ID"
+            add_item "H" "0" "RULES FOR TODAY"
+        fi
+
+        # ------------------------------------------------------------
+        # Find or create today's date heading.
+        # ------------------------------------------------------------
+
+        if find_rules_for_today_date_heading "$rules_id" "$rules_date"; then
+            date_heading_id="$RULES_FOR_TODAY_DATE_ID"
+        else
+            date_heading_id="$NEXT_ID"
+            add_item "H" "$rules_id" "$rules_date"
+        fi
+
+        # ------------------------------------------------------------
+        # Ask for the rule.
+        # ------------------------------------------------------------
+
+        task="$(
+            whiptail \
+                --title "Add Rule for Today" \
+                --inputbox "Rule for $rules_date:" \
+                10 70 \
+                "" \
+                3>&1 1>&2 2>&3
+        )" || return
+
+        [[ -z "$task" ]] && return
+
+        if [[ "$task" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Rule" \
+                --msgbox "The rule cannot contain '|'.\n\nIt is reserved by the project file format." \
+                9 70
+            return
+        fi
+
+        # ------------------------------------------------------------
+        # Determine next number for today's rules.
+        # ------------------------------------------------------------
+
+        rules_number="$(next_rules_for_today_task_number "$date_heading_id")"
+        content="${rules_number}. ${task}"
+
+        add_item "T" "$date_heading_id" "$content"
+
+        # Keep today's rules numerically sorted.
+        sort_children "$date_heading_id"
+
+        # Keep the special root headings in their required order.
+        sort_children "0"
+    }
 
     add_todo_item() {
         local todo_id
@@ -17288,6 +17566,7 @@ edit_project() {
     sort_children() {
         local children
         local todo_heading=()
+        local rules_for_today_heading=()
         local numbered_headings=()
         local unnumbered_headings=()
         local numbered_tasks=()
@@ -17303,6 +17582,10 @@ edit_project() {
                     if [[ "$1" == "0" &&
                         "${item_content[child]}" == "TODO" ]]; then
                         todo_heading+=("$child")
+                    elif [[ "$1" == "0" &&
+                            "${item_content[child]}" == "RULES FOR TODAY" ]]; then
+
+                        rules_for_today_heading+=("$child")                        
                     elif has_number_prefix "${item_content[child]}"; then
                         numbered_headings+=("$child")
                     else
@@ -17325,6 +17608,7 @@ edit_project() {
 
         children=(
             "${todo_heading[@]}"
+            "${rules_for_today_heading[@]}"
             "${numbered_headings[@]}"
             "${unnumbered_headings[@]}"
             "${numbered_tasks[@]}"
@@ -17586,7 +17870,8 @@ edit_project() {
                 "SYMBOLS" "Help"
                 "ADD_H" "Add top-level heading"
                 "ADD_T" "Add task"
-                "ADD_TODO" "Add TODO item"                
+                "ADD_TODO" "Add TODO item"
+                "ADD_RULES" "Add RULES FOR TODAY item"            
                 "SORT" "Sort root's children by number prefix"
                 "SAVE" "Save changes"
                 "REVERT" "Discard changes and reload from disk"
@@ -17646,7 +17931,11 @@ edit_project() {
 
                 ADD_TODO)
                     add_todo_item
-                    ;;                
+                    ;;    
+
+                ADD_RULES)
+                    add_rules_for_today_item
+                    ;;            
 
                 SORT)
                     sort_children "0"
@@ -20904,6 +21193,139 @@ do_stuff_with_project_file() {
             printf '%s' "$((max + 1))"
         }
 
+        find_rules_for_today_heading() {
+            local i
+
+            RULES_FOR_TODAY_ID=""
+
+            for i in "${!item_id[@]}"; do
+                if [[ "${item_type[i]}" == "H" &&
+                    "${parent_id[i]}" == "0" &&
+                    "${item_content[i]}" == "RULES FOR TODAY" ]]; then
+
+                    RULES_FOR_TODAY_ID="${item_id[i]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        find_rules_for_today_date_heading() {
+            local rules_id="$1"
+            local rules_date="$2"
+            local child
+
+            RULES_FOR_TODAY_DATE_ID=""
+
+            get_children "$rules_id"
+
+            for child in "${CHILDREN[@]}"; do
+                if [[ "${item_type[child]}" == "H" &&
+                    "${item_content[child]}" == "$rules_date" ]]; then
+
+                    RULES_FOR_TODAY_DATE_ID="${item_id[child]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        next_rules_for_today_task_number() {
+            local date_heading_id="$1"
+            local child
+            local number
+            local max=0
+
+            get_children "$date_heading_id"
+
+            for child in "${CHILDREN[@]}"; do
+                [[ "${item_type[child]}" == "T" ]] || continue
+
+                if number="$(get_number_prefix "${item_content[child]}")"; then
+                    number=$((10#$number))
+                    (( number > max )) && max="$number"
+                fi
+            done
+
+            printf '%s' "$((max + 1))"
+        }
+
+
+        add_rules_for_today_item() {
+            local rules_id
+            local rules_date
+            local date_heading_id
+            local rules_number
+            local task
+            local content
+
+            # Today's date.
+            rules_date="$(date '+%A %-d %B %Y')"
+
+            # ------------------------------------------------------------
+            # Find or create the top-level RULES FOR TODAY heading.
+            # ------------------------------------------------------------
+
+            if find_rules_for_today_heading; then
+                rules_id="$RULES_FOR_TODAY_ID"
+            else
+                rules_id="$NEXT_ID"
+                add_item "H" "0" "RULES FOR TODAY"
+            fi
+
+            # ------------------------------------------------------------
+            # Find or create today's date heading.
+            # ------------------------------------------------------------
+
+            if find_rules_for_today_date_heading "$rules_id" "$rules_date"; then
+                date_heading_id="$RULES_FOR_TODAY_DATE_ID"
+            else
+                date_heading_id="$NEXT_ID"
+                add_item "H" "$rules_id" "$rules_date"
+            fi
+
+            # ------------------------------------------------------------
+            # Ask for the rule.
+            # ------------------------------------------------------------
+
+            task="$(
+                whiptail \
+                    --title "Add Rule for Today" \
+                    --inputbox "Rule for $rules_date:" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$task" ]] && return
+
+            if [[ "$task" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid Rule" \
+                    --msgbox "The rule cannot contain '|'.\n\nIt is reserved by the project file format." \
+                    9 70
+                return
+            fi
+
+            # ------------------------------------------------------------
+            # Determine next number for today's rules.
+            # ------------------------------------------------------------
+
+            rules_number="$(next_rules_for_today_task_number "$date_heading_id")"
+            content="${rules_number}. ${task}"
+
+            add_item "T" "$date_heading_id" "$content"
+
+            # Keep today's rules numerically sorted.
+            sort_children "$date_heading_id"
+
+            # Keep the special root headings in their required order.
+            sort_children "0"
+        }
 
         add_todo_item() {
             local todo_id
@@ -21960,6 +22382,7 @@ do_stuff_with_project_file() {
         sort_children() {
             local children
             local todo_heading=()
+            local rules_for_today_heading=()
             local numbered_headings=()
             local unnumbered_headings=()
             local numbered_tasks=()
@@ -21975,6 +22398,10 @@ do_stuff_with_project_file() {
                         if [[ "$1" == "0" &&
                             "${item_content[child]}" == "TODO" ]]; then
                             todo_heading+=("$child")
+                        elif [[ "$1" == "0" &&
+                                "${item_content[child]}" == "RULES FOR TODAY" ]]; then
+
+                            rules_for_today_heading+=("$child")                            
                         elif has_number_prefix "${item_content[child]}"; then
                             numbered_headings+=("$child")
                         else
@@ -21997,6 +22424,7 @@ do_stuff_with_project_file() {
 
             children=(
                 "${todo_heading[@]}"
+                "${rules_for_today_heading[@]}"
                 "${numbered_headings[@]}"
                 "${unnumbered_headings[@]}"
                 "${numbered_tasks[@]}"
@@ -22258,7 +22686,8 @@ do_stuff_with_project_file() {
                     "SYMBOLS" "Help"
                     "ADD_H" "Add top-level heading"
                     "ADD_T" "Add task"
-                    "ADD_TODO" "Add TODO item"                    
+                    "ADD_TODO" "Add TODO item"
+                    "ADD_RULES" "Add RULES FOR TODAY item"                 
                     "SORT" "Sort root's children by number prefix"
                     "SAVE" "Save changes"
                     "REVERT" "Discard changes and reload from disk"
@@ -22315,6 +22744,10 @@ do_stuff_with_project_file() {
                             add_task "$SELECTED_HEADING_ID"
                         fi
                         ;;
+
+                    ADD_RULES)
+                        add_rules_for_today_item
+                        ;;                    
 
                     ADD_TODO)
                         add_todo_item
@@ -27261,6 +27694,139 @@ do_stuff_shortlisted() {
             printf '%s' "$((max + 1))"
         }
 
+        find_rules_for_today_heading() {
+            local i
+
+            RULES_FOR_TODAY_ID=""
+
+            for i in "${!item_id[@]}"; do
+                if [[ "${item_type[i]}" == "H" &&
+                    "${parent_id[i]}" == "0" &&
+                    "${item_content[i]}" == "RULES FOR TODAY" ]]; then
+
+                    RULES_FOR_TODAY_ID="${item_id[i]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        find_rules_for_today_date_heading() {
+            local rules_id="$1"
+            local rules_date="$2"
+            local child
+
+            RULES_FOR_TODAY_DATE_ID=""
+
+            get_children "$rules_id"
+
+            for child in "${CHILDREN[@]}"; do
+                if [[ "${item_type[child]}" == "H" &&
+                    "${item_content[child]}" == "$rules_date" ]]; then
+
+                    RULES_FOR_TODAY_DATE_ID="${item_id[child]}"
+                    return 0
+                fi
+            done
+
+            return 1
+        }
+
+
+        next_rules_for_today_task_number() {
+            local date_heading_id="$1"
+            local child
+            local number
+            local max=0
+
+            get_children "$date_heading_id"
+
+            for child in "${CHILDREN[@]}"; do
+                [[ "${item_type[child]}" == "T" ]] || continue
+
+                if number="$(get_number_prefix "${item_content[child]}")"; then
+                    number=$((10#$number))
+                    (( number > max )) && max="$number"
+                fi
+            done
+
+            printf '%s' "$((max + 1))"
+        }
+
+
+        add_rules_for_today_item() {
+            local rules_id
+            local rules_date
+            local date_heading_id
+            local rules_number
+            local task
+            local content
+
+            # Today's date.
+            rules_date="$(date '+%A %-d %B %Y')"
+
+            # ------------------------------------------------------------
+            # Find or create the top-level RULES FOR TODAY heading.
+            # ------------------------------------------------------------
+
+            if find_rules_for_today_heading; then
+                rules_id="$RULES_FOR_TODAY_ID"
+            else
+                rules_id="$NEXT_ID"
+                add_item "H" "0" "RULES FOR TODAY"
+            fi
+
+            # ------------------------------------------------------------
+            # Find or create today's date heading.
+            # ------------------------------------------------------------
+
+            if find_rules_for_today_date_heading "$rules_id" "$rules_date"; then
+                date_heading_id="$RULES_FOR_TODAY_DATE_ID"
+            else
+                date_heading_id="$NEXT_ID"
+                add_item "H" "$rules_id" "$rules_date"
+            fi
+
+            # ------------------------------------------------------------
+            # Ask for the rule.
+            # ------------------------------------------------------------
+
+            task="$(
+                whiptail \
+                    --title "Add Rule for Today" \
+                    --inputbox "Rule for $rules_date:" \
+                    10 70 \
+                    "" \
+                    3>&1 1>&2 2>&3
+            )" || return
+
+            [[ -z "$task" ]] && return
+
+            if [[ "$task" == *"|"* ]]; then
+                whiptail \
+                    --title "Invalid Rule" \
+                    --msgbox "The rule cannot contain '|'.\n\nIt is reserved by the project file format." \
+                    9 70
+                return
+            fi
+
+            # ------------------------------------------------------------
+            # Determine next number for today's rules.
+            # ------------------------------------------------------------
+
+            rules_number="$(next_rules_for_today_task_number "$date_heading_id")"
+            content="${rules_number}. ${task}"
+
+            add_item "T" "$date_heading_id" "$content"
+
+            # Keep today's rules numerically sorted.
+            sort_children "$date_heading_id"
+
+            # Keep the special root headings in their required order.
+            sort_children "0"
+        }
 
         add_todo_item() {
             local todo_id
@@ -28316,6 +28882,7 @@ do_stuff_shortlisted() {
         sort_children() {
             local children
             local todo_heading=()
+            local rules_for_today_heading=()
             local numbered_headings=()
             local unnumbered_headings=()
             local numbered_tasks=()
@@ -28331,6 +28898,10 @@ do_stuff_shortlisted() {
                         if [[ "$1" == "0" &&
                             "${item_content[child]}" == "TODO" ]]; then
                             todo_heading+=("$child")
+                        elif [[ "$1" == "0" &&
+                                "${item_content[child]}" == "RULES FOR TODAY" ]]; then
+
+                            rules_for_today_heading+=("$child")                            
                         elif has_number_prefix "${item_content[child]}"; then
                             numbered_headings+=("$child")
                         else
@@ -28353,6 +28924,7 @@ do_stuff_shortlisted() {
 
             children=(
                 "${todo_heading[@]}"
+                "${rules_for_today_heading[@]}"
                 "${numbered_headings[@]}"
                 "${unnumbered_headings[@]}"
                 "${numbered_tasks[@]}"
@@ -28615,7 +29187,8 @@ do_stuff_shortlisted() {
                     "SYMBOLS" "Help"
                     "ADD_H" "Add top-level heading"
                     "ADD_T" "Add task"
-                    "ADD_TODO" "Add TODO item"                    
+                    "ADD_TODO" "Add TODO item"
+                    "ADD_RULES" "Add RULES FOR TODAY item"                    
                     "SORT" "Sort root's children by number prefix"
                     "SAVE" "Save changes"
                     "REVERT" "Discard changes and reload from disk"
@@ -28675,7 +29248,11 @@ do_stuff_shortlisted() {
 
                     ADD_TODO)
                         add_todo_item
-                        ;;                        
+                        ;;
+
+                    ADD_RULES)
+                        add_rules_for_today_item
+                        ;;                                            
 
                     SORT)
                         sort_children "0"
