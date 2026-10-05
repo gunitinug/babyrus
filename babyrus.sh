@@ -10246,14 +10246,70 @@ Tag you have chosen will be added to the selected notes." 10 60
             return 1
         fi
 
+        paginate_tags_menu() {
+            local title="$1"
+            shift
+            local items=("$@")
+            local per_page=20
+            local total_items=$(( ${#items[@]} / 2 ))
+            local total_pages=$(( (total_items + per_page - 1) / per_page ))
+            local current_page=1
+            local choice start_index end_index menu_items tag desc
+
+            while true; do
+                # Calculate start and end indices for current page
+                start_index=$(( (current_page - 1) * per_page * 2 ))
+                end_index=$(( start_index + per_page * 2 ))
+                menu_items=()
+
+                # Add items for current page
+                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                    tag="${items[i]}"
+                    desc="${items[i+1]}"
+                    menu_items+=("$tag" "$desc")
+                done
+
+                # Add navigation options
+                if (( current_page > 1 )); then
+                    menu_items+=("<< Prev" "")
+                fi
+                if (( current_page < total_pages )); then
+                    menu_items+=(">> Next" "")
+                fi
+
+                # Show whiptail menu
+                choice=$(whiptail --title "$title" \
+                    --menu "Page ${current_page}/${total_pages}" 20 70 10 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                case "$choice" in
+                    ">> Next")
+                        (( current_page++ ))
+                        ;;
+                    "<< Prev")
+                        (( current_page-- ))
+                        ;;
+                    *)
+                        # Return selected tag
+                        printf '%s\n' "$choice"
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
         local selected_tag
-        selected_tag=$(
-            whiptail --title "Select tag" \
-                --menu "Choose the tag to add:" \
-                20 70 10 \
-                "${tag_menu[@]}" \
-                3>&1 1>&2 2>&3
-        ) || return 1
+        # selected_tag=$(
+        #     whiptail --title "Select tag" \
+        #         --menu "Choose the tag to add:" \
+        #         20 70 10 \
+        #         "${tag_menu[@]}" \
+        #         3>&1 1>&2 2>&3
+        # ) || return 1
+
+        selected_tag=$(paginate_tags_menu "Choose Tag" "${tag_menu[@]}") || return 1
 
         local -A selected_paths=()
         local page=0
