@@ -19093,8 +19093,8 @@ do_stuff_with_project_file() {
             fi
 
             # Display menu
-            selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title}${filter_summary} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+            selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
+                --menu "Select a linked note:${filter_summary}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -24683,12 +24683,13 @@ Tag you have chosen will be added to the selected notes." 10 60
             done
             continue
         elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
-            # Tag choices reflect the active glob, while allowing the current
-            # tag filter to be changed rather than narrowing choices to itself.
-            mapfile -t linked_notes_array < <(get_linked_notes_matching_glob)
+            # Build tag choices from the notes currently visible after both the
+            # active tag and glob filters have been applied. This prevents tags
+            # from notes hidden by either filter from appearing in this menu.
+            mapfile -t linked_notes_array < <(get_current_filtered_linked_notes)
             if ((${#linked_notes_array[@]} == 0)); then
                 whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current glob." 8 60
+                    --msgbox "No linked notes match the current filters." 8 60
                 continue
             fi
 
@@ -24700,8 +24701,17 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag_menu_options=()
             local tag
 
-            # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
-            tag_menu_options+=("[NO TAG]" "")
+            # Offer '[NO TAG]' only if at least one currently visible note has no tags.
+            local has_untagged_notes=false
+            local note_line note_tags_for_line
+            for note_line in "${linked_notes_array[@]}"; do
+                IFS='|' read -r _ _ note_tags_for_line _ <<< "$note_line"
+                if [[ -z "$note_tags_for_line" ]]; then
+                    has_untagged_notes=true
+                    break
+                fi
+            done
+            [[ "$has_untagged_notes" == true ]] && tag_menu_options+=("[NO TAG]" "")
 
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
@@ -25564,18 +25574,10 @@ do_stuff_shortlisted() {
         local total_items=$(( ${#note_menu_options[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local selected_note_tag=""
-        local active_filters="none"
-        if [[ -n "${TAG_FILTER_BY:-}" ]]; then
-            if [[ "$TAG_FILTER_BY" == "NO TAG" ]]; then
-                active_filters="tag: [NO TAG]"
-            else
-                active_filters="tag: $TAG_FILTER_BY"
-            fi
-        fi
-        if [[ -n "${GLOB_FILTER_BY:-}" ]]; then
-            [[ "$active_filters" == "none" ]] && active_filters="" || active_filters+="; "
-            active_filters+="glob: $GLOB_FILTER_BY"
-        fi
+        local filter_summary=""
+        [[ -n "${TAG_FILTER_BY:-}" ]] && filter_summary+=" [tag: ${TAG_FILTER_BY}]"
+        [[ -n "${GLOB_FILTER_BY:-}" ]] && filter_summary+=" [glob: ${GLOB_FILTER_BY}]"
+
 
         while true; do
             local start=$(( page * per_page ))
@@ -25599,7 +25601,7 @@ do_stuff_shortlisted() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note. Active filters: ${active_filters}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:${filter_summary}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -31326,12 +31328,13 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             continue
         elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
-            # Tag options respect the active glob but ignore the current tag filter,
-            # allowing the user to change the tag filter without resetting the glob.
-            mapfile -t linked_notes_array < <(get_linked_notes_matching_glob)
+            # Build tag choices from the notes currently visible after both the
+            # active tag and glob filters have been applied. This prevents tags
+            # from notes hidden by either filter from appearing in this menu.
+            mapfile -t linked_notes_array < <(get_current_filtered_linked_notes)
             if ((${#linked_notes_array[@]} == 0)); then
                 whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current glob." 8 60
+                    --msgbox "No linked notes match the current filters." 8 60
                 continue
             fi
 
@@ -31343,8 +31346,17 @@ Tag you have chosen will be added to the selected notes." 10 60
             local tag_menu_options=()
             local tag
 
-            # NEW: offer '[NO TAG]' to filter linked notes with no associated tag.
-            tag_menu_options+=("[NO TAG]" "")
+            # Offer '[NO TAG]' only if at least one currently visible note has no tags.
+            local has_untagged_notes=false
+            local note_line note_tags_for_line
+            for note_line in "${linked_notes_array[@]}"; do
+                IFS='|' read -r _ _ note_tags_for_line _ <<< "$note_line"
+                if [[ -z "$note_tags_for_line" ]]; then
+                    has_untagged_notes=true
+                    break
+                fi
+            done
+            [[ "$has_untagged_notes" == true ]] && tag_menu_options+=("[NO TAG]" "")
 
             for tag in "${note_tags[@]}"; do
                 tag_menu_options+=("$tag" "")
