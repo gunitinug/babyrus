@@ -25564,6 +25564,18 @@ do_stuff_shortlisted() {
         local total_items=$(( ${#note_menu_options[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local selected_note_tag=""
+        local active_filters="none"
+        if [[ -n "${TAG_FILTER_BY:-}" ]]; then
+            if [[ "$TAG_FILTER_BY" == "NO TAG" ]]; then
+                active_filters="tag: [NO TAG]"
+            else
+                active_filters="tag: $TAG_FILTER_BY"
+            fi
+        fi
+        if [[ -n "${GLOB_FILTER_BY:-}" ]]; then
+            [[ "$active_filters" == "none" ]] && active_filters="" || active_filters+="; "
+            active_filters+="glob: $GLOB_FILTER_BY"
+        fi
 
         while true; do
             local start=$(( page * per_page ))
@@ -25587,7 +25599,7 @@ do_stuff_shortlisted() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note. Active filters: ${active_filters}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -29468,6 +29480,8 @@ do_stuff_shortlisted() {
         note_menu_options+=("Remove tag from linked notes" "")
         note_menu_options+=("Filter linked notes by tag" "")
         note_menu_options+=("Reset filter" "")
+        note_menu_options+=("Apply glob" "")
+        note_menu_options+=("Reset glob" "")
 
         local trunc_tag
 
@@ -29576,39 +29590,69 @@ do_stuff_shortlisted() {
     #-- Helpers end.
 
     local TAG_FILTER_BY=""
+    local GLOB_FILTER_BY=""
 
-    refresh_filtered_linked_notes() {
-        local chosen_tag_filter="${1:-}"    # TAG_FILTER_BY
+    # Apply a case-insensitive Bash glob to the complete linked-note title.
+    # Use patterns such as *python* for substring matching.
+    filter_linked_notes_by_glob() {
+        local pattern="$1"
+        shift
 
-        # if no filter by tag then don't filter when update.
-        [[ -z "$chosen_tag_filter" ]] && {
-            refresh_all_linked_notes
-            return 0
-        }
+        local line title lower_pattern="${pattern,,}"
+        for line in "$@"; do
+            IFS='|' read -r title _ _ _ <<< "$line"
+            if [[ "${title,,}" == $lower_pattern ]]; then
+                printf '%s\n' "$line"
+            fi
+        done
+    }
 
-        # retrieve $selected_project_path
-        mapfile -t projects < "$PROJECTS_DB"    # Reload from PROJECTS DB file.
-        local selected_project_index=$((selected_project_tag - 1))
-        local selected_project_line="${projects[$selected_project_index]}"
-
-        local associated_notes
-        IFS='|' read -r selected_project_title selected_project_path associated_notes <<< "$selected_project_line"
-        # retrieved!
-
-        # retrieve linked notes for selected project path - lines from NOTES_DB.
-        mapfile -t linked_notes_array < <(
+    # Return linked notes after applying both active filters.
+    get_current_filtered_linked_notes() {
+        local -a current_notes=()
+        mapfile -t current_notes < <(
             retrieve_linked_notes "$selected_project_path"
         )
 
-        local tag
-        local trunc_tag
-        local filtered_linked_notes=()
+        if [[ -n "$TAG_FILTER_BY" ]]; then
+            mapfile -t current_notes < <(
+                filter_linked_notes_by_tag "$TAG_FILTER_BY" "${current_notes[@]}"
+            )
+        fi
 
-        mapfile -t filtered_linked_notes < <(
-            filter_linked_notes_by_tag "$chosen_tag_filter" "${linked_notes_array[@]}"
+        if [[ -n "$GLOB_FILTER_BY" ]]; then
+            mapfile -t current_notes < <(
+                filter_linked_notes_by_glob "$GLOB_FILTER_BY" "${current_notes[@]}"
+            )
+        fi
+
+        ((${#current_notes[@]} > 0)) && printf '%s\n' "${current_notes[@]}"
+    }
+
+    # Ignore the active tag filter when offering tag choices, so the user can
+    # change the tag filter without resetting the glob.
+    get_linked_notes_matching_glob() {
+        local -a current_notes=()
+        mapfile -t current_notes < <(
+            retrieve_linked_notes "$selected_project_path"
         )
 
-        # Sort filtered notes alphabetically by title--now guarded.
+        if [[ -n "$GLOB_FILTER_BY" ]]; then
+            mapfile -t current_notes < <(
+                filter_linked_notes_by_glob "$GLOB_FILTER_BY" "${current_notes[@]}"
+            )
+        fi
+
+        ((${#current_notes[@]} > 0)) && printf '%s\n' "${current_notes[@]}"
+    }
+
+    refresh_filtered_linked_notes() {
+        local line title path tags trunc_tag
+        local -a filtered_linked_notes=()
+
+        mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
+
+        # Keep the visible notes in alphabetical title order.
         if ((${#filtered_linked_notes[@]} > 0)); then
             mapfile -t filtered_linked_notes < <(
                 printf '%s\n' "${filtered_linked_notes[@]}" |
@@ -29616,7 +29660,6 @@ do_stuff_shortlisted() {
             )
         fi
 
-        # update note_lines and note_menu_options!
         note_lines=()
         note_menu_options=()
 
@@ -29631,16 +29674,14 @@ do_stuff_shortlisted() {
         note_menu_options+=("Remove tag from linked notes" "")
         note_menu_options+=("Filter linked notes by tag" "")
         note_menu_options+=("Reset filter" "")
+        note_menu_options+=("Apply glob" "")
+        note_menu_options+=("Reset glob" "")
 
         for line in "${filtered_linked_notes[@]}"; do
-            [[ -z "$line" ]] && continue    # guard.
-
+            [[ -z "$line" ]] && continue
             IFS='|' read -r title path tags _ <<< "$line"
-
             note_lines+=("$line")
-
             trunc_tag="$(truncate_note_tags_by_tag "[${tags}]")"
-
             note_menu_options+=("${#note_lines[@]}" "$title $trunc_tag")
         done
     }
@@ -29649,7 +29690,7 @@ do_stuff_shortlisted() {
 
     # FIX: WHILE LOOP TO ALLOW MULTIPLE LINKED NOTE SELECTIONS
     while :; do
-        refresh_filtered_linked_notes "$TAG_FILTER_BY"
+        refresh_filtered_linked_notes
 
         choose_tag_goal() {
             local tag
@@ -30836,57 +30877,36 @@ Tag you have chosen will be added to the selected notes." 10 60
             associate_note_to_project_from_shortlist "$selected_project_path" || continue
             continue    # Display list of linked notes again after associating a note.
         elif [[ "$selected_note_tag" == "Unlink note" ]]; then
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
+            mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
 
-            if [[ -n "$TAG_FILTER_BY" ]]; then
-                mapfile -t filtered_linked_notes < <(
-                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )
+            if [[ -n "$TAG_FILTER_BY" || -n "$GLOB_FILTER_BY" ]]; then
                 dissociate_note_from_project_from_shortlist \
                     "$selected_project_path" --filtered-notes "${filtered_linked_notes[@]}" || continue
             else
                 dissociate_note_from_project_from_shortlist "$selected_project_path" || continue
             fi
-            continue    # Display list of lined notes again after dissociating notes.
+            continue    # Display list of linked notes again after dissociating notes.
         elif [[ "$selected_note_tag" == "Manage plan" ]]; then
             edit_plan "$selected_project_path" || continue
             continue
         elif [[ "$selected_note_tag" == "Add tag to linked notes" ]]; then
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
-
-            if [[ -n "$TAG_FILTER_BY" ]]; then
-                mapfile -t filtered_linked_notes < <(
-                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )                
-                add_tag_to_notes_from_filtered "${filtered_linked_notes[@]}"
+            mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
+            if ((${#filtered_linked_notes[@]} == 0)); then
+                whiptail --title "No Matching Notes" \
+                    --msgbox "No linked notes match the current filters." 8 60
                 continue
             fi
-
-            add_tag_to_notes_from_filtered "${linked_notes_array[@]}"
+            add_tag_to_notes_from_filtered "${filtered_linked_notes[@]}"
             continue
         elif [[ "$selected_note_tag" == "Remove tag from linked notes" ]]; then
-            # retrieve linked notes for selected project path - lines from NOTES_DB.
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
+            # Restrict tag removal to exactly the notes shown by current filters.
+            local notes_for_tag_workflow=()
+            mapfile -t notes_for_tag_workflow < <(get_current_filtered_linked_notes)
 
-            if [[ -n "$TAG_FILTER_BY" ]]; then
-                mapfile -t filtered_linked_notes < <(
-                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )
-            fi
-
-            # Determine which notes we're working with.
-            local notes_for_tag_workflow
-
-            if [[ -n "$TAG_FILTER_BY" ]]; then
-                notes_for_tag_workflow=("${filtered_linked_notes[@]}")
-            else
-                notes_for_tag_workflow=("${linked_notes_array[@]}")
+            if ((${#notes_for_tag_workflow[@]} == 0)); then
+                whiptail --title "No Matching Notes" \
+                    --msgbox "No linked notes match the current filters." 8 60
+                continue
             fi
 
             # ------------------------------------------------------------
@@ -31306,12 +31326,15 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             continue
         elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
-            # retrieve linked notes for selected project path - lines from NOTES_DB.
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
+            # Tag options respect the active glob but ignore the current tag filter,
+            # allowing the user to change the tag filter without resetting the glob.
+            mapfile -t linked_notes_array < <(get_linked_notes_matching_glob)
+            if ((${#linked_notes_array[@]} == 0)); then
+                whiptail --title "No Matching Notes" \
+                    --msgbox "No linked notes match the current glob." 8 60
+                continue
+            fi
 
-        	# extract tags from linked notes, let user select one tag from list.
             mapfile -t note_tags < <(
                 retrieve_linked_note_tags "${linked_notes_array[@]}"
             )
@@ -31346,41 +31369,48 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue    
         elif [[ "$selected_note_tag" == "Reset filter" ]]; then
             TAG_FILTER_BY=""
-            continue    
+            continue
+        elif [[ "$selected_note_tag" == "Apply glob" ]]; then
+            local new_glob
+            new_glob=$(whiptail \
+                --title "Apply Glob to Linked Note Titles" \
+                --inputbox \
+                "Enter a case-insensitive Bash glob for note titles.\nExamples: *Python* or Meeting-??\n\nLeave the pattern non-empty; use * to match all titles." \
+                13 80 "$GLOB_FILTER_BY" \
+                3>&1 1>&2 2>&3) || continue
+
+            if [[ -z "$new_glob" ]]; then
+                whiptail --title "Empty Glob" --msgbox \
+                    "The glob cannot be empty. Use * to match all titles, or choose Reset glob to clear the glob filter." \
+                    10 75
+                continue
+            fi
+
+            GLOB_FILTER_BY="$new_glob"
+            continue
+        elif [[ "$selected_note_tag" == "Reset glob" ]]; then
+            GLOB_FILTER_BY=""
+            continue
         elif [[ "$selected_note_tag" == "Create new note tag" ]]; then
             add_note_tag_stuff
-            continue            
+            continue
         elif [[ "$selected_note_tag" == "Open URL" ]]; then
-            # retrieve linked notes for selected project path - lines from NOTES_DB.
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
-
-            if [[ -n "$TAG_FILTER_BY" ]];then
-                mapfile -t filtered_linked_notes < <(
-                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )
-                open_urls_filtered "${filtered_linked_notes[@]}"
-                continue                
+            mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
+            if ((${#filtered_linked_notes[@]} == 0)); then
+                whiptail --title "No Matching Notes" \
+                    --msgbox "No linked notes match the current filters." 8 60
+                continue
             fi
-
-            open_urls_filtered "${linked_notes_array[@]}"
+            open_urls_filtered "${filtered_linked_notes[@]}"
             continue
         elif [[ "$selected_note_tag" == "Open ebook" ]]; then
-            # retrieve linked notes for selected project path - lines from NOTES_DB.
-            mapfile -t linked_notes_array < <(
-                retrieve_linked_notes "$selected_project_path"
-            )
-
-            if [[ -n "$TAG_FILTER_BY" ]];then
-                mapfile -t filtered_linked_notes < <(
-                    filter_linked_notes_by_tag "$TAG_FILTER_BY" "${linked_notes_array[@]}"
-                )
-                open_ebook_filtered "${filtered_linked_notes[@]}"
-                continue                
+            mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
+            if ((${#filtered_linked_notes[@]} == 0)); then
+                whiptail --title "No Matching Notes" \
+                    --msgbox "No linked notes match the current filters." 8 60
+                continue
             fi
-
-            open_ebook_filtered "${linked_notes_array[@]}"
+            open_ebook_filtered "${filtered_linked_notes[@]}"
             continue
         fi       
 
