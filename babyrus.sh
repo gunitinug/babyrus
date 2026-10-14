@@ -32214,7 +32214,7 @@ he leads me beside peaceful streams.
 He renews my strength.
 He guides me along right paths,
 bringing honor to his name.
-Psalm 23:1-3"
+†Psalm 23:1-3"
 
     whiptail --title "About BABYRUS" --msgbox "$msg" 18 72
 }
