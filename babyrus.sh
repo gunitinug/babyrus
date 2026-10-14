@@ -32204,12 +32204,19 @@ ${padded_msg}
 
 # About message
 about_babyrus() {
-    whiptail --title "About BABYRUS" --msgbox \
-"BABYRUS — a simple, fast, terminal-based productivity tool.
+    local msg="BABYRUS — a simple, fast, terminal-based productivity tool.
 Version: ${BABYRUS_VERSION}
+Copyleft © 2025, 2026 Logan Lee — GPLv3.
 
-Copyleft © 2025, 2026 Logan Lee — GPLv3." \
-    12 60
+The Lord is my shepherd; I have all that I need.
+He lets me rest in green meadows;
+he leads me beside peaceful streams.
+He renews my strength.
+He guides me along right paths,
+bringing honor to his name.
+Psalm 23:1-3"
+
+    whiptail --title "About BABYRUS" --msgbox "$msg" 18 72
 }
 
 # Main menu function
