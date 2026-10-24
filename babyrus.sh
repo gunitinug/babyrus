@@ -32867,7 +32867,7 @@ babyrus_book_load_existing() {
 # Create a clean Markdown staging file containing only numbered headings and
 # note content. Metadata and manifest are intentionally excluded from the PDF.
 babyrus_book_convert_to_pdf() {
-    local destination destination_dir temp_md temp_pdf temp_txt i heading_marks heading_prefix converter max_backticks fence_length fence
+    local destination destination_dir temp_md temp_pdf temp_txt temp_header i heading_marks heading_prefix converter max_backticks fence_length fence
     if ((${#BOOK_SECTION_PATHS[@]} == 0)); then
         whiptail --title "Convert Book to PDF" --msgbox \
             "Add or load a book with at least one section first." 8 70
@@ -32942,14 +32942,39 @@ babyrus_book_convert_to_pdf() {
     done
 
     if [[ "$converter" == pandoc ]]; then
-        if ! pandoc "$temp_md" -o "$temp_pdf" --toc --pdf-engine=xelatex 2>/dev/null; then
-            if ! pandoc "$temp_md" -o "$temp_pdf" --toc 2>/dev/null; then
-                rm -f -- "$temp_md" "$temp_pdf"
+        # Pandoc normally renders fenced note text as LaTeX's verbatim
+        # environment, which does not wrap long lines. Use fvextra to enable
+        # wrapping at spaces and, for very long unbroken strings, anywhere.
+        # This applies only to the literal note-content blocks; headings and
+        # the generated table of contents remain normal Markdown.
+        temp_header=$(mktemp --tmpdir="$destination_dir" '.babyrus-book-header.XXXXXX.tex') || {
+            rm -f -- "$temp_md" "$temp_pdf"; return 1;
+        }
+        if ! cat > "$temp_header" <<'BABYRUS_PANDOC_HEADER'
+\usepackage{fvextra}
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+  breaklines=true,
+  breakanywhere=true,
+  breaksymbolleft={},
+  breaksymbolright={}
+}
+BABYRUS_PANDOC_HEADER
+        then
+            rm -f -- "$temp_md" "$temp_pdf" "$temp_header"
+            whiptail --title "PDF Conversion Failed" --msgbox \
+                "Could not prepare the PDF text-wrapping settings." 9 75
+            return 1
+        fi
+
+        if ! pandoc "$temp_md" -o "$temp_pdf" --toc --pdf-engine=xelatex -H "$temp_header" 2>/dev/null; then
+            if ! pandoc "$temp_md" -o "$temp_pdf" --toc -H "$temp_header" 2>/dev/null; then
+                rm -f -- "$temp_md" "$temp_pdf" "$temp_header"
                 whiptail --title "PDF Conversion Failed" --msgbox \
-                    "Pandoc could not create the PDF. Check that a PDF engine such as xelatex is installed." 10 85
+                    "Pandoc could not create the PDF. Check that a PDF engine such as xelatex and the fvextra LaTeX package are installed." 10 85
                 return 1
             fi
         fi
+        rm -f -- "$temp_header"
     else
         # LibreOffice converts plain text rather than Markdown. Rebuild a plain
         # text version directly from the sections so the Markdown fence markers
@@ -33001,6 +33026,8 @@ babyrus_book_convert_to_pdf() {
     whiptail --title "PDF Created" --msgbox \
         "Created a PDF containing only the book title, numbered section headings, and note contents:\n$destination" 10 85
 }
+
+
 
 
 show_projects_menu() {
