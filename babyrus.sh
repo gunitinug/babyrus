@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99x14'
+BABYRUS_VERSION='v.0.99x15'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -31872,10 +31872,11 @@ babyrus_book_edit_session() {
             "5" "Change section indentation" \
             "6" "Remove section" \
             "7" "Preview book outline" \
-            "8" "Change book title" \
-            "9" "Save book to a .txt file" \
-            "10" "Show current save path" \
-            "11" "Convert book to PDF" \
+            "8" "Read sections" \
+            "9" "Change book title" \
+            "10" "Save book to a .txt file" \
+            "11" "Show current save path" \
+            "12" "Convert book to PDF" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                 if (( BOOK_SAVED == 0 && ${#BOOK_SECTION_PATHS[@]} > 0 )); then
                     if whiptail --title "Unsaved Book" --yesno \
@@ -31935,6 +31936,9 @@ babyrus_book_edit_session() {
                 whiptail --title "Book Outline Preview" --msgbox "$outline" 24 100
                 ;;
             8)
+                babyrus_book_read_sections
+                ;;
+            9)
                 if entered_title=$(whiptail --title "Change Book Title" --inputbox \
                     "Enter the new book title." 9 70 "$BOOK_TITLE" 3>&1 1>&2 2>&3); then
                     if [[ -n "$entered_title" ]]; then
@@ -31945,10 +31949,10 @@ babyrus_book_edit_session() {
                     fi
                 fi
                 ;;
-            9)
+            10)
                 babyrus_book_save
                 ;;
-            10)
+            11)
                 if [[ -n "$BOOK_FILE_PATH" ]]; then
                     whiptail --title "Book Save Path" --msgbox "$BOOK_FILE_PATH" 8 85
                 else
@@ -31957,7 +31961,7 @@ babyrus_book_edit_session() {
                         10 85
                 fi
                 ;;
-            11)
+            12)
                 babyrus_book_convert_to_pdf
                 ;;
         esac
@@ -32402,6 +32406,78 @@ babyrus_book_select_section() {
     [[ "$choice" =~ ^[0-9]+$ ]] || return 1
     BOOK_SELECTED_SECTION_INDEX=$((choice - 1))
     (( BOOK_SELECTED_SECTION_INDEX >= 0 && BOOK_SELECTED_SECTION_INDEX < ${#BOOK_SECTION_PATHS[@]} ))
+}
+
+# Let the user choose sections repeatedly and read the current source-note
+# content in a scrollable whiptail textbox. The header records the section's
+# current outline metadata and provenance without modifying the book.
+babyrus_book_read_sections() {
+    local index section_number section_title section_level source_path
+    local source_project_title source_project_path temp_file
+    local term_rows term_cols box_h box_w
+
+    if ((${#BOOK_SECTION_PATHS[@]} == 0)); then
+        whiptail --title "Read Sections" --msgbox \
+            "There are no sections in this book yet. Add a section first." 8 65
+        return 0
+    fi
+
+    while :; do
+        # Cancelling the section picker returns to the main book editor.
+        babyrus_book_select_section "Read Sections: Choose a Section" || return 0
+        index="$BOOK_SELECTED_SECTION_INDEX"
+        babyrus_book_rebuild_numbers
+
+        section_number="${BOOK_SECTION_NUMBERS[$index]}"
+        section_title="${BOOK_SECTION_TITLES[$index]}"
+        section_level="${BOOK_SECTION_LEVELS[$index]}"
+        source_path="${BOOK_SECTION_PATHS[$index]}"
+        source_project_title="${BOOK_SECTION_SOURCE_PROJECT_TITLES[$index]:-${BOOK_PROJECT_TITLE:-Unknown}}"
+        source_project_path="${BOOK_SECTION_SOURCE_PROJECT_PATHS[$index]:-${BOOK_PROJECT_PATH:-Unknown}}"
+
+        temp_file=$(mktemp "${TMPDIR:-/tmp}/babyrus-book-section.XXXXXX") || {
+            whiptail --title "Read Section" --msgbox \
+                "Could not create a temporary file to display this section." 8 70
+            return 0
+        }
+
+        if ! {
+            printf '%s\n' \
+                "BOOK: ${BOOK_TITLE:-Untitled}" \
+                "SECTION: ${section_number}  ${section_title}" \
+                "Outline position: $((index + 1)) of ${#BOOK_SECTION_PATHS[@]}" \
+                "Indentation level: $section_level" \
+                "Source note title: $section_title" \
+                "Source note path: $source_path" \
+                "Source project title: $source_project_title" \
+                "Source project path: $source_project_path"
+            [[ -n "${BOOK_FILE_PATH:-}" ]] && printf 'Saved book path: %s\n' "$BOOK_FILE_PATH"
+            printf '\n%s\n\n' '-------------------- SECTION CONTENT --------------------'
+            if [[ -f "$source_path" && -r "$source_path" ]]; then
+                cat -- "$source_path"
+            else
+                printf '%s\n' \
+                    'The source note file is missing or unreadable, so its contents cannot be displayed.' \
+                    '' \
+                    "Expected source note path: $source_path"
+            fi
+        } > "$temp_file"; then
+            rm -f -- "$temp_file"
+            whiptail --title "Read Section" --msgbox \
+                "Could not prepare the section contents for display." 8 70
+            return 0
+        fi
+
+        read -r term_rows term_cols < <(stty size </dev/tty 2>/dev/null)
+        [[ "$term_rows" =~ ^[0-9]+$ ]] || term_rows=$(tput lines 2>/dev/null || echo 40)
+        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 100)
+        box_h=$((term_rows - 2)); (( box_h > 60 )) && box_h=60; (( box_h < 12 )) && box_h=12
+        box_w=120; (( box_w > term_cols - 2 )) && box_w=$((term_cols - 2)); (( box_w < 60 )) && box_w=60
+
+        whiptail --title "Read Section: ${section_number} ${section_title}" \
+            --scrolltext --textbox "$temp_file" "$box_h" "$box_w" </dev/tty >/dev/tty || :
+        rm -f -- "$temp_file"
+    done
 }
 
 # Reorders a section together with all of its descendants, and only among
@@ -33179,8 +33255,6 @@ BABYRUS_PANDOC_HEADER
     whiptail --title "PDF Created" --msgbox \
         "Created a PDF containing only the book title, numbered section headings, and note contents:\n$destination" 10 85
 }
-
-
 
 
 show_projects_menu() {
