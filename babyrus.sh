@@ -32295,7 +32295,7 @@ babyrus_book_choose_tag_filter() {
         return 1
     fi
 
-    local page=1 page_size=10 total_tags start end j
+    local page=1 page_size=30 total_tags start end j
     total_tags=$(( ${#tag_menu_items[@]} / 2 ))
     while :; do
         local -a page_items=()
@@ -32310,7 +32310,7 @@ babyrus_book_choose_tag_filter() {
         (( page < total_pages )) && page_items+=("__NEXT_PAGE__" "Next page >>")
         choice=$(whiptail --title "Filter Associated Notes by Tag" --cancel-button "Back" \
             --menu "Choose a tag (page $page/$total_pages). The current title glob remains active." \
-            20 80 12 "${page_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            42 80 30 "${page_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         case "$choice" in
             __PREV_PAGE__) ((page--)); continue ;;
             __NEXT_PAGE__) ((page++)); continue ;;
