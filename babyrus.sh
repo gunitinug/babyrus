@@ -31716,22 +31716,90 @@ EOF
 #        "Load Existing Book to Edit"   -> babyrus_book_edit_existing
 #      Use your menu's existing format and case-selection variable.
 #
-# Uses existing BABYRUS globals and helpers:
-#   PROJECTS_DB, NOTES_DB, BOOKS_LIST, PROJECTS_PATH, paginate_get_projects,
-#   SELECTED_ITEM_PROJECT
+# Uses the existing BABYRUS database/list globals:
+#   PROJECTS_DB, NOTES_DB, BOOKS_LIST
 # BOOKS_LIST must be set to the path of the plain-text list of saved book files.
 # ---------------------------------------------------------------------------
 
-build_book_from_project() {
-    local -a project_lines=() project_menu_options=() project_source_indices=()
-    local project_index project_line project_title project_path associated_notes
-    local selected_menu_index selected_project_index
+# Return the selected PROJECTS_DB row from a paginated project-file menu.
+# PROJECTS_DB rows are expected to be title|project-path|comma-separated-note-paths|...
+babyrus_book_select_project_row() {
+    local menu_title="${1:-Select Project File}"
+    local row project_title project_path choice page_size=50 page=0 total_pages start end i selected_index
+    local term_rows term_cols box_h box_w list_h glob_pattern lower_title
+    local -a all_rows=() all_paths=() all_titles=() project_rows=() project_paths=() menu_items=()
 
     if [[ ! -r "$PROJECTS_DB" ]]; then
-        whiptail --title "Build Book" --msgbox \
+        whiptail --title "$menu_title" --msgbox \
             "The projects database cannot be read:\n$PROJECTS_DB" 10 75
         return 1
     fi
+    while IFS= read -r row || [[ -n "$row" ]]; do
+        [[ -n "$row" ]] || continue
+        IFS='|' read -r project_title project_path _ <<< "$row"
+        [[ -n "$project_path" ]] || continue
+        all_rows+=("$row"); all_paths+=("$project_path"); all_titles+=("$project_title")
+    done < "$PROJECTS_DB"
+    ((${#all_rows[@]})) || {
+        whiptail --title "$menu_title" --msgbox "There are no project files to choose from." 8 60
+        return 1
+    }
+
+    glob_pattern=""
+    while :; do
+        project_rows=(); project_paths=()
+        for i in "${!all_rows[@]}"; do
+            lower_title="${all_titles[$i],,}"
+            if [[ -z "$glob_pattern" || "$lower_title" == ${glob_pattern,,} ]]; then
+                project_rows+=("${all_rows[$i]}")
+                project_paths+=("${all_paths[$i]}")
+            fi
+        done
+        ((${#project_rows[@]})) || {
+            whiptail --title "$menu_title" --msgbox \
+                "No project titles match the current glob. Choose Apply glob to change it, or Reset glob to show all projects." 10 80
+        }
+        total_pages=$(( (${#project_rows[@]} + page_size - 1) / page_size ))
+        (( total_pages > 0 )) || total_pages=1
+        (( page >= total_pages )) && page=$((total_pages - 1))
+        read -r term_rows term_cols < <(stty size </dev/tty 2>/dev/null)
+        [[ "$term_rows" =~ ^[0-9]+$ ]] || term_rows=$(tput lines 2>/dev/null || echo 40)
+        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 170)
+        box_w=170; (( box_w > term_cols - 2 )) && box_w=$((term_cols - 2)); (( box_w < 60 )) && box_w=60
+        box_h=$((term_rows - 2)); (( box_h > 60 )) && box_h=60; (( box_h < 20 )) && box_h=20
+        list_h=$((box_h - 8)); (( list_h < 5 )) && list_h=5
+        start=$((page * page_size)); end=$((start + page_size)); (( end > ${#project_rows[@]} )) && end=${#project_rows[@]}
+        menu_items=()
+        menu_items+=("__APPLY_GLOB__" "Apply glob")
+        menu_items+=("__RESET_GLOB__" "Reset glob")
+
+        (( page > 0 )) && menu_items+=("__PREVIOUS_PAGE__" "<< Previous page")
+        for ((i=start; i<end; i++)); do menu_items+=("$((i + 1))" "${project_paths[$i]}"); done
+        (( page + 1 < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "Choose a project file; glob: ${glob_pattern:- (none)} (page $((page + 1)) of $total_pages; ${#project_rows[@]} matches)." \
+            "$box_h" "$box_w" "$list_h" "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+        case "$choice" in
+            __PREVIOUS_PAGE__) ((page--)); continue ;;
+            __NEXT_PAGE__) ((page++)); continue ;;
+            __APPLY_GLOB__)
+                glob_pattern=$(whiptail --title "Apply Project Title Glob" --inputbox \
+                    "Enter a case-insensitive glob pattern to match project titles (for example: *javascript*)." \
+                    10 90 "$glob_pattern" 3>&1 1>&2 2>&3) || continue
+                page=0; continue ;;
+            __RESET_GLOB__) glob_pattern=""; page=0; continue ;;
+            ''|*[!0-9]*) return 1 ;;
+        esac
+        selected_index=$((choice - 1))
+        (( selected_index >= 0 && selected_index < ${#project_rows[@]} )) || continue
+        printf '%s\n' "${project_rows[$selected_index]}"
+        return 0
+    done
+}
+
+build_book_from_project() {
+    local project_title project_path associated_notes selected_project_line
 
     if [[ ! -r "$NOTES_DB" ]]; then
         whiptail --title "Build Book" --msgbox \
@@ -31739,40 +31807,15 @@ build_book_from_project() {
         return 1
     fi
 
-    mapfile -t project_lines < "$PROJECTS_DB"
-
-    for project_index in "${!project_lines[@]}"; do
-        project_line="${project_lines[$project_index]}"
-        [[ -n "$project_line" ]] || continue
-        IFS='|' read -r project_title project_path _ <<< "$project_line"
-        [[ -n "$project_path" ]] || continue
-
-        project_menu_options+=("$(( ${#project_source_indices[@]} + 1 ))" "$project_title")
-        project_source_indices+=("$project_index")
-    done
-
-    if ((${#project_source_indices[@]} == 0)); then
-        whiptail --title "Build Book" --msgbox \
-            "There are no projects to choose from." 8 55
-        return 1
-    fi
-
-    if ! paginate_get_projects "Select Project for Book" "${project_menu_options[@]}"; then
-        return 1
-    fi
-
-    [[ "$SELECTED_ITEM_PROJECT" =~ ^[0-9]+$ ]] || return 1
-    selected_menu_index=$((SELECTED_ITEM_PROJECT - 1))
-    (( selected_menu_index >= 0 && selected_menu_index < ${#project_source_indices[@]} )) || return 1
-    selected_project_index="${project_source_indices[$selected_menu_index]}"
-
-    IFS='|' read -r project_title project_path associated_notes \
-        <<< "${project_lines[$selected_project_index]}"
+    selected_project_line=$(babyrus_book_select_project_row "Select Project for Book") || return 1
+    IFS='|' read -r project_title project_path associated_notes <<< "$selected_project_line"
+    [[ -n "$project_path" ]] || return 1
 
     # The following variables are local to this interactive book-building
     # session. Bash's dynamic scoping makes them available to the helpers below.
     local BOOK_PROJECT_TITLE="$project_title"
     local BOOK_PROJECT_PATH="$project_path"
+    local BOOK_ORIGINAL_PROJECT_PATH="$project_path"
     local BOOK_TITLE="$project_title"
     local BOOK_TAG_FILTER_BY=""
     local BOOK_GLOB_FILTER_BY=""
@@ -31786,14 +31829,17 @@ build_book_from_project() {
     local -a BOOK_SECTION_TITLES=()
     local -a BOOK_SECTION_LEVELS=()
     local -a BOOK_SECTION_NUMBERS=()
+    # Keep source-project provenance alongside each section so reordering and
+    # removing sections also updates the saved source-project metadata.
+    local -a BOOK_SECTION_SOURCE_PROJECT_TITLES=()
+    local -a BOOK_SECTION_SOURCE_PROJECT_PATHS=()
 
     babyrus_book_load_associated_notes "$associated_notes"
 
     if ((${#BOOK_BASE_NOTE_LINES[@]} == 0)); then
         whiptail --title "Build Book" --msgbox \
-            "This project has no associated notes that could be found in NOTES_DB." \
-            10 75
-        return 1
+            "No linked notes were found for this project. You can choose 'Load another project file' in the book editor to load notes from a different project." \
+            10 85
     fi
 
     local entered_title
@@ -31815,23 +31861,21 @@ build_book_from_project() {
 # Shared interactive editor used for newly built and previously saved books.
 babyrus_book_edit_session() {
     while :; do
-        local choice outline
-        outline="$(babyrus_book_outline_text)"
-        [[ -n "$outline" ]] || outline="(No sections have been added yet.)"
-
+        local choice
         choice=$(whiptail --title "Build Book: $BOOK_TITLE" --cancel-button "Finish" \
-            --menu "Project: $BOOK_PROJECT_TITLE\nSections: ${#BOOK_SECTION_PATHS[@]}\n\n$outline" \
-            25 100 10 \
+            --menu "Current project: $BOOK_PROJECT_TITLE\nSections: ${#BOOK_SECTION_PATHS[@]}" \
+            25 100 12 \
             "1" "Add section from an associated note" \
-            "2" "Move section up (move its subsection block too)" \
-            "3" "Move section down (move its subsection block too)" \
-            "4" "Change section indentation" \
-            "5" "Remove section" \
-            "6" "Preview book outline" \
-            "7" "Change book title" \
-            "8" "Save book to a .txt file" \
-            "9" "Show current save path" \
-            "10" "Convert book to PDF" \
+            "2" "Load another project file" \
+            "3" "Move section up (move its subsection block too)" \
+            "4" "Move section down (move its subsection block too)" \
+            "5" "Change section indentation" \
+            "6" "Remove section" \
+            "7" "Preview book outline" \
+            "8" "Change book title" \
+            "9" "Save book to a .txt file" \
+            "10" "Show current save path" \
+            "11" "Convert book to PDF" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                 if (( BOOK_SAVED == 0 && ${#BOOK_SECTION_PATHS[@]} > 0 )); then
                     if whiptail --title "Unsaved Book" --yesno \
@@ -31856,20 +31900,25 @@ babyrus_book_edit_session() {
                     BOOK_SECTION_PATHS+=("$BOOK_SELECTED_NOTE_PATH")
                     BOOK_SECTION_TITLES+=("$BOOK_SELECTED_NOTE_TITLE")
                     BOOK_SECTION_LEVELS+=(1)
+                    BOOK_SECTION_SOURCE_PROJECT_TITLES+=("$BOOK_PROJECT_TITLE")
+                    BOOK_SECTION_SOURCE_PROJECT_PATHS+=("$BOOK_PROJECT_PATH")
                     BOOK_SAVED=0
                 fi
                 ;;
-            2|3)
+            2)
+                babyrus_book_load_another_project || :
+                ;;
+            3|4)
                 if babyrus_book_select_section "Select Section to Move"; then
                     local move_direction
-                    [[ "$choice" == "2" ]] && move_direction="up" || move_direction="down"
+                    [[ "$choice" == "3" ]] && move_direction="up" || move_direction="down"
                     babyrus_book_move_section "$move_direction" "$BOOK_SELECTED_SECTION_INDEX"
                 fi
                 ;;
-            4)
+            5)
                 babyrus_book_change_indentation
                 ;;
-            5)
+            6)
                 if babyrus_book_select_section "Select Section to Remove"; then
                     local remove_index="$BOOK_SELECTED_SECTION_INDEX"
                     local remove_title="${BOOK_SECTION_TITLES[$remove_index]}"
@@ -31880,12 +31929,12 @@ babyrus_book_edit_session() {
                     fi
                 fi
                 ;;
-            6)
+            7)
                 outline="$(babyrus_book_outline_text)"
                 [[ -n "$outline" ]] || outline="(No sections have been added yet.)"
                 whiptail --title "Book Outline Preview" --msgbox "$outline" 24 100
                 ;;
-            7)
+            8)
                 if entered_title=$(whiptail --title "Change Book Title" --inputbox \
                     "Enter the new book title." 9 70 "$BOOK_TITLE" 3>&1 1>&2 2>&3); then
                     if [[ -n "$entered_title" ]]; then
@@ -31896,10 +31945,10 @@ babyrus_book_edit_session() {
                     fi
                 fi
                 ;;
-            8)
+            9)
                 babyrus_book_save
                 ;;
-            9)
+            10)
                 if [[ -n "$BOOK_FILE_PATH" ]]; then
                     whiptail --title "Book Save Path" --msgbox "$BOOK_FILE_PATH" 8 85
                 else
@@ -31908,7 +31957,7 @@ babyrus_book_edit_session() {
                         10 85
                 fi
                 ;;
-            10)
+            11)
                 babyrus_book_convert_to_pdf
                 ;;
         esac
@@ -31920,6 +31969,7 @@ babyrus_book_edit_session() {
 babyrus_book_edit_existing() {
     local BOOK_PROJECT_TITLE=""
     local BOOK_PROJECT_PATH=""
+    local BOOK_ORIGINAL_PROJECT_PATH=""
     local BOOK_TITLE=""
     local BOOK_TAG_FILTER_BY=""
     local BOOK_GLOB_FILTER_BY=""
@@ -31933,8 +31983,13 @@ babyrus_book_edit_existing() {
     local -a BOOK_SECTION_TITLES=()
     local -a BOOK_SECTION_LEVELS=()
     local -a BOOK_SECTION_NUMBERS=()
+    # Keep source-project provenance alongside each section so reordering and
+    # removing sections also updates the saved source-project metadata.
+    local -a BOOK_SECTION_SOURCE_PROJECT_TITLES=()
+    local -a BOOK_SECTION_SOURCE_PROJECT_PATHS=()
 
     babyrus_book_load_existing || return 1
+    BOOK_ORIGINAL_PROJECT_PATH="$BOOK_PROJECT_PATH"
 
     # Restore the available note list from the book's source project, where
     # possible, so the user can add more sections after loading the book.
@@ -31963,6 +32018,35 @@ babyrus_book_load_notes_for_current_project() {
     done < "$PROJECTS_DB"
 
     return 1
+}
+
+# Switch the linked-note source project without changing the current book outline.
+babyrus_book_load_another_project() {
+    local selected_project_line project_title project_path associated_notes
+
+    if [[ ! -r "$NOTES_DB" ]]; then
+        whiptail --title "Load Another Project File" --msgbox \
+            "The notes database cannot be read:\n$NOTES_DB" 10 75
+        return 1
+    fi
+
+    selected_project_line=$(babyrus_book_select_project_row "Load Another Project File") || return 1
+    IFS='|' read -r project_title project_path associated_notes <<< "$selected_project_line"
+    [[ -n "$project_path" ]] || return 1
+
+    if [[ "$project_path" != "$BOOK_PROJECT_PATH" || "$project_title" != "$BOOK_PROJECT_TITLE" ]]; then
+        BOOK_SAVED=0
+    fi
+
+    BOOK_PROJECT_TITLE="$project_title"
+    BOOK_PROJECT_PATH="$project_path"
+    BOOK_TAG_FILTER_BY=""
+    BOOK_GLOB_FILTER_BY=""
+    babyrus_book_load_associated_notes "$associated_notes"
+
+    whiptail --title "Project Loaded" --msgbox \
+        "Current project: $BOOK_PROJECT_TITLE\n\nLinked notes available: ${#BOOK_BASE_NOTE_LINES[@]}\n\nYour existing book sections have been kept. You can now add notes from this project." \
+        11 80
 }
 
 # Load NOTES_DB rows associated with a project. Paths are matched as exact
@@ -32371,6 +32455,18 @@ babyrus_book_move_section() {
             "${BOOK_SECTION_LEVELS[@]:$sibling:$((index - sibling))}"
             "${BOOK_SECTION_LEVELS[@]:$end}"
         )
+        BOOK_SECTION_SOURCE_PROJECT_TITLES=(
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:0:$sibling}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$index:$((end - index))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$sibling:$((index - sibling))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$end}"
+        )
+        BOOK_SECTION_SOURCE_PROJECT_PATHS=(
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:0:$sibling}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$index:$((end - index))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$sibling:$((index - sibling))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$end}"
+        )
     else
         if (( end >= count )) || (( BOOK_SECTION_LEVELS[end] != depth )); then
             whiptail --title "Move Section Down" --msgbox \
@@ -32401,6 +32497,18 @@ babyrus_book_move_section() {
             "${BOOK_SECTION_LEVELS[@]:$sibling:$((sibling_end - sibling))}"
             "${BOOK_SECTION_LEVELS[@]:$index:$((end - index))}"
             "${BOOK_SECTION_LEVELS[@]:$sibling_end}"
+        )
+        BOOK_SECTION_SOURCE_PROJECT_TITLES=(
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:0:$index}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$sibling:$((sibling_end - sibling))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$index:$((end - index))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$sibling_end}"
+        )
+        BOOK_SECTION_SOURCE_PROJECT_PATHS=(
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:0:$index}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$sibling:$((sibling_end - sibling))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$index:$((end - index))}"
+            "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$sibling_end}"
         )
     fi
 
@@ -32485,12 +32593,15 @@ babyrus_book_remove_section() {
     BOOK_SECTION_PATHS=("${BOOK_SECTION_PATHS[@]:0:$index}" "${BOOK_SECTION_PATHS[@]:$end}")
     BOOK_SECTION_TITLES=("${BOOK_SECTION_TITLES[@]:0:$index}" "${BOOK_SECTION_TITLES[@]:$end}")
     BOOK_SECTION_LEVELS=("${BOOK_SECTION_LEVELS[@]:0:$index}" "${BOOK_SECTION_LEVELS[@]:$end}")
+    BOOK_SECTION_SOURCE_PROJECT_TITLES=("${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:0:$index}" "${BOOK_SECTION_SOURCE_PROJECT_TITLES[@]:$end}")
+    BOOK_SECTION_SOURCE_PROJECT_PATHS=("${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:0:$index}" "${BOOK_SECTION_SOURCE_PROJECT_PATHS[@]:$end}")
     BOOK_SAVED=0
 }
 
 babyrus_book_default_path() {
-    local base="${BOOK_PROJECT_PATH%.txt}"
-    [[ "$base" == "$BOOK_PROJECT_PATH" ]] && base="$BOOK_PROJECT_PATH"
+    local source_path="${BOOK_ORIGINAL_PROJECT_PATH:-$BOOK_PROJECT_PATH}"
+    local base="${source_path%.txt}"
+    [[ "$base" == "$source_path" ]] && base="$source_path"
     printf '%s\n' "${base}.book.txt"
 }
 
@@ -32570,7 +32681,8 @@ babyrus_book_register_saved_path() {
 
 babyrus_book_save() {
     local default_path destination destination_dir destination_base temp_file
-    local i number heading_prefix generated_at
+    local i j number heading_prefix generated_at source_index project_title project_path
+    local -a source_project_titles=() source_project_paths=()
 
     if [[ -z "${BOOKS_LIST:-}" ]]; then
         whiptail --title "Book List Not Configured" --msgbox \
@@ -32589,6 +32701,26 @@ babyrus_book_save() {
             whiptail --title "Cannot Save Book" --msgbox \
                 "A source note file does not exist or cannot be read:\n${BOOK_SECTION_PATHS[$i]}" 10 85
             return 1
+        fi
+    done
+
+    # Build a unique project list in first-use order from the sections that
+    # remain in the book. A project with no remaining sections is not listed as
+    # a source, even if it was selected earlier during this editing session.
+    for i in "${!BOOK_SECTION_PATHS[@]}"; do
+        project_title="${BOOK_SECTION_SOURCE_PROJECT_TITLES[$i]:-$BOOK_PROJECT_TITLE}"
+        project_path="${BOOK_SECTION_SOURCE_PROJECT_PATHS[$i]:-$BOOK_PROJECT_PATH}"
+        [[ -n "$project_path" ]] || continue
+        source_index=-1
+        for ((j = 0; j < ${#source_project_paths[@]}; j++)); do
+            if [[ "${source_project_paths[$j]}" == "$project_path" ]]; then
+                source_index=$j
+                break
+            fi
+        done
+        if (( source_index < 0 )); then
+            source_project_titles+=("$project_title")
+            source_project_paths+=("$project_path")
         fi
     done
 
@@ -32653,13 +32785,19 @@ babyrus_book_save() {
             "Book-Title: $BOOK_TITLE" \
             "Source-Project-Title: $BOOK_PROJECT_TITLE" \
             "Source-Project-Path: $BOOK_PROJECT_PATH" \
+            "Source-Project-Count: ${#source_project_paths[@]}" \
             "Generated: $generated_at" \
             "Section-Count: ${#BOOK_SECTION_PATHS[@]}" \
-            'Numbering-Rule: Calculated from section order and indentation level.' \
-            '[END BABYRUS BOOK METADATA]' \
-            '' \
-            '[BEGIN SECTION MANIFEST]'
+            'Numbering-Rule: Calculated from section order and indentation level.'
+        for i in "${!source_project_paths[@]}"; do
+            printf '%s\n' \
+                "Source-Project-$((i + 1))-Title: ${source_project_titles[$i]}" \
+                "Source-Project-$((i + 1))-Path: ${source_project_paths[$i]}"
+        done
+        printf '%s\n\n' '[END BABYRUS BOOK METADATA]' '[BEGIN SECTION MANIFEST]'
         for i in "${!BOOK_SECTION_PATHS[@]}"; do
+            project_title="${BOOK_SECTION_SOURCE_PROJECT_TITLES[$i]:-$BOOK_PROJECT_TITLE}"
+            project_path="${BOOK_SECTION_SOURCE_PROJECT_PATHS[$i]:-$BOOK_PROJECT_PATH}"
             printf '%s\n' \
                 '[BEGIN SECTION METADATA]' \
                 "Order: $((i + 1))" \
@@ -32667,6 +32805,8 @@ babyrus_book_save() {
                 "Indentation-Level: ${BOOK_SECTION_LEVELS[$i]}" \
                 "Title: ${BOOK_SECTION_TITLES[$i]}" \
                 "Source-Note-Path: ${BOOK_SECTION_PATHS[$i]}" \
+                "Source-Project-Title: $project_title" \
+                "Source-Project-Path: $project_path" \
                 '[END SECTION METADATA]' \
                 ''
         done
@@ -32804,8 +32944,8 @@ babyrus_book_select_existing_path() {
 # manifest restores the section outline; source note paths are retained so
 # the book can be edited and saved.
 babyrus_book_load_existing() {
-    local source line title path level number
-    local -a new_paths=() new_titles=() new_levels=()
+    local source line title path level number section_project_title section_project_path
+    local -a new_paths=() new_titles=() new_levels=() new_source_project_titles=() new_source_project_paths=()
     source=$(babyrus_book_select_existing_path) || return 1
     [[ -n "$source" ]] || return 1
     [[ -r "$source" && -f "$source" ]] || {
@@ -32819,12 +32959,21 @@ babyrus_book_load_existing() {
             '[BEGIN SECTION MANIFEST]') in_manifest=1; continue ;;
             '[END SECTION MANIFEST]') in_manifest=0; continue ;;
             '[BEGIN SECTION METADATA]')
-                if (( in_manifest )); then in_section=1; title= path= level= number=; fi
+                if (( in_manifest )); then
+                    in_section=1
+                    title= path= level= number= section_project_title= section_project_path=
+                fi
                 continue ;;
             '[END SECTION METADATA]')
                 if (( in_manifest && in_section )); then
                     if [[ -n "$path" && -n "$title" && "$level" =~ ^[0-9]+$ ]]; then
-                        new_paths+=("$path"); new_titles+=("$title"); new_levels+=("$level")
+                        new_paths+=("$path")
+                        new_titles+=("$title")
+                        new_levels+=("$level")
+                        # Older book files only had one project in the top-level
+                        # metadata; use it when section-level provenance is absent.
+                        new_source_project_titles+=("${section_project_title:-$BOOK_PROJECT_TITLE}")
+                        new_source_project_paths+=("${section_project_path:-$BOOK_PROJECT_PATH}")
                     fi
                 fi
                 in_section=0; continue ;;
@@ -32841,6 +32990,8 @@ babyrus_book_load_existing() {
             Indentation-Level:*) level="${line#Indentation-Level: }" ;;
             Title:*) title="${line#Title: }" ;;
             Source-Note-Path:*) path="${line#Source-Note-Path: }" ;;
+            Source-Project-Title:*) section_project_title="${line#Source-Project-Title: }" ;;
+            Source-Project-Path:*) section_project_path="${line#Source-Project-Path: }" ;;
         esac
     done < "$source"
 
@@ -32852,6 +33003,8 @@ babyrus_book_load_existing() {
     BOOK_SECTION_PATHS=("${new_paths[@]}")
     BOOK_SECTION_TITLES=("${new_titles[@]}")
     BOOK_SECTION_LEVELS=("${new_levels[@]}")
+    BOOK_SECTION_SOURCE_PROJECT_TITLES=("${new_source_project_titles[@]}")
+    BOOK_SECTION_SOURCE_PROJECT_PATHS=("${new_source_project_paths[@]}")
     BOOK_FILE_PATH="$source"
     BOOK_SAVED=1
     if ! babyrus_book_outline_is_valid; then
