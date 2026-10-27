@@ -498,40 +498,50 @@ list_files_old() {
 
 navigate() {
     local current_path="$1"
+    local page=0 total pages start end i h w lh selected selected_path
+    local -a all dirs menu
 
     while true; do
-        #in_operation_msg # show 'in operation...' when directory changes
+        # list_files prints: ".." "up" then every sub-directory (pairs)
+        mapfile -t -d $'\x1E' all < <(list_files "$current_path" "D")
+        dirs=("${all[@]:2}")
+        total=$(( ${#dirs[@]} / 2 ))
+        pages=$(( (total + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+        (( pages < 1 )) && pages=1
+        (( page >= pages )) && page=$(( pages - 1 ))
+        (( page < 0 )) && page=0
+        start=$(( page * EB_PAGE_SIZE ))
+        end=$(( start + EB_PAGE_SIZE ))
+        (( end > total )) && end=$total
 
-        #mapfile -t -d $'\x1E' choices < <(printf ":::SELECT:::\x1Eselect\x1E"; list_files "$current_path" "D" | sed 's/\x1E$//')
-        # fix here because otherwise $choices array gets last empty element missing
-        # so they are no longer in pairs for whiptail menu.
-        mapfile -t -d $'\x1E' choices < <(printf "SELECT\x1Eselect\x1E"; list_files "$current_path" "D")
+        menu=("SELECT" "select" ".." "up")
+        (( page > 0 )) && menu+=("__PREV_PAGE__" "Previous page")
+        (( page < pages - 1 )) && menu+=("__NEXT_PAGE__" "Next page")
+        for (( i=start; i<end; i++ )); do
+            menu+=("${dirs[2*i]}" "${dirs[2*i+1]}")
+        done
 
-        # debug - switched off because too vebose.
-        #echo choices: >&2
-        #declare -p choices >&2
-
+        read -r h w lh <<< "$(eb_menu_dims)"
         selected=$(whiptail --title "File Browser" \
-                            --menu "Current Directory: $current_path\nSelect a folder to search files." 20 170 10 \
-                            "${choices[@]}" 3>&1 1>&2 2>&3)
+                            --menu "Current Directory: $current_path\nSelect a folder to search files.\nPage $((page + 1))/${pages}  |  ${total} sub-director(ies)" \
+                            "$h" "$w" "$lh" \
+                            "${menu[@]}" 3>&1 1>&2 2>&3)
 
-        # Check if user cancelled
         if [ $? -ne 0 ]; then
             break
         fi
 
-        # If .. then move up a level in the tree
+        case "$selected" in
+            __PREV_PAGE__) (( page-- )); continue ;;
+            __NEXT_PAGE__) (( page++ )); continue ;;
+            SELECT) echo "$current_path"; break ;;
+        esac
+
         [[ "$selected" == ".." ]] && selected_path="$(dirname "$current_path")" || selected_path="$selected"
 
-        # debug
-        #echo selected_path: "$selected_path" >&2
-
-        # Choose this item and quit
-        [[ "$selected"  == "SELECT" ]] && echo "$current_path" && break 
-
         if [ -d "$selected_path" ]; then
-            # If directory, navigate into it
             current_path="$selected_path"
+            page=0
         fi
     done
 }
@@ -663,6 +673,585 @@ truncate_tags() {
     echo "...,${last_tag:0:$max_last_len}"
 }
 
+
+############################################################
+# Manage eBooks helpers (tag formatting, directory scopes)
+############################################################
+
+# Short tag display used by every whiptail screen of the 'Manage eBooks'
+# workflow:   [tag1,tag2,tag3 +N]   where N = number of tags - 3.
+# Three tags or fewer are shown in full: [tag1,tag2]. No tags: []
+format_tags_short() {
+    local input="$1" part
+    local -a raw=() tags=()
+    IFS=',' read -ra raw <<< "$input"
+    for part in "${raw[@]}"; do
+        part="${part#"${part%%[![:space:]]*}"}"
+        part="${part%"${part##*[![:space:]]}"}"
+        [[ -n "$part" ]] && tags+=("$part")
+    done
+
+    local n=${#tags[@]}
+    if (( n == 0 )); then
+        printf '[]'
+    elif (( n <= 3 )); then
+        local IFS=','
+        printf '[%s]' "${tags[*]}"
+    else
+        local IFS=','
+        printf '[%s +%d]' "${tags[*]:0:3}" $(( n - 3 ))
+    fi
+}
+
+# Same logic as format_tags_short() for use inside awk programs. Paste this
+# text into the awk program: it defines fmt_tags(tags).
+AWK_FMT_TAGS='
+    function fmt_tags(t,    n, a, i, c, out) {
+        n = split(t, a, ",")
+        c = 0; out = ""
+        for (i = 1; i <= n; i++) {
+            gsub(/^[ \t]+|[ \t]+$/, "", a[i])
+            if (a[i] == "") continue
+            c++
+            if (c <= 3) out = out (c > 1 ? "," : "") a[i]
+        }
+        if (c > 3) return "[" out " +" (c - 3) "]"
+        return "[" out "]"
+    }
+'
+
+# Prints every directory that holds registered files PLUS the immediate parent
+# directory of each of them (sorted, unique). For example if the db has files
+# under /path/to/some/files/sub1 and /path/to/some/files/sub2 then
+# /path/to/some/files is listed too. "/" itself is never listed.
+ebooks_dirs_with_parents() {
+    awk -F'|' '
+    NF > 0 && $1 != "" {
+        p = $1
+        if (!sub(/\/[^\/]+$/, "", p) || p == "") next
+        dirs[p] = 1
+        q = p
+        if (sub(/\/[^\/]+$/, "", q) && q != "") dirs[q] = 1
+    }
+    END { for (d in dirs) print d }
+    ' "$EBOOKS_DB" | sort
+}
+
+# Succeeds when at least one registered file lives directly inside directory $1.
+ebooks_dir_has_direct_files() {
+    awk -F'|' -v d="$1" '
+    BEGIN { found = 1 }
+    NF > 0 {
+        p = $1
+        sub(/\/[^\/]+$/, "", p)
+        if (p == d) { found = 0; exit }
+    }
+    END { exit found }
+    ' "$EBOOKS_DB"
+}
+
+# Fills DIR_MENU_ITEMS with "dir" "description" pairs ready for a whiptail menu.
+# Directories that only appear as a parent of registered directories are marked
+# and, when chosen, cover all registered files below them (sub-directories too).
+# Fails when there is nothing to list.
+ebooks_dir_menu_items() {
+    DIR_MENU_ITEMS=()
+    local d
+    local -A direct=()
+    while IFS= read -r d; do
+        [[ -n "$d" ]] && direct["$d"]=1
+    done < <(awk -F'|' 'NF > 0 && $1 != "" { p = $1; if (sub(/\/[^\/]+$/, "", p) && p != "") print p }' "$EBOOKS_DB" | sort -u)
+
+    while IFS= read -r d; do
+        [[ -z "$d" ]] && continue
+        if [[ -n "${direct["$d"]+x}" ]]; then
+            DIR_MENU_ITEMS+=("$d" "")
+        else
+            DIR_MENU_ITEMS+=("$d" "(parent: includes sub-directories)")
+        fi
+    done < <(ebooks_dirs_with_parents)
+
+    (( ${#DIR_MENU_ITEMS[@]} > 0 ))
+}
+
+# Prints the db lines of the files in directory $1. If no registered file lives
+# directly in $1 (it is only a parent directory) the files in all its
+# sub-directories are printed as well.
+ebooks_lines_in_scope() {
+    local dir="$1" rec="${2:-0}"
+    if [[ "$rec" != "1" ]]; then
+        rec=0
+        ebooks_dir_has_direct_files "$dir" || rec=1
+    fi
+    awk -F'|' -v d="$dir" -v rec="$rec" '
+    NF > 0 {
+        p = $1
+        sub(/\/[^\/]+$/, "", p)
+        if (p == d || (rec == 1 && index(p, d "/") == 1)) print
+    }
+    ' "$EBOOKS_DB"
+}
+
+############################################################
+# Manage eBooks: paginated lists with glob / tag filtering
+############################################################
+
+EB_PAGE_SIZE=50          # items per whiptail page
+EB_WIDTH=170             # width of every whiptail list
+EB_GLOB=""               # active glob filter (file path or file name)
+EB_TAGF=""               # active tag filter (literal substring of tags)
+EB_PAGE=0                # current page (0-based), kept between calls
+EB_NO_TAGS=0             # 1 = the listed files have no tags (hides tag filter)
+EB_SRC_FILE=""           # file holding the 'path|tags' lines to browse
+EB_SELECTED_LINE=""      # result of ebooks_pick_file()
+EB_FILTERED=()           # lines left after the filters are applied
+declare -A EB_SEL=()     # checklist selections (key: path, value: 1/0)
+EB_PATH_MAX=0            # truncate displayed file paths to this many characters (0 = never)
+EB_TAG_PICK=0            # 1 = __FILTER_BY_TAG__ asks a substring, then lets you pick ONE tag
+EB_LIST_ONLY=0           # 1 = list is informational (selecting a file shows its full path)
+EB_NO_FILTERS=0          # 1 = hide the glob / tag filter items
+EB_PROCEED=""            # name of an extra "proceed" item of a menu (e.g. __ADD__); returns 2
+EB_PROCEED_DESC=""       # its description (@N@ = number of listed files)
+
+# Prints "height width list-height" for a whiptail list that shows
+# EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
+# to the terminal height; whiptail scrolls inside the list when it is smaller.
+eb_menu_dims() {
+    local rows want h
+    rows=$( { stty size </dev/tty; } 2>/dev/null | cut -d' ' -f1)
+    [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
+    want=$(( EB_PAGE_SIZE + 16 ))
+    h=$want
+    (( rows > 0 && h > rows )) && h=$rows
+    (( h < 14 )) && h=14
+    echo "$h $EB_WIDTH $(( h - 10 ))"
+}
+
+ebooks_filter_reset() {
+    EB_GLOB=""
+    EB_TAGF=""
+    EB_PAGE=0
+    EB_SEL=()
+    # per-list display modes: every list sets what it needs after the reset
+    EB_PATH_MAX=0
+    EB_TAG_PICK=0
+    EB_LIST_ONLY=0
+    EB_NO_FILTERS=0
+    EB_PROCEED=""
+    EB_PROCEED_DESC=""
+}
+
+# Truncates a file path for a whiptail menu / checklist item: when the path is
+# longer than $2 characters, the beginning is replaced by "..." so the result
+# is exactly $2 characters long and still ends with the file name.
+# $2 = 0 (or missing) means: do not truncate.
+eb_trunc_path() {
+    local p="$1" max="${2:-0}"
+    if (( max > 3 && ${#p} > max )); then
+        printf '...%s' "${p: -$(( max - 3 ))}"
+    else
+        printf '%s' "$p"
+    fi
+}
+
+# awk function used by every glob filter: glob2re(glob) -> anchored regex
+EB_AWK_GLOB='
+function glob2re(g,    i, ch, out) {
+    out = ""
+    for (i = 1; i <= length(g); i++) {
+        ch = substr(g, i, 1)
+        if (ch == "*")      out = out ".*"
+        else if (ch == "?") out = out "."
+        else if (index(".^$+(){}|[]\\", ch)) out = out "\\" ch
+        else                out = out ch
+    }
+    return "^" out "$"
+}
+'
+
+# Filters the paths read from stdin (one per line) with EB_GLOB (file path or
+# file name, case insensitive). Without a glob everything passes.
+ebooks_glob_filter() {
+    if [[ -z "$EB_GLOB" ]]; then
+        cat
+        return
+    fi
+    EB_GLOB="$EB_GLOB" awk "$EB_AWK_GLOB"'
+    BEGIN { re = glob2re(tolower(ENVIRON["EB_GLOB"])) }
+    {
+        lp = tolower($0)
+        name = lp
+        sub(/^.*\//, "", name)
+        if (lp ~ re || name ~ re) print
+    }'
+}
+
+# Applies EB_GLOB (matches the whole file path OR the file name, case
+# insensitive, * and ? wildcards) and EB_TAGF (literal, case insensitive
+# substring of the tags) to EB_SRC_FILE. Result: EB_FILTERED array.
+ebooks_filter_apply() {
+    EB_FILTERED=()
+    [[ -f "$EB_SRC_FILE" ]] || return 0
+    mapfile -t EB_FILTERED < <(
+        EB_GLOB="$EB_GLOB" EB_TAGF="$EB_TAGF" EB_TAGEXACT="$EB_TAG_PICK" EB_NOFILT="$EB_NO_FILTERS" \
+        awk -F'|' "$EB_AWK_GLOB"'
+        BEGIN {
+            g = tolower(ENVIRON["EB_GLOB"])
+            t = tolower(ENVIRON["EB_TAGF"])
+            exact = (ENVIRON["EB_TAGEXACT"] == "1")
+            if (ENVIRON["EB_NOFILT"] == "1") { g = ""; t = "" }
+            if (g != "") re = glob2re(g)
+        }
+        NF > 0 {
+            if (g != "") {
+                lp = tolower($1)
+                name = lp
+                sub(/^.*\//, "", name)
+                if (!(lp ~ re || name ~ re)) next
+            }
+            if (t != "") {
+                if (exact) {
+                    found = 0
+                    n = split(tolower($2), a, ",")
+                    for (i = 1; i <= n; i++) {
+                        x = a[i]
+                        gsub(/^[ \t]+|[ \t]+$/, "", x)
+                        if (x == t) { found = 1; break }
+                    }
+                    if (!found) next
+                } else if (index(tolower($2), t) == 0) next
+            }
+            print
+        }' "$EB_SRC_FILE"
+    )
+}
+
+# Asks the user for a glob / tag filter. Used by the list actions.
+ebooks_ask_glob() {
+    local g
+    g=$(whiptail --title "__APPLY_GLOB__" --inputbox \
+"Enter a glob to filter the files by FILE PATH and FILE NAME (case insensitive).\n\
+* matches any characters (also across directories), ? matches one character.\n\
+The whole path or the file name alone must match, e.g.  *schaum*  or  /books/*/math*.pdf\n\
+Empty input removes the glob filter." 14 "$EB_WIDTH" "$EB_GLOB" 3>&1 1>&2 2>&3) || return 1
+    EB_GLOB="$g"
+    EB_PAGE=0
+}
+
+ebooks_ask_tagfilter() {
+    if (( EB_TAG_PICK == 1 )); then
+        ebooks_pick_tag_filter
+        return
+    fi
+    local t
+    t=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
+"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
+Only files having a tag that contains this text are listed.\n\
+Empty input removes the tag filter." 12 "$EB_WIDTH" "$EB_TAGF" 3>&1 1>&2 2>&3) || return 1
+    EB_TAGF="$t"
+    EB_PAGE=0
+}
+
+# __FILTER_BY_TAG__ for lists that filter by ONE tag: ask for a literal
+# substring, list the tags (of the files currently listed, glob applied) that
+# contain it and let the user pick one tag. The list is then filtered by that
+# exact tag.
+ebooks_pick_tag_filter() {
+    local sub tag saved
+    local -a matches=() pairs=()
+
+    sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
+"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
+The matching tags are listed next and you can pick one of them.\n\
+Empty input lists ALL tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
+
+    # tags carried by the files that pass the glob filter
+    saved="$EB_TAGF"
+    EB_TAGF=""
+    ebooks_filter_apply
+    EB_TAGF="$saved"
+    mapfile -t matches < <(
+        printf '%s\n' "${EB_FILTERED[@]}" | EB_SUB="$sub" awk -F'|' '
+        BEGIN { s = tolower(ENVIRON["EB_SUB"]) }
+        {
+            n = split($2, a, ",")
+            for (i = 1; i <= n; i++) {
+                x = a[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", x)
+                if (x != "" && (s == "" || index(tolower(x), s))) seen[x] = 1
+            }
+        }
+        END { for (x in seen) print x }' | sort
+    )
+
+    if (( ${#matches[@]} == 0 )); then
+        if [[ -z "$sub" ]]; then
+            whiptail --title "No Tags" --msgbox "None of the listed files has a tag." 8 60
+        else
+            whiptail --title "No Matching Tags" --msgbox "No tag contains '$sub'." 8 60
+        fi
+        return 1
+    fi
+
+    for tag in "${matches[@]}"; do
+        pairs+=("$tag" "")
+    done
+    tag="$(eb_paginate_tags_menu "Select a Tag to Filter By" "${pairs[@]}")" || return 1
+    EB_TAGF="$tag"
+    EB_PAGE=0
+}
+
+# Items shared by the menu and the checklist: filter actions + page navigation.
+# $1 = "menu" or "check". Fills the global EB_ACTION_ITEMS array.
+ebooks_action_items() {
+    local kind="$1" pages="$2" extra=()
+    [[ "$kind" == "check" ]] && extra=("OFF")
+    EB_ACTION_ITEMS=()
+    if (( EB_NO_FILTERS == 0 )); then
+        EB_ACTION_ITEMS+=("__APPLY_GLOB__" "Filter by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "${extra[@]}")
+        EB_ACTION_ITEMS+=("__RESET_GLOB__" "Reset glob filter" "${extra[@]}")
+        if (( EB_NO_TAGS == 0 )); then
+            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by tag${EB_TAGF:+   [tag filter: $EB_TAGF]}" "${extra[@]}")
+            EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset tag filter" "${extra[@]}")
+        fi
+    fi
+    (( EB_PAGE > 0 )) && EB_ACTION_ITEMS+=("__PREV_PAGE__" "Previous page" "${extra[@]}")
+    (( EB_PAGE < pages - 1 )) && EB_ACTION_ITEMS+=("__NEXT_PAGE__" "Next page" "${extra[@]}")
+}
+
+# Handles one of the filter / navigation actions. Returns 1 for unknown items.
+ebooks_do_action() {
+    case "$1" in
+        __APPLY_GLOB__)    ebooks_ask_glob ;;
+        __RESET_GLOB__)    EB_GLOB=""; EB_PAGE=0 ;;
+        __FILTER_BY_TAG__) ebooks_ask_tagfilter ;;
+        __RESET_FILTER__)  EB_TAGF=""; EB_PAGE=0 ;;
+        __PREV_PAGE__)     (( EB_PAGE-- )) ;;
+        __NEXT_PAGE__)     (( EB_PAGE++ )) ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# One-line description of the filters + position, shown above the list.
+ebooks_list_status() {
+    local page="$1" pages="$2" total="$3"
+    local s="Page ${page}/${pages}  |  ${total} file(s)"
+    if (( EB_NO_FILTERS == 0 )); then
+        s+="  |  glob: ${EB_GLOB:-(none)}"
+        (( EB_NO_TAGS == 0 )) && s+="  |  tag filter: ${EB_TAGF:-(none)}"
+    fi
+    printf '%s' "$s"
+}
+
+# Shows a paginated menu (50 files per page) of the files in EB_SRC_FILE with
+# __APPLY_GLOB__ / __RESET_GLOB__ / __FILTER_BY_TAG__ / __RESET_FILTER__ items.
+# Both filters can be active at the same time. Filters and the page are kept
+# between calls, call ebooks_filter_reset first for a fresh list.
+# Returns 0 with EB_SELECTED_LINE set ("path|tags"), 1 on Back / Esc.
+ebooks_pick_file() {
+    local title="$1" prompt="${2:-Select a file}"
+    local total pages start end i line choice h w lh shown
+    local -a items
+
+    while true; do
+        ebooks_filter_apply
+        total=${#EB_FILTERED[@]}
+        pages=$(( (total + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+        (( pages < 1 )) && pages=1
+        (( EB_PAGE >= pages )) && EB_PAGE=$(( pages - 1 ))
+        (( EB_PAGE < 0 )) && EB_PAGE=0
+        start=$(( EB_PAGE * EB_PAGE_SIZE ))
+        end=$(( start + EB_PAGE_SIZE ))
+        (( end > total )) && end=$total
+
+        ebooks_action_items menu "$pages"
+        items=("${EB_ACTION_ITEMS[@]}")
+        if [[ -n "$EB_PROCEED" ]]; then
+            items+=("$EB_PROCEED" "${EB_PROCEED_DESC//@N@/$total}")
+        fi
+        for (( i=start; i<end; i++ )); do
+            line="${EB_FILTERED[i]}"
+            shown="$(eb_trunc_path "${line%%|*}" "$EB_PATH_MAX")"
+            if (( EB_NO_TAGS == 0 )); then
+                items+=("$(( i + 1 ))" "${shown} $(format_tags_short "${line#*|}")")
+            else
+                items+=("$(( i + 1 ))" "${shown}")
+            fi
+        done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        choice=$(whiptail --title "$title" --cancel-button "Back" \
+            --menu "${prompt}\n$(ebooks_list_status "$((EB_PAGE + 1))" "$pages" "$total")" \
+            "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        if ebooks_do_action "$choice"; then
+            continue
+        fi
+        # proceed item (e.g. __ADD__ / __PROCEED__): return code 2
+        if [[ -n "$EB_PROCEED" && "$choice" == "$EB_PROCEED" ]]; then
+            return 2
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= total )); then
+            line="${EB_FILTERED[choice - 1]}"
+            if (( EB_LIST_ONLY == 1 )); then
+                # list shown for information: selecting an item shows its full path
+                whiptail --title "Full file path" --msgbox "${line%%|*}" 10 "$EB_WIDTH"
+                continue
+            fi
+            EB_SELECTED_LINE="$line"
+            return 0
+        fi
+    done
+}
+
+# Same as ebooks_pick_file() but multi-select (checklist). Selected files are
+# remembered in EB_SEL across pages and filter changes. Tick ONE action item
+# (e.g. __PROCEED__) and press OK to run it.
+# Returns 0 on __PROCEED__, 1 on Cancel / Esc.
+ebooks_pick_files_checklist() {
+    local title="$1" prompt="$2" proceed_label="$3"
+    local total pages start end i line path choice h w lh t result shown
+    local -a items sel actions
+
+    while true; do
+        ebooks_filter_apply
+        total=${#EB_FILTERED[@]}
+        pages=$(( (total + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+        (( pages < 1 )) && pages=1
+        (( EB_PAGE >= pages )) && EB_PAGE=$(( pages - 1 ))
+        (( EB_PAGE < 0 )) && EB_PAGE=0
+        start=$(( EB_PAGE * EB_PAGE_SIZE ))
+        end=$(( start + EB_PAGE_SIZE ))
+        (( end > total )) && end=$total
+
+        ebooks_action_items check "$pages"
+        items=("${EB_ACTION_ITEMS[@]}" "__PROCEED__" "$proceed_label" "OFF")
+        for (( i=start; i<end; i++ )); do
+            line="${EB_FILTERED[i]}"
+            path="${line%%|*}"
+            shown="$(eb_trunc_path "$path" "$EB_PATH_MAX")"
+            local state="OFF"
+            [[ "${EB_SEL["$path"]:-0}" == "1" ]] && state="ON"
+            if (( EB_NO_TAGS == 0 )); then
+                items+=("f$(( i + 1 ))" "${shown} $(format_tags_short "${line#*|}")" "$state")
+            else
+                items+=("f$(( i + 1 ))" "${shown}" "$state")
+            fi
+        done
+
+        local n_sel=0 p
+        for p in "${!EB_SEL[@]}"; do [[ "${EB_SEL["$p"]}" == "1" ]] && (( n_sel++ )); done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        result=$(whiptail --title "$title" --cancel-button "Cancel" \
+            --checklist "${prompt}\n$(ebooks_list_status "$((EB_PAGE + 1))" "$pages" "$total")  |  selected: ${n_sel}\nTick files with SPACE; tick ONE action item and press OK to run it." \
+            "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        result=${result//\"/}
+        read -r -a sel <<< "$result"
+
+        # remember the ticks of the files shown on this page
+        for (( i=start; i<end; i++ )); do
+            path="${EB_FILTERED[i]%%|*}"
+            if printf '%s\n' "${sel[@]}" | grep -qx "f$(( i + 1 ))"; then
+                EB_SEL["$path"]=1
+            else
+                EB_SEL["$path"]=0
+            fi
+        done
+
+        actions=()
+        for t in "${sel[@]}"; do
+            [[ "$t" == __* ]] && actions+=("$t")
+        done
+        if (( ${#actions[@]} > 1 )); then
+            whiptail --title "Invalid Selection" --msgbox "Please tick only ONE action item at a time (filter, reset, page navigation or proceed)." 10 100
+            continue
+        fi
+        (( ${#actions[@]} == 0 )) && continue
+
+        if [[ "${actions[0]}" == "__PROCEED__" ]]; then
+            return 0
+        fi
+        ebooks_do_action "${actions[0]}"
+    done
+}
+
+# Paginated (50 per page) directory picker: registered directories plus their
+# parents (see ebooks_dir_menu_items). Prints the chosen directory.
+ebooks_select_dir() {
+    local prompt="${1:-Choose a directory:}"
+    local page=0 total_dirs total_pages start end i sel h w lh
+    local -a menu_items all_items
+
+    if ! ebooks_dir_menu_items; then
+        whiptail --title "Attention" --msgbox "No directories found! Perhaps ebooks db is empty." 10 60 >/dev/tty
+        return 1
+    fi
+    all_items=("${DIR_MENU_ITEMS[@]}")
+    total_dirs=$(( ${#all_items[@]} / 2 ))
+    total_pages=$(( (total_dirs + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+
+    while true; do
+        menu_items=()
+        (( page > 0 )) && menu_items+=("__PREV_PAGE__" "Previous page")
+        (( page < total_pages - 1 )) && menu_items+=("__NEXT_PAGE__" "Next page")
+        start=$(( page * EB_PAGE_SIZE ))
+        end=$(( start + EB_PAGE_SIZE ))
+        (( end > total_dirs )) && end=$total_dirs
+        for (( i=start; i<end; i++ )); do
+            menu_items+=("${all_items[2*i]}" "${all_items[2*i+1]}")
+        done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        sel=$(whiptail --title "Select Directory" \
+            --menu "${prompt}\nPage $((page + 1))/${total_pages}  |  ${total_dirs} director(ies)" \
+            "$h" "$w" "$lh" "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$sel" in
+            __NEXT_PAGE__) (( page++ )) ;;
+            __PREV_PAGE__) (( page-- )) ;;
+            *) printf '%s\n' "$sel"; return 0 ;;
+        esac
+    done
+}
+
+# Paginated (50 per page) tag picker. Args: title, then "tag" "desc" pairs.
+# Prints the chosen tag (first column).
+eb_paginate_tags_menu() {
+    local title="$1"
+    shift
+    local items=("$@")
+    local total_items=$(( ${#items[@]} / 2 ))
+    local total_pages=$(( (total_items + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+    (( total_pages < 1 )) && total_pages=1
+    local current_page=1 choice start_index end_index i h w lh
+    local -a menu_items
+
+    while true; do
+        start_index=$(( (current_page - 1) * EB_PAGE_SIZE * 2 ))
+        end_index=$(( start_index + EB_PAGE_SIZE * 2 ))
+        menu_items=()
+        (( current_page > 1 )) && menu_items+=("<< Prev" "")
+        (( current_page < total_pages )) && menu_items+=(">> Next" "")
+        for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+            menu_items+=("${items[i]}" "${items[i+1]}")
+        done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        choice=$(whiptail --title "$title" \
+            --menu "Page ${current_page}/${total_pages}" "$h" "$w" "$lh" \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            ">> Next") (( current_page++ )) ;;
+            "<< Prev") (( current_page-- )) ;;
+            *) printf '%s\n' "$choice"; return 0 ;;
+        esac
+    done
+}
+
 generate_trunc() {
 	counter=1
 
@@ -677,10 +1266,10 @@ generate_trunc() {
 	    fullpath="$(dirname "$fullpath")"
 
 	    # truncate long fullpath	    
-	    truncated_path="[$(truncate_dirname "$fullpath")]"
+	    truncated_path="[${fullpath}]"
 
 	    # truncate long file name
-	    truncated_filename="$(truncate_filename "$filename")"
+	    truncated_filename="$filename"
 
             printf "%s:%s\x1E%s\x1E" "$counter" "$truncated_path" "$truncated_filename"
             ((counter++))
@@ -703,11 +1292,11 @@ generate_trunc_delete_ebook() {
 	    file="$(basename "$path")"
 
 	    # Truncate
-	    truncated_dir="$(truncate_dirname "$dir" 35)"
-	    truncated_file="$(truncate_filename "$file" 65)"
+	    truncated_dir="$dir"
+	    truncated_file="$file"
 
-	    # Truncate tags too!
-	    truncated_tags="$(truncate_tags "$tags")"
+	    # Truncate tags: [tag1,tag2,tag3 +N]
+	    truncated_tags="$(format_tags_short "$tags")"
 
             printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "${truncated_tags}"
             ((counter++))
@@ -730,10 +1319,10 @@ generate_trunc_assoc_tag() {
             file="$(basename "$path")"
 
             # Truncate
-            truncated_dir="$(truncate_dirname "$dir" 35)"
-            truncated_file="$(truncate_filename "$file" 65)"
+            truncated_dir="$dir"
+            truncated_file="$file"
 
-            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file} $tags" " "
+            printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file} $(format_tags_short "$tags")" " "
             ((counter++))
         done < <(split_second_print "$@")
 }
@@ -754,11 +1343,11 @@ generate_trunc_dissoc_tag() {
             file="$(basename "$path")"
 
             # Truncate
-            truncated_dir="$(truncate_dirname "$dir" 35)"
-            truncated_file="$(truncate_filename "$file" 65)"
+            truncated_dir="$dir"
+            truncated_file="$file"
 
-	    # Truncate tags too!
-	    truncated_tags="$(truncate_tags "$tags")"
+	    # Truncate tags: [tag1,tag2,tag3 +N]
+	    truncated_tags="$(format_tags_short "$tags")"
 
             printf "%s:%s\x1E%s\x1E" "$counter" "${truncated_dir}/${truncated_file}" "$truncated_tags"
             ((counter++))
@@ -784,13 +1373,13 @@ generate_trunc_lookup() {
             file="$(basename "$path")"
 
             # Truncate
-            truncated_dir="$(truncate_dirname "$dir" 35)"
-            truncated_file="$(truncate_filename "$file" 65)"
+            truncated_dir="$dir"
+            truncated_file="$file"
 
-            # Truncate tags too!
-            truncated_tags="$(truncate_tags "$tags")"
+            # Truncate tags: [tag1,tag2,tag3 +N]
+            truncated_tags="$(format_tags_short "$tags")"
 
-            printf "%s\x1E%s\x1E" "$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}"
+            printf "%s\x1E%s\x1E" "$idx" "${truncated_dir}/${truncated_file} ${truncated_tags}"
         done < <(split_second_print "$@")
 }
 
@@ -810,7 +1399,7 @@ paginate() {
     # Clear any previous selection
     SELECTED_ITEM=""
 
-    local chunk_size=200
+    local chunk_size=$EB_PAGE_SIZE
 
     # If new items are passed in, update TRUNC and reset CURRENT_PAGE.
     if [ "$#" -gt 0 ]; then
@@ -844,7 +1433,7 @@ paginate() {
 
         choice=$(whiptail --title "Paged Menu" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
-            20 170 10 \
+            $(eb_menu_dims) \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3)
 
@@ -900,7 +1489,7 @@ check_illegal_filenames() {
         msg+="\nConsider renaming the files and retry.\n"
         
         # Display the message using whiptail
-        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 60
+        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 170
         return 1
     else
         return 0
@@ -908,103 +1497,55 @@ check_illegal_filenames() {
 }
 
 register_ebook() {
-    # Get search string for files
-    search=$(whiptail --inputbox "Enter search string to look for ebook files (globbing; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
-    [ $? -ne 0 ] && return
-
-    # Get search path by navigating
+    local search_path
     search_path="$(navigate "$(pwd)")"
 
-    # if navigate is canceled so no search_path is set
     [ -z "$search_path" ] && return
 
-    # List and filter files
-    # If search_path is unset or empty, default to $(pwd). If search is unset or empty, search all files (ie. *).
-    search_path=${search_path:-"$(pwd)"}
-    search=${search:-"*"}
-    # debug
-    #echo "search: " "$search" >&2
-    #echo "search_path: " "$search_path" >&2
-
-    # in operation... message
     in_operation_msg
 
-    #run_find="$(find "$search_path" -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # edited for globbing $search
-    run_find="$(find "$search_path" -maxdepth 1 -type f -iname "$search" -exec sh -c 'printf "%s\036%s\036" "$1" "$(basename "$1")"' sh {} \;)" # non-recursive
+    # List the files of the chosen directory (non-recursive). Files that cannot
+    # be registered (name starting with '-' or containing '|') are skipped.
+    local tmp f illegal_msg=""
+    tmp=$(mktemp) || return 1
+    while IFS= read -r -d '' f; do
+        if [[ "${f##*/}" == -* || "$f" == *"|"* ]]; then
+            illegal_msg+="  ${f##*/}\n"
+            continue
+        fi
+        printf '%s|\n' "$f" >> "$tmp"
+    done < <(find "$search_path" -maxdepth 1 -type f -print0 | sort -z)
 
-    #run_find="${run_find%$'\x1E'}"      # Remove any trailing delimiter. (not needed?)
-
-    # Detect illegal file names.
-    # If detected, return from this function.
-    check_illegal_filenames "$run_find" || return
-
-    # Check if run_find is empty so we can cancel.
-    if [ -z "$run_find" ]; then
-        whiptail --title "No Matches Found" --msgbox "Find found no matches" 8 45
-        return 1  # Exit the function.
+    if [[ -n "$illegal_msg" ]]; then
+        whiptail --title "Error" --msgbox "Illegal file names found (skipped, they cannot be registered):\n${illegal_msg}\nConsider renaming the files and retry." 20 170
     fi
 
-    IFS=$'\x1E' read -r -a filtered <<< "$run_find"
-
-    # debug
-    #echo "filtered: " "${filtered[*]}" >&2
-    #echo "filtered length: " "${#filtered[*]}" >&2
-
-    # shortened filtered output with line numbers:
-    # shorten the dirname if its length is greater than 50.
-    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}" | sed 's/\x1E$//') # removing trailing RS not needed?
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc "${filtered[@]}")
-    CURRENT_PAGE=0
-
-    # debug
-    #echo "trunc: " "${trunc[@]}" >&2
-    #echo "trunc length: " "${#trunc[*]}" >&2
-
-    paginate
-    selected_trunc="$SELECTED_ITEM"
-    #selected_trunc="$(paginate "${trunc[@]}")"
-    # debug
-    #echo selected_trunc: >&2
-    #echo "$selected_trunc" >&2
-    #exit
-
-    # If cancelled by user
-    if [ -z "$selected_trunc" ]; then
-        #whiptail --title "Register ebook canceled" --msgbox "Canceled by user." 8 45
-        return 1  # Exit the function.
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        whiptail --title "No Matches Found" --msgbox "No files found in: $search_path" 8 170
+        return 1
     fi
 
-    # Select file (OLD just for ref)
-    #selected_trunc=$(whiptail --title "Select Ebook" --menu "Choose file:" 20 170 10 "${trunc[@]}" 3>&1 1>&2 2>&3)
+    EB_SRC_FILE="$tmp"
+    EB_NO_TAGS=1
+    ebooks_filter_reset
+    EB_PATH_MAX=140
+    local rc=0
+    ebooks_pick_file "Select Ebook" "Choose a file to register in: $search_path" || rc=1
+    EB_NO_TAGS=0
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    (( rc != 0 )) && return 1
 
-    # If selecting ebook is cancelled (OLD just for ref)
-    #[ $? -ne 0 ] && return
+    local selected="${EB_SELECTED_LINE%|}"
 
-    local n="$(echo "$selected_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
-
-    # debug
-    #echo "selected_trunc: " "$selected_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
-
-    # Remember we want filtered[m-1].
-    selected="${filtered[$((m - 1))]}"
-
-    #debug
-    #echo "selected: " "$selected" >&2
-
-    # Check if ebook already exists
-    if grep -q "^${selected}|" "$EBOOKS_DB"; then
+    if [[ -f "$EBOOKS_DB" ]] && EB_P="$selected" awk -F'|' '$1 == ENVIRON["EB_P"] { f = 1 } END { exit !f }' "$EBOOKS_DB"; then
         whiptail --msgbox "Ebook already registered!" 8 40
-        # debug
-        #echo "$selected" >&2
         return
     fi
 
-    # Add to database (with empty tags)
     echo "$selected|" >> "$EBOOKS_DB"
-    whiptail --msgbox "Registered: $selected" 20 80
+    whiptail --msgbox "Registered: $selected" 20 170
 }
 
 # debug
@@ -1101,404 +1642,61 @@ filter_menu_items() {
 }
 
 associate_tag() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=20
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 70 10 \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
-    # No point continuing if there's no tag registered!
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
-	    #whiptail --title "Alert" --msgbox "No tags db found or is empty! Register at least one tag!" 8 40 >/dev/tty
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
-	    return 1
-    }
-
-    # NO LONGER NEEDED.
-#    # Get list of ebooks
-#    mapfile -t ebooks < <(cut -d'|' -f1 "$EBOOKS_DB")
-#    if [[ ${#ebooks[@]} -eq 0 ]]; then
-#        whiptail --msgbox "No ebooks registered!" 8 40
-#        return
-#    fi
-
-   [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        #whiptail --title "Alert" --msgbox "No ebooks db found or is empty! Register at least one file!" 8 40 >/dev/tty
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
 
-    # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (globbing; empty for wildcard):" 10 40 3>&1 1>&2 2>&3)
-    
-    # Handle cancel/escape
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-    
-    # Defaults to "*" if unset
-    filter_str=${filter_str:-"*"}
-    
-#    # Filter ebooks and store in array
-#    mapfile -d $'\0' filtered_ebooks < <(filter_ebooks "$filter_str" "${ebooks[@]}")
-#
-#    # Show msgbox and return if filtered_ebooks is empty.
-#    [[ "${#filtered_ebooks[@]}" -eq 0  ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return
-#
-#    # convert ebooks array into whiptail friendly format.
-#    mapfile -d $'\x1e' -t ebooks_whip < <(make_into_pairs "${filtered_ebooks[@]}")
-#
-#    # Truncate ebooks_whip because of possible long file names.
-#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${ebooks_whip[@]}" | sed 's/\x1E$//')
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-#    # FIX: SPEED IMPROVEMENT BY POPULATING TRUNC DIRECTLY. ALSO ADD WHIPTAIL GAUGE.
-#    local total_lines
-#    total_lines=$(wc -l < "$EBOOKS_DB")
-#
-#    # Make a temporary FIFO and ensure cleanup on exit
-#    local fifo
-#    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
-#    mkfifo "$fifo"
-#    trap 'rm -f "$fifo"' EXIT
-#
-#    # Start whiptail reading from the FIFO in background
-#    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
-#    local gauge_pid=$!
-#    
-#    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
-#    exec 3> "$fifo"
-#
-    TRUNC=()
-    local ebooks_whip=()
-#    local idx=1 processed=1
-#    local path tags dir file truncated_dir truncated_file truncated_tags
-#
-#    while IFS= read -r line; do
-#        [[ -z $line ]] && continue
-#    
-#        path=${line%|*}
-#        tags=${line##*|}
-#        dir="$(dirname "$path")"
-#        file="$(basename "$path")"
-#    
-#        if [[ "$filter_str" == "*" || "${file,,}" == *"${filter_str,,}"* ]]; then
-#            truncated_dir="$(truncate_dirname "$dir" 35)"
-#            truncated_file="$(truncate_filename "$file" 65)"
-#            truncated_tags="$(truncate_tags "$tags")"
-#            
-#            ebooks_whip+=("$path" "")
-#            TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
-#            ((idx++))
-#        fi
-#
-#        if (( processed % 100 == 0 || processed == total_lines )); then
-#            local progress=$(( processed * 100 / total_lines ))
-#            # Must send the XXX blocks exactly as below
-#            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
-#                "$progress" "$processed" "$total_lines" >&3
-#        fi
-#
-#        ((processed++))
-#    done < "$EBOOKS_DB"
-#    
-#    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
-#    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
-#    exec 3>&-
-#    
-#    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
-#    wait "$gauge_pid"
-#    # --- end gauge-via-fifo pattern ---
-#
-#    [[ "${#ebooks_whip[@]}" -eq 0 ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return 1
-#    # END FIX.
-
-    # NEW FIX: USE AWK FOR SPEED BOOST.
-    # ensure gawk is used (we assume it exists)
-    local AWK_BIN="gawk"
-    
-    # count total lines (avoid zero)
-    local total=$(wc -l < "$EBOOKS_DB" 2>/dev/null || echo 0)
-    (( total == 0 )) && total=1
-    
-    # temp files/fifos (unique)
-    local pid fifo1 out1 fifo2 out2
-    pid=$$
-    fifo1="/tmp/ebook_gauge_filter_${pid}.fifo"
-    out1="/tmp/ebook_filtered_${pid}.out"
-    fifo2="/tmp/ebook_gauge_trunc_${pid}.fifo"
-    out2="/tmp/ebook_trunc_${pid}.out"
-    
-    # cleanup on exit/interruption
-    cleanup() {
-      rm -f "$fifo1" "$fifo2" "$out1" "$out2"
-    }
-    trap cleanup EXIT
-    
-    ##########
-    # Step 1: filtered_menu_items (filtering)
-    ##########
-    mkfifo "$fifo1"
-    # start whiptail reading from fifo in background
-    whiptail --title "Progress" --gauge "Filtering ebooks…" 8 60 0 < "$fifo1" &
-    local gauge1_pid=$!
-    
-    # gawk: write NUL-separated matches to $out1 and progress to fifo1
-    "$AWK_BIN" -v search="$filter_str" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }    
-    BEGIN { FS = OFS = "|"; idx = 1 }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-    
-      pattern = glob2re(tolower(search))
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-      if (search == "*" || tolower(file) ~ pattern) {      
-        printf("%s\0\0", path)
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo1"'"
-      fflush("'"$fifo1"'")
-    }
-    ' "$EBOOKS_DB" > "$out1"
-    
-    # close fifo so whiptail gets EOF and exits
-    rm -f "$fifo1"
-    wait "$gauge1_pid" 2>/dev/null || true
-    
-    # read results into array (NUL-separated)
-    mapfile -d '' -t ebooks_whip < "$out1"
-    rm -f "$out1"
-    
-    ##########
-    # Step 2: TRUNC (truncate/display info)
-    ##########
-    mkfifo "$fifo2"
-    whiptail --title "Progress" --gauge "Preparing display/truncation…" 8 70 0 < "$fifo2" &
-    local gauge2_pid=$!
-    
-    "$AWK_BIN" -v search="$filter_str" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }
-    BEGIN {
-      FS = OFS = "|"
-      idx = 1
-      maxd = 35   # dirname display width (including ellipsis if used)
-      maxf = 65   # filename display width (including ellipsis)
-      maxt = 40   # tags display width (including ellipsis)
-    }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-    
-      pattern = glob2re(tolower(search))
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-      if (search == "*" || tolower(file) ~ pattern) {
-        # truncate dir
-        trdir = dir
-        if (length(trdir) > maxd) {
-          start = length(trdir) - (maxd - 2)
-          if (start < 1) start = 1
-          trdir = "…" substr(trdir, start)
-        }
-    
-        # truncate file (beginning + end)
-        truncated_file = file
-        if (length(file) > maxf) {
-          prefix = int((maxf - 1) / 2)
-          suffix = (maxf - 1) - prefix
-          truncated_file = substr(file, 1, prefix) "…" substr(file, length(file) - suffix + 1)
-        }
-    
-        # truncate tags
-        truncated_tags = tags
-        if (length(truncated_tags) > maxt) truncated_tags = substr(truncated_tags, 1, maxt - 1) "…"
-    
-        printf("%s\0%s\0", idx ":" trdir "/" truncated_file, "T:" truncated_tags)
-        idx++
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo2"'"
-      fflush("'"$fifo2"'")
-    }
-    ' "$EBOOKS_DB" > "$out2"
-    
-    rm -f "$fifo2"
-    wait "$gauge2_pid" 2>/dev/null || true
-    
-    mapfile -d '' -t TRUNC < "$out2"
-    rm -f "$out2"
-    # NEW FIX END.	
-
-    CURRENT_PAGE=0
+    local ebook existing_tags tag t tmpfile
+    local -a tags sorted tags_whip
 
     while :; do
-        # Select ebook
-        # paginate here because trunc may be large.
-        paginate
-        if [[ $? -ne 0 ]]; then return; fi
-        ebook_trunc="$SELECTED_ITEM"
-        #ebook_trunc="$(paginate "${trunc[@]}")"
+        ebooks_pick_file "Associate Tag" "Select an eBook to associate a tag with" || return
 
-        local n="$(echo "$ebook_trunc" | cut -d':' -f1)"
-        local m=$((2 * n - 1))
+        ebook="${EB_SELECTED_LINE%%|*}"
+        existing_tags="${EB_SELECTED_LINE#*|}"
 
-        # debug
-        #echo "ebook_trunc: " "$ebook_trunc" >&2
-        #echo "n: " "$n" >&2
-        #echo "m: " "$m" >&2
-
-        # Remember we want ebooks_whip[m-1].
-        ebook="${ebooks_whip[$((m - 1))]}"
-
-        # Get existing tags for the ebook
-        existing_tags="$(awk -F'|' -v ebook="$ebook" '$1 == ebook {print $2}' "$EBOOKS_DB")"
-
-        # Get list of all tags
-        mapfile -t tags < <(cat "$TAGS_DB")
+        mapfile -t tags < "$TAGS_DB"
         if [[ ${#tags[@]} -eq 0 ]]; then
             whiptail --msgbox "No tags registered!" 8 40
             return
         fi
 
-        # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
-        # Sort the array
-        IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
-        unset IFS
+        mapfile -t sorted < <(printf '%s\n' "${tags[@]}" | sort)
+        tags_whip=()
+        for t in "${sorted[@]}"; do
+            tags_whip+=("$t" "")
+        done
 
-        # Rebuild the original array
-        tags=("${sorted[@]}")
-        # END FIX.
+        tag="$(eb_paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || continue
 
-        # convert tags array into whiptail friendly format.
-        mapfile -d $'\x1e' -t tags_whip < <(make_into_pairs "${tags[@]}")
-
-        # FIX: PAGINATE TAG SELECTION
-        local tag
-        tag="$(paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || continue
-
-        # # Select tag
-        # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
-        #     "${tags_whip[@]}" 3>&1 1>&2 2>&3)					# again here menu items must come in pairs!
-        # if [[ $? -ne 0 ]]; then return; fi
-
-        # Escape special regex characters in $tag
-        escaped_tag=$(sed 's/[.[\*^$(){}+?|]/\\&/g' <<< "$tag")
-
-        # Check if tag already exists as a standalone tag
-        if [[ "$existing_tags" =~ (^|,)${escaped_tag}(,|$) ]]; then
+        if [[ ",${existing_tags}," == *",${tag},"* ]]; then
             whiptail --msgbox "Ebook already has this tag!" 8 40
             continue
         fi
 
-        whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 80 || continue
+        whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 170 || continue
 
-        # Update ebook entry
         tmpfile=$(mktemp)
-        awk -v ebook="$ebook" -v tag="$tag" '
-            BEGIN {FS=OFS="|"} 
-            $1 == ebook {
-                if ($2 == "") $2 = tag
-                else $2 = $2 "," tag
+        EB_P="$ebook" EB_T="$tag" awk '
+            BEGIN { FS = OFS = "|" }
+            $1 == ENVIRON["EB_P"] {
+                if ($2 == "") $2 = ENVIRON["EB_T"]
+                else $2 = $2 "," ENVIRON["EB_T"]
             }
-            {print}
+            { print }
         ' "$EBOOKS_DB" > "$tmpfile" && mv "$tmpfile" "$EBOOKS_DB"
 
-        whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 80
+        whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 170
     done
 }
 
@@ -1532,7 +1730,7 @@ view_ebooks() {
         return 1
     fi
 
-    local page_size=100
+    local page_size=$EB_PAGE_SIZE
     local current_page=1
     local total_lines total_pages
 
@@ -1588,31 +1786,9 @@ view_ebooks() {
                         }
                         
                         # Truncate path
-                        path_len = length(path)
-                        if (path_len > path_max) {
-                            # Keep first and last parts with ellipsis
-                            first_part = substr(path, 1, 10)
-                            last_slash_pos = match(path, /\/[^\/]*$/)
-                            if (last_slash_pos > 10) {
-                                last_part = substr(path, last_slash_pos)
-                                path_tr = first_part ".../" last_part
-                            } else {
-                                path_tr = substr(path, 1, path_max - 3) "..."
-                            }
-                        } else {
-                            path_tr = path
-                        }
-                        
-                        # Truncate filename (keep extension visible)
-                        file_base_len = length(file_base)
-                        if (file_base_len > file_max - length(ext)) {
-                            max_base = file_max - length(ext) - 3
-                            if (max_base < 1) max_base = 1
-                            file_tr = substr(file_base, 1, max_base) "..." ext
-                        } else {
-                            file_tr = file_base ext
-                        }
-                        
+                        path_tr = path
+                        file_tr = file
+
                         printf "%s\0%s/%s\0", count, path_tr, file_tr
                     }
                 }
@@ -1635,7 +1811,7 @@ view_ebooks() {
         # Show menu with fixed dimensions
         local choice
         choice=$(whiptail --title "E-Books (Page $current_page/$total_pages)" \
-                 --menu "Choose an ebook:" 20 170 10 \
+                 --menu "Choose an ebook:" $(eb_menu_dims) \
                  --ok-button "OK" --cancel-button "Back" \
                  "${menu_options_array[@]}" 3>&1 1>&2 2>&3)
 
@@ -1661,7 +1837,7 @@ view_ebooks() {
                 
                 if [[ -n "$selected_line" ]]; then
                     local formatted_str="$(format_file_info "$selected_line")"
-                    whiptail --scrolltext --msgbox "$formatted_str" 25 80
+                    whiptail --scrolltext --msgbox "$formatted_str" 25 170
                 fi
                 ;;
         esac
@@ -1693,417 +1869,78 @@ view_tags() {
 }
 
 search_tags() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=20
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    paginate_result_menu() {
-        local title="$1"
-        local result="$2"
-        local per_page=100
-        local page=0
-        local choice start end total max_page
-
-        # Convert newline-separated string into an array safely
-        mapfile -t lines <<< "$result"
-
-        total=${#lines[@]}
-        (( max_page = (total + per_page - 1) / per_page - 1 ))
-
-        while :; do
-            (( start = page * per_page ))
-            (( end = start + per_page ))
-            (( end > total )) && end=$total
-
-            local menu_items=()
-            local truncated_dir truncated_file truncated_tags
-            for (( i=start; i<end; i++ )); do
-                IFS='|' read -r path tags <<<"${lines[i]}"                
-
-                # TRUNCATE!!!!
-                local filename_tr dirname_tr tags_tr filename dirname
-                filename="$(basename "$path")"
-                dirname="$(dirname "$path")"
-                filename_tr="$(truncate_filename "$filename" 80)"
-                dirname_tr="$(truncate_dirname "$dirname" 45)"
-                tags_tr="$(truncate_tags "$tags")"
-
-                #menu_items+=("${i}:${path}" "T:${tags}")
-                menu_items+=("${i}:${dirname_tr}/${filename_tr}" "T:${tags_tr}")
-            done
-
-            if (( page > 0 )); then
-                menu_items+=("<< Prev Page" "")
-            fi
-            if (( page < max_page )); then
-                menu_items+=(">> Next Page" "")
-            fi
-
-            choice=$(whiptail --title "$title (Page $((page+1))/$((max_page+1)))" \
-                            --menu "Select a file:" 20 170 12 \
-                            "${menu_items[@]}" \
-                            3>&1 1>&2 2>&3) || return 1
-
-            case "$choice" in
-                "<< Prev Page") ((page--)) ;;
-                ">> Next Page") ((page++)) ;;
-                *)
-                    local index="${choice%%:*}"
-                    echo "${lines[index]}"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    # Get search term
-    search=$(whiptail --inputbox "Enter tag search string (literal substring match; empty means wildcard):" 10 40 3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then return; fi
-    
-    # Find matching tags
-    mapfile -t matching_tags < <(grep -i "$search" "$TAGS_DB")
-    if [[ ${#matching_tags[@]} -eq 0 ]]; then
-        whiptail --msgbox "No matching tags found!" 8 40
-        return
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        return 1
     fi
-    
-    # convert matching_tags array into whiptail friendly format.
-    mapfile -d $'\x1e' -t matching_tags_whip < <(make_into_pairs "${matching_tags[@]}")
 
-    # FIX: SORT TAGS ALPHABETICALLY.
-    # Step 1: Flatten.
-    local pairs=()
-    for ((i=0; i<${#matching_tags_whip[@]}; i+=2)); do
-        pairs+=("${matching_tags_whip[i]}")  # Only the tag matters since values are empty
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
+
+    while ebooks_pick_file "Search eBooks by Tag" "Use __FILTER_BY_TAG__ to search by tag, select a file for its details"; do
+        whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
     done
-    
-    # Step 2: Sort tags
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
-    unset IFS
-    
-    # Step 3: Rebuild tags array
-    matching_tags_whip=()
-    for tag in "${sorted[@]}"; do
-        matching_tags_whip+=("$tag" "")
-    done
-    # END FIX.
-
-    # # Select tag
-    # tag=$(whiptail --menu "Choose a tag:" 20 170 10 \
-    #     "${matching_tags_whip[@]}" 3>&1 1>&2 2>&3)		# menu items must come in pairs!!!!
-    # if [[ $? -ne 0 ]]; then return; fi
-
-    # FIX: PAGINATE TAG SELECTION.
-    local tag
-    tag="$(paginate_tags_menu "Choose a tag:" "${matching_tags_whip[@]}")" || return 1
-    
-    # Find ebooks with this tag
-    # First, escape regex metacharacters in $tag
-    escaped_tag=$(sed 's/[.[\*^$(){}+?|]/\\&/g' <<< "$tag")
-    # Use the escaped version in grep
-    result="$(grep -E "\|.*${escaped_tag}(,|$)" "$EBOOKS_DB")"
-
-    if [[ -z "$result" ]]; then
-        whiptail --msgbox "No ebooks found with this tag!" 8 40
-    else
-        # generate_ebooks_result_list <(echo "$result") >/tmp/search_result.txt
-        # whiptail --scrolltext --textbox /tmp/search_result.txt 20 80
-        # rm /tmp/search_result.txt
-
-        # FIX: DISPLAY IN MENU.
-        # Format file info and display it.
-        local selected_line
-        while :; do
-            selected_line="$(paginate_result_menu "Search Results" "$result")" || return 1
-            local formatted_str
-            formatted_str="$(format_file_info "$selected_line")"
-            whiptail --scrolltext --msgbox "$formatted_str" 25 80
-        done
-    fi
 }
 
 dissociate_tag_from_registered_ebook() {
-    # Check if ebooks database exists. Also check tags db -- no point continuing if no tag registered!
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }      
-
-#    # Read ebooks database into array
-#    local ebooks_list=()
-#    mapfile -t ebooks_list < "$EBOOKS_DB"
-
-#    # Check for empty database
-#    [[ ${#ebooks_list[@]} -eq 0 ]] && whiptail --msgbox "No registered ebooks!" 8 40 && return 0
-
-#    # Create menu items array
-#    local menu_items=()
-#    for entry in "${ebooks_list[@]}"; do
-#        IFS='|' read -r path tags <<< "$entry"
-#        menu_items+=("$path" "T:${tags}")
-#    done
-
-    local filter_str
-    # Get filter string from user using whiptail. No globbing, simple substring match.
-    filter_str=$(whiptail --title "Filter eBooks" --inputbox "Enter filter string to narrow search (globbing; empty for wildcard):" 8 40 3>&1 1>&2 2>&3)    
-
-    # Handle cancel/escape
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to "*" if unset
-    filter_str=${filter_str:-"*"}
-
-#    # Filter menu_items and store in array
-#    mapfile -d $'\0' filtered_menu_items < <(filter_menu_items "$filter_str" "${menu_items[@]}")
-#
-#    # Truncate menu_items because of possible long file names.
-#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_dissoc_tag "${filtered_menu_items[@]}" | sed 's/\x1E$//')
-
-    # NEW FIX: USE AWK INSTEAD FOR BOTTLENECK SPEEDUP.
-    # Initialize output files
-    local out1 out2
-    out1=$(mktemp)
-    out2=$(mktemp)
-    
-    # Process the eBooks database
-    awk -v filter_str="$filter_str" -v out1="$out1" -v out2="$out2" '
-    function rindex(str, char,   i) {
-        for (i = length(str); i > 0; i--) {
-            if (substr(str, i, 1) == char) {
-                return i
-            }
-        }
-        return 0
     }
-    function truncate_str(str, max_len,    slen, prefix_len, suffix_len) {
-        slen = length(str)
-        
-        # If string is already short enough, return it as is
-        if (slen <= max_len) return str
-        
-        # If max_len is too small to include ellipsis, just return the first max_len chars
-        if (max_len <= 3) return substr(str, 1, max_len)
-        
-        # Compute how many chars to keep from start and end
-        prefix_len = int((max_len - 3) / 2)
-        suffix_len = max_len - 3 - prefix_len
-        
-        return substr(str, 1, prefix_len) "..." substr(str, slen - suffix_len + 1, suffix_len)
-    }
-    function truncate_file(file, max_len,   parts, dot_index, base, ext) {
-        dot_index = match(file, /\.[^.]*$/)
-        if (dot_index == 0) {
-            if (length(file) > max_len)
-                return "..." substr(file, length(file) - max_len + 4)
-            return file
-        }
-        ext = substr(file, dot_index)
-        base = substr(file, 1, dot_index - 1)
-        if (length(base) + length(ext) > max_len) {
-            base = truncate_str(base, max_len - length(ext))
-        }
-        return base ext
-    }
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
 
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-        return "^" glob "$"
-    }
-    BEGIN {
-        FS = "|"
-        filtered_count = 0
-    }
-    {
-        path = $1
-        tags = $2
-        last_slash = rindex(path, "/")
-        dir = substr(path, 1, last_slash - 1)
-        file = substr(path, last_slash + 1)        
-        # literal substring match
-        #if (filter_str == "*" || index(tolower(file), tolower(filter_str)) > 0) {
-        # globbing instead
-        pattern = glob2re(tolower(filter_str))
-        if (filter_str == "*" || tolower(file) ~ pattern) {
-            filtered_count++
-            # Output for filtered_menu_items
-            printf "%s\0", path >> out1
-            printf "T:%s\0", tags >> out1
-            
-            # Truncate components
-            truncated_dir = (length(dir) > 35) ? truncate_str(dir, 35) : dir
-            truncated_file = truncate_file(file, 75) # originally 65 make it bit longer
-            truncated_tags = (length(tags) > 20) ? substr(tags, 1, 17) "..." : tags
-            
-            # Output for TRUNC
-            printf "%d:%s/%s\0", filtered_count, truncated_dir, truncated_file >> out2
-            printf "T:%s\0", truncated_tags >> out2
-        }
-    }' "$EBOOKS_DB"
-    
-    local filtered_menu_items=()
-    TRUNC=()
+    ebooks_pick_file "Dissociate Tag" "Select an eBook to remove a tag from" || return 0
 
-    # Read the output files into arrays
-    mapfile -d '' -t filtered_menu_items < "$out1"
-    mapfile -d '' -t TRUNC < "$out2"
-    
-    # Clean up temporary files
-    rm -f "$out1" "$out2"
-    # END NEW FIX.
+    local selected_ebook="${EB_SELECTED_LINE%%|*}"
+    local original_tags="${EB_SELECTED_LINE#*|}"
+    local tag
+    local -a raw_tags tags_array=() tag_menu_items=() new_tags=()
 
-    CURRENT_PAGE=0
+    IFS=',' read -ra raw_tags <<< "$original_tags"
+    for tag in "${raw_tags[@]}"; do
+        [[ -n "$tag" ]] && tags_array+=("$tag")
+    done
 
-    # First selection: Choose ebook. paginate here because trunc may be large.
-    paginate
-    [[ $? -ne 0 ]] && return 0  # User canceled
-    selected_ebook_trunc="$SELECTED_ITEM"
-
-    local selected_ebook
-    #selected_ebook_trunc="$(paginate "${trunc[@]}")"
-
-    local n="$(echo "$selected_ebook_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
-
-    # debug
-    #echo "selected_ebook_trunc: " "$selected_ebook_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
-
-    # Remember we want filtered_menu_items[m-1].
-    selected_ebook="${filtered_menu_items[$((m - 1))]}"
-
-    # Find the selected entry
-#    local original_entry tags_array
-#    for entry in "${ebooks_list[@]}"; do
-#        if [[ "$entry" == "${selected_ebook}|"* ]]; then
-#            IFS='|' read -r original_path original_tags <<< "$entry"
-#            break
-#        fi
-#    done
-
-    # One-liner using awk.
-    local original_path original_tags tags_array
-    original_path=$(awk -F'|' -v ebook="$selected_ebook" '$1 == ebook {print $1; exit}' "$EBOOKS_DB")
-    original_tags=$(awk -F'|' -v ebook="$selected_ebook" '$1 == ebook {print $2; exit}' "$EBOOKS_DB")
-
-    # Split tags into array
-    IFS=',' read -ra tags_array <<< "$original_tags"
-
-    # Check if there are tags to remove
     [[ ${#tags_array[@]} -eq 0 ]] && whiptail --msgbox "No tags associated with this eBook!" 8 40 && return 0
 
-    # Create tag selection menu
-    local tag_menu_items=()
     for tag in "${tags_array[@]}"; do
         tag_menu_items+=("$tag" "")
     done
 
-    # Second selection: Choose tag to remove
     local selected_tag
-    selected_tag=$(whiptail --title "Remove Tag from eBook" --menu "Choose tag to remove:" \
-        15 60 0 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && return 0  # User canceled
+    selected_tag=$(eb_paginate_tags_menu "Remove Tag from eBook" "${tag_menu_items[@]}") || return 0
 
-    # Confirm removal
-    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 80 || return 0
+    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 170 || return 0
 
-    # Process tag removal
-    local new_tags=()
     for tag in "${tags_array[@]}"; do
         [[ "$tag" != "$selected_tag" ]] && new_tags+=("$tag")
     done
 
-    # Update the entry
-    local updated_entry="${original_path}|"
+    local new_tags_str=""
     if [[ ${#new_tags[@]} -gt 0 ]]; then
-        updated_entry+="$(IFS=','; echo "${new_tags[*]}")"
+        new_tags_str="$(IFS=','; echo "${new_tags[*]}")"
     fi
 
-    # Create temporary file
     local temp_file
     temp_file=$(mktemp)
-    
-    # Update the database
-#    for entry in "${ebooks_list[@]}"; do
-#        if [[ "$entry" == "${selected_ebook}|"* ]]; then
-#            echo "$updated_entry" >> "$temp_file"
-#        else
-#            echo "$entry" >> "$temp_file"
-#        fi
-#    done
 
-    # awk one-liner.
-    awk -v sel="$selected_ebook" -v upd="$updated_entry" -F'|' '
-        index($0, sel"|") == 1 { print upd; next }
+    EB_P="$selected_ebook" EB_NEW="$new_tags_str" awk '
+        BEGIN { FS = OFS = "|" }
+        $1 == ENVIRON["EB_P"] { print $1 "|" ENVIRON["EB_NEW"]; next }
         { print }
     ' "$EBOOKS_DB" > "$temp_file"
 
     mv -f "$temp_file" "$EBOOKS_DB"
-    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 80
+    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 170
 }
 
 delete_tag_from_global_list() {
@@ -2111,7 +1948,7 @@ delete_tag_from_global_list() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -2140,7 +1977,7 @@ delete_tag_from_global_list() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -2209,7 +2046,7 @@ delete_tag_from_global_list() {
         local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
         message+=$(printf '%s\n' "${used_in[@]}")
         message+="\n\nDissociate tag first!"
-        whiptail --scrolltext --msgbox "$message" 20 80
+        whiptail --scrolltext --msgbox "$message" 20 170
         return 1
     fi
 
@@ -2224,326 +2061,32 @@ delete_tag_from_global_list() {
 }
 
 remove_registered_ebook() {
-    # Check if database file exists
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
         return 1
     fi
 
-#    # Read database entries into array
-#    mapfile -t entries < "$EBOOKS_DB"
-#
-#    # Check for empty database
-#    if [[ ${#entries[@]} -eq 0 ]]; then
-#        whiptail --title "Error" --msgbox "The ebooks database is empty!" 10 60
-#        return 1
-#    fi
-#
-#    # Prepare menu items array for whiptail
-#    local menu_items=()
-#    for entry in "${entries[@]}"; do
-#        IFS='|' read -r path tags <<< "$entry"
-#        menu_items+=("$path" "T:${tags}")
-#    done
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
+    EB_PATH_MAX=120
+    EB_TAG_PICK=1
 
-    # Get search string from user
-    local search_str
-    search_str=$(whiptail --title "Search Ebook" --inputbox "Enter text to filter registered ebooks (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then
-        return 1  # User cancelled the search
-    fi
-    : ${search_str:=*}
+    ebooks_pick_file "Select Ebook to Remove" "Select a registered eBook to remove from the database" || return 1
 
-#    # Display 'In operation' message because creating TRUNC may take some time.
-#    in_operation_msg
-#
-#    # Create filtered_menu_items based on search_str
-#    local filtered_menu_items=()
-#    for ((i=0; i<${#menu_items[@]}; i+=2)); do
-#        path="${menu_items[i]}"
-#        tags="${menu_items[i+1]}"
-#        if [[ "${path,,}" == *"${search_str,,}"* ]]; then
-#            filtered_menu_items+=("$path" "$tags")
-#        fi
-#    done
-#
-#    # Check if filtered list is empty
-#    if [[ ${#filtered_menu_items[@]} -eq 0 ]]; then
-#        whiptail --title "Error" --msgbox "No ebooks found matching '$search_str'." 10 60
-#        return 1
-#    fi
-#
-#    # Truncate menu_items because of possible long file names.
-#    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_delete_ebook "${filtered_menu_items[@]}" | sed 's/\x1E$//')
+    local selected_path="${EB_SELECTED_LINE%%|*}"
 
-#    # FIX: SPEED IMPROVEMENT BY POPULATING TRUNC DIRECTLY. ALSO ADD WHIPTAIL GAUGE.
-#    local total_lines
-#    total_lines=$(wc -l < "$EBOOKS_DB")
-#
-#    # Make a temporary FIFO and ensure cleanup on exit
-#    local fifo
-#    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
-#    mkfifo "$fifo"
-#    trap 'rm -f "$fifo"' EXIT
-#
-#    # Start whiptail reading from the FIFO in background
-#    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
-#    local gauge_pid=$!
-#    
-#    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
-#    exec 3> "$fifo"
-#
-#    : ${search_str:=*}
-#    
-#    TRUNC=()
-#    local filtered_menu_items=()
-#    local idx=1 processed=1
-#    local path tags dir file truncated_dir truncated_file truncated_tags
-#
-#    while IFS= read -r line; do
-#        [[ -z $line ]] && continue
-#    
-#        path=${line%|*}
-#        tags=${line##*|}
-#        dir="$(dirname "$path")"
-#        file="$(basename "$path")"
-#    
-#        if [[ "$search_str" == "*" || "${file,,}" == *"${search_str,,}"* ]]; then
-#            truncated_dir="$(truncate_dirname "$dir" 35)"
-#            truncated_file="$(truncate_filename "$file" 65)"
-#            truncated_tags="$(truncate_tags "$tags")"
-#            
-#            filtered_menu_items+=("$path" "")
-#            TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "T:${truncated_tags}")
-#            ((idx++))
-#        fi
-#
-#        if (( processed % 100 == 0 || processed == total_lines )); then
-#            local progress=$(( processed * 100 / total_lines ))
-#            # Must send the XXX blocks exactly as below
-#            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
-#                "$progress" "$processed" "$total_lines" >&3
-#        fi
-#
-#        ((processed++))
-#    done < "$EBOOKS_DB"
-#
-#    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
-#    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
-#    exec 3>&-
-#    
-#    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
-#    wait "$gauge_pid"
-#    # --- end gauge-via-fifo pattern ---
-#
-#    [[ "${#filtered_menu_items[@]}" -eq 0 ]] && whiptail --title "Attention" --msgbox "No matches." 10 40 && return 1
-#    # END FIX.
-
-    # NEW FIX: USE AWK FOR SIGNIFICANT SPEED UP ON BOTTLENECK.
-    local filtered_menu_items=()
-    TRUNC=()
-
-    # ensure gawk is used (we assume it exists)
-    local AWK_BIN="gawk"
-    
-    # count total lines (avoid zero)
-    local total=$(wc -l < "$EBOOKS_DB" 2>/dev/null || echo 0)
-    (( total == 0 )) && total=1
-    
-    # temp files/fifos (unique)
-    local pid fifo1 out1 fifo2 out2
-    pid=$$
-    fifo1="/tmp/ebook_gauge_filter_${pid}.fifo"
-    out1="/tmp/ebook_filtered_${pid}.out"
-    fifo2="/tmp/ebook_gauge_trunc_${pid}.fifo"
-    out2="/tmp/ebook_trunc_${pid}.out"
-    
-    # cleanup on exit/interruption
-    cleanup() {
-      rm -f "$fifo1" "$fifo2" "$out1" "$out2"
-    }
-    trap cleanup EXIT
-    
-    ##########
-    # Step 1: filtered_menu_items (filtering)
-    ##########
-    mkfifo "$fifo1"
-    # start whiptail reading from fifo in background
-    whiptail --title "Progress" --gauge "Filtering ebooks…" 8 60 0 < "$fifo1" &
-    local gauge1_pid=$!
-    
-    # gawk: write NUL-separated matches to $out1 and progress to fifo1
-    "$AWK_BIN" -v search="$search_str" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }
-    BEGIN { FS = OFS = "|"; idx = 1 }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-    
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-      #  printf("%s\0\0", path)
-      #}
-      pattern = glob2re(tolower(search))
-      if (search == "*" || tolower(file) ~ pattern) {
-          printf("%s\0\0", path)
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo1"'"
-      fflush("'"$fifo1"'")
-    }
-    ' "$EBOOKS_DB" > "$out1"
-    
-    # close fifo so whiptail gets EOF and exits
-    rm -f "$fifo1"
-    wait "$gauge1_pid" 2>/dev/null || true
-    
-    # read results into array (NUL-separated)
-    mapfile -d '' -t filtered_menu_items < "$out1"
-    rm -f "$out1"
-    
-    ##########
-    # Step 2: TRUNC (truncate/display info)
-    ##########
-    mkfifo "$fifo2"
-    whiptail --title "Progress" --gauge "Preparing display/truncation…" 8 70 0 < "$fifo2" &
-    local gauge2_pid=$!
-    
-    "$AWK_BIN" -v search="$search_str" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(glob,    re) {
-        # Escape regex meta characters first
-        gsub(/([.^$+(){}|\\])/, "\\\\\\1", glob)
-
-        # Convert glob wildcards to regex
-        gsub(/\*/, ".*", glob)
-        gsub(/\?/, ".", glob)
-
-        return "^" glob "$"
-    }
-    BEGIN {
-      FS = OFS = "|"
-      idx = 1
-      maxd = 35   # dirname display width (including ellipsis if used)
-      maxf = 65   # filename display width (including ellipsis)
-      maxt = 40   # tags display width (including ellipsis)
-    }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-    
-      pattern = glob2re(tolower(search))
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-      if (search == "*" || tolower(file) ~ pattern) {
-        # truncate dir
-        trdir = dir
-        if (length(trdir) > maxd) {
-          start = length(trdir) - (maxd - 2)
-          if (start < 1) start = 1
-          trdir = "…" substr(trdir, start)
-        }
-    
-        # truncate file (beginning + end)
-        truncated_file = file
-        if (length(file) > maxf) {
-          prefix = int((maxf - 1) / 2)
-          suffix = (maxf - 1) - prefix
-          truncated_file = substr(file, 1, prefix) "…" substr(file, length(file) - suffix + 1)
-        }
-    
-        # truncate tags
-        truncated_tags = tags
-        if (length(truncated_tags) > maxt) truncated_tags = substr(truncated_tags, 1, maxt - 1) "…"
-    
-        printf("%s\0%s\0", idx ":" trdir "/" truncated_file, "T:" truncated_tags)
-        idx++
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo2"'"
-      fflush("'"$fifo2"'")
-    }
-    ' "$EBOOKS_DB" > "$out2"
-    
-    rm -f "$fifo2"
-    wait "$gauge2_pid" 2>/dev/null || true
-    
-    mapfile -d '' -t TRUNC < "$out2"
-    rm -f "$out2"
-    
-    [ ${#TRUNC[@]} -eq 0 ] && {
-        whiptail --msgbox "No matches found for: $search_term" 10 60
-        return
-    }
-    # END NEW FIX.
-    
-    CURRENT_PAGE=0
-
-    # Show selection dialog. paginate here because trunc may be large.
-    local selected_path
-    paginate
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
-    selected_trunc="$SELECTED_ITEM"
-
-    #selected_trunc="$(paginate "${trunc[@]}")"
-
-    local n="$(echo "$selected_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
-
-    # debug
-    #echo "selected_trunc: " "$selected_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
-
-    # Remember we want filtered_menu_items[m-1].
-    selected_path="${filtered_menu_items[$((m - 1))]}"
-
-    # Show confirmation dialog
-    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 80 \
+    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 170 \
         --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
 
-    # Proceed with removal if confirmed
     if [ $? -eq 0 ]; then
-        # Create temporary file
         local temp_file
         temp_file=$(mktemp)
 
-        # Remove entry and preserve other entries
-        awk -v path="$selected_path" -F'|' '$1 != path' "$EBOOKS_DB" > "$temp_file"
+        EB_P="$selected_path" awk -F'|' '$1 != ENVIRON["EB_P"]' "$EBOOKS_DB" > "$temp_file"
         mv "$temp_file" "$EBOOKS_DB"
 
-        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 20 80
+        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 20 170
     fi
 }
 
@@ -2569,7 +2112,7 @@ open_file() {
     local file="$1"
     
     if [ ! -f "$file" ]; then
-        whiptail --msgbox "ERROR: File does not exist:\n$file" 20 80
+        whiptail --msgbox "ERROR: File does not exist:\n$file" 20 170
         return 1
     fi
     
@@ -2587,471 +2130,43 @@ open_file() {
 
 # Open file by search by filename workflow
 open_file_search_by_filename() {
-    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }
+    fi
 
-    local search_term
-    search_term=$(whiptail --inputbox "Enter filename search term (globbing; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
-    # Originally it was globbing but with new awk code it's literal substring match now.
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
+    ebooks_pick_file "Open eBook" "Select a file to open (filter with __APPLY_GLOB__ / __FILTER_BY_TAG__)" || return 1
 
-    # defaults to wildcard if empty
-    search_term="${search_term:-*}"
-    
-    local matches=()
-#    while IFS= read -r line; do
-#        if [[ "$line" == *"|"* ]]; then
-#            IFS='|' read -r path tags <<< "$line"
-#            filename=$(basename "$path")
-#
-#            # Lower‑case filename and pattern
-#            local filename_lc="${filename,,}"
-#            local pattern_lc="${search_term,,}"
-#
-#            # Ensure a default wildcard
-#            pattern_lc="${pattern_lc:-*}"
-#
-#            # Now do a glob on the lower‑cased filename
-#            if [[ "$filename_lc" == $pattern_lc ]]; then
-#                matches+=("$path" "")
-#            fi
-#
-#            #if [[ "$search_term" == "*" || "${filename,,}" == *"${search_term,,}"* ]]; then
-#            #    matches+=("$path" "")
-#            #fi
-#        fi
-#    done < "$EBOOKS_DB"
-
-#    # SHOW WHIPTAIL GAUGE.
-#    # count lines (protect against empty file)
-#    local total_lines
-#    total_lines=$(wc -l < "$EBOOKS_DB" 2>/dev/null) || total_lines=0
-#    (( total_lines == 0 )) && total_lines=1
-#
-#    # create fifo and ensure cleanup
-#    local fifo gauge_pid processed=0 last_progress=-1 progress
-#    fifo=$(mktemp -u --tmpdir gauge.XXXXXX)
-#    mkfifo "$fifo"
-#    trap 'rm -f "$fifo"' EXIT
-#
-#    # launch whiptail reading from fifo (background)
-#    whiptail --gauge "Searching ebooks..." 7 60 0 < "$fifo" &
-#    gauge_pid=$!
-#    exec 3> "$fifo"
-
-    TRUNC=()
-#    local idx=1
-#
-#    # writer loop runs in the foreground so matches[] stays visible to caller
-#    while IFS= read -r line; do
-#        ((processed++))
-#
-#        if [[ "$line" == *"|"* ]]; then
-#            IFS='|' read -r path tags <<< "$line"
-#            local filename filename_lc pattern_lc
-#            filename=$(basename "$path")
-#            filename_lc="${filename,,}"
-#            pattern_lc="${search_term,,}"
-#            pattern_lc="${pattern_lc:-*}"
-#
-#            if [[ "$filename_lc" == $pattern_lc ]]; then
-#                local dir="$(dirname "$path")"
-#                local file="$(basename "$path")"
-#    
-#                # Truncate
-#                local truncated_dir="$(truncate_dirname "$dir" 35)"
-#                local truncated_file="$(truncate_filename "$file" 65)"
-#
-#                TRUNC+=("${idx}:${truncated_dir}/${truncated_file}" "")
-#                matches+=("$path" "")
-#                ((idx++))
-#            fi
-#        fi
-#
-#        # throttle gauge updates
-#        if (( processed % 100 == 0 )); then
-#            progress=$(( processed * 100 / total_lines ))
-#            if (( progress != last_progress )); then
-#                {
-#                    echo "XXX"
-#                    echo "$progress"
-#                    echo "Processed ${processed}/${total_lines}..."
-#                    echo "XXX"
-#                } >&3
-#                last_progress=$progress
-#            fi
-#        fi
-#    done < "$EBOOKS_DB"
-#
-#    # final 100% update
-#    {
-#        echo "XXX"
-#        echo "100"
-#        echo "Done."
-#        echo "XXX"
-#    } >&3
-#    exec 3>&-
-#    wait "$gauge_pid"
-#    # END.
-
-    # NEW FIX: USE AWK FOR SPEED.
-    # ensure gawk is used (we assume it exists)
-    local AWK_BIN="gawk"
-    
-    # count total lines (avoid zero)
-    local total=$(wc -l < "$EBOOKS_DB" 2>/dev/null || echo 0)
-    (( total == 0 )) && total=1
-    
-    # temp files/fifos (unique)
-    local pid fifo1 out1 fifo2 out2
-    pid=$$
-    fifo1="/tmp/ebook_gauge_filter_${pid}.fifo"
-    out1="/tmp/ebook_filtered_${pid}.out"
-    fifo2="/tmp/ebook_gauge_trunc_${pid}.fifo"
-    out2="/tmp/ebook_trunc_${pid}.out"
-    
-    # cleanup on exit/interruption
-    cleanup() {
-      rm -f "$fifo1" "$fifo2" "$out1" "$out2"
-    }
-    trap cleanup EXIT
-    
-    ##########
-    # Step 1: filtered_menu_items (filtering)
-    ##########
-    mkfifo "$fifo1"
-    # start whiptail reading from fifo in background
-    whiptail --title "Progress" --gauge "Filtering ebooks…" 8 60 0 < "$fifo1" &
-    local gauge1_pid=$!
-    
-    # gawk: write NUL-separated matches to $out1 and progress to fifo1
-    "$AWK_BIN" -v search="$search_term" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(g,    i, ch, out) {
-        out = ""
-        for (i = 1; i <= length(g); i++) {
-            ch = substr(g, i, 1)
-            if (ch == "*")      out = out ".*"
-            else if (ch == "?") out = out "."
-            else if (ch ~ /[.^$+(){}|\\]/) out = out "\\" ch
-            else                 out = out ch
-        }
-        return "^" out "$"
-    }
-    BEGIN { FS = OFS = "|"; idx = 1 }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-    
-      pattern = glob2re(tolower(search))
-      #print "Pattern is:" pattern > "/dev/stderr"
-      if (search == "*" || tolower(file) ~ pattern) {
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-        printf("%s\0\0", path)
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo1"'"
-      fflush("'"$fifo1"'")
-    }
-    ' "$EBOOKS_DB" > "$out1"
-    
-    # close fifo so whiptail gets EOF and exits
-    rm -f "$fifo1"
-    wait "$gauge1_pid" 2>/dev/null || true
-    
-    # read results into array (NUL-separated)
-    mapfile -d '' -t matches < "$out1"
-    rm -f "$out1"
-    
-    ##########
-    # Step 2: TRUNC (truncate/display info)
-    ##########
-    mkfifo "$fifo2"
-    whiptail --title "Progress" --gauge "Preparing display/truncation…" 8 70 0 < "$fifo2" &
-    local gauge2_pid=$!
-    
-    "$AWK_BIN" -v search="$search_term" -v total="$total" '
-    # Turn the glob into a regex (case insensitive)
-    function glob2re(g,    i, ch, out) {
-        out = ""
-        for (i = 1; i <= length(g); i++) {
-            ch = substr(g, i, 1)
-            if (ch == "*")      out = out ".*"
-            else if (ch == "?") out = out "."
-            else if (ch ~ /[.^$+(){}|\\]/) out = out "\\" ch
-            else                 out = out ch
-        }
-        return "^" out "$"
-    }
-    BEGIN {
-      FS = OFS = "|"
-      idx = 1
-      maxd = 35   # dirname display width (including ellipsis if used)
-      maxf = 65   # filename display width (including ellipsis)
-      maxt = 40   # tags display width (including ellipsis)
-    }
-    {
-      tags = $NF
-      path = $1
-    
-      slash = match(path, "/[^/]*$")
-      if (slash) {
-        file = substr(path, slash + 1)
-        dir  = substr(path, 1, slash - 1)
-        if (dir == "") dir = "/"
-      } else {
-        file = path
-        dir  = "."
-      }
-      pattern = glob2re(tolower(search))
-      #print "Pattern is:" pattern
-      if (search == "*" || tolower(file) ~ pattern) {
-      #if (search == "*" || index(tolower(file), tolower(search)) > 0) {
-        # truncate dir
-        trdir = dir
-        if (length(trdir) > maxd) {
-          start = length(trdir) - (maxd - 2)
-          if (start < 1) start = 1
-          trdir = "…" substr(trdir, start)
-        }
-    
-        # truncate file (beginning + end)
-        truncated_file = file
-        if (length(file) > maxf) {
-          prefix = int((maxf - 1) / 2)
-          suffix = (maxf - 1) - prefix
-          truncated_file = substr(file, 1, prefix) "…" substr(file, length(file) - suffix + 1)
-        }
-    
-        # truncate tags
-        truncated_tags = tags
-        if (length(truncated_tags) > maxt) truncated_tags = substr(truncated_tags, 1, maxt - 1) "…"
-    
-        printf("%s\0%s\0", idx ":" trdir "/" truncated_file, "T:" truncated_tags)
-        idx++
-      }
-    
-      pct = int((NR / total) * 100)
-      printf("%d\n", pct) > "'"$fifo2"'"
-      fflush("'"$fifo2"'")
-    }
-    ' "$EBOOKS_DB" > "$out2"
-    
-    rm -f "$fifo2"
-    wait "$gauge2_pid" 2>/dev/null || true
-    
-    mapfile -d '' -t TRUNC < "$out2"
-    rm -f "$out2"
-    # END NEW FIX.
-    
-    [ ${#TRUNC[@]} -eq 0 ] && {
-        whiptail --msgbox "No matches found for: $search_term" 10 60
-        return
-    }
-
-    # Truncate matches because of possible long file names.
-    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${matches[@]}" | sed 's/\x1E$//')
-    CURRENT_PAGE=0
-
-    # paginate in case trunc gets too big.
-    paginate
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
-
-    selected_trunc="$SELECTED_ITEM"
-    #selected_trunc="$(paginate "${trunc[@]}")"
-
-    local n="$(echo "$selected_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
-
-    # debug
-    #echo "selected_trunc: " "$selected_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
-
-    # Remember we want matches[m-1].
-    selected="${matches[$((m - 1))]}"
-
+    local selected="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
-    open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 80
+    open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 170
 }
 
 # Open file by search by tag workflow
 open_file_search_by_tag() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=20
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }
-    
-    [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
+    fi
+
+    if [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }          
+    fi
 
-    local tag_search
-    tag_search=$(whiptail --inputbox "Enter tag search term (literal substring match; empty for wildcard):" 10 60 3>&1 1>&2 2>&3)
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
+    ebooks_pick_file "Open eBook by Tag" "Select a file to open (use __FILTER_BY_TAG__ to narrow by tag)" || return 1
 
-    tag_search="${tag_search:-*}"
-    
-    # Get matching tags from TAGS_DB
-    local tags=()
-    while IFS= read -r tag; do
-        [[ "$tag_search" == "*" || "${tag,,}" == *"${tag_search,,}"* ]] && tags+=("$tag" "")
-    done < "$TAGS_DB"
-    
-    [ ${#tags[@]} -eq 0 ] && {
-        whiptail --msgbox "No tags found matching: $tag_search" 10 60
-        return
-    }
-
-    # FIX: SORT TAGS ALPHABETICALLY.
-    # Step 1: Flatten.
-    local pairs=()
-    for ((i=0; i<${#tags[@]}; i+=2)); do
-        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
-    done
-    
-    # Step 2: Sort tags
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
-    unset IFS
-    
-    # Step 3: Rebuild tags array
-    tags=()
-    for tag in "${sorted[@]}"; do
-        tags+=("$tag" "")
-    done
-    # END FIX.
-    
-    # local selected_tag
-    # selected_tag=$(whiptail --menu "Select tag" 20 170 10 "${tags[@]}" 3>&1 1>&2 2>&3)  # tweak dimensions
-
-    # FIX: PAGINATE TAG SELECTION.
-    local selected_tag
-    selected_tag="$(paginate_tags_menu "Select a tag" "${tags[@]}")" || return 1
-
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
-
-    [ -z "$selected_tag" ] && return
-
-    # Find files with selected tag
-    local files=()
-    while IFS= read -r line; do
-        if [[ "$line" == *"|"* ]]; then
-            IFS='|' read -r path tags <<< "$line"
-            IFS=',' read -ra tag_array <<< "$tags"
-            for t in "${tag_array[@]}"; do
-                if [ "$t" = "$selected_tag" ]; then
-                    files+=("$path" "[${tags}]")
-                    break
-                fi
-            done
-        fi
-    done < "$EBOOKS_DB"
-    
-    [ ${#files[@]} -eq 0 ] && {
-        whiptail --msgbox "No files found for tag: $selected_tag" 10 60
-        return
-    }
-
-    # Truncate ebooks_whip because of possible long file names.
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_assoc_tag "${files[@]}" | sed 's/\x1E$//')
-    CURRENT_PAGE=0
-
-    # paginate here because trunc might be large.
-    paginate
-    # Exit if user canceled
-    [ $? -ne 0 ] && return 1
-    
-    selected_file_trunc="$SELECTED_ITEM"
-    #selected_file_trunc="$(paginate "${trunc[@]}")"
-
-    local n="$(echo "$selected_file_trunc" | cut -d':' -f1)"
-    local m=$((2 * n - 1))
-
-    # debug
-    #echo "selected_file_trunc: " "$selected_file_trunc" >&2
-    #echo "n: " "$n" >&2
-    #echo "m: " "$m" >&2
-
-    # Remember we want files[m-1].
-    selected_file="${files[$((m - 1))]}"
-
+    local selected_file="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected_file" ] && whiptail --msgbox "No file selected." 10 60 && return 1
-    open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 80
+    open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 170
 }
 
 illegal_pattern() {
@@ -3064,40 +2179,45 @@ illegal_pattern() {
 }
 
 add_files_in_bulk() {
-    # Show initial information
     whiptail --title "Bulk Add eBooks" --msgbox \
 "This advanced feature allows you to add multiple eBook files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. Enter file patterns to match (case insensitive)\n\
-3. Files will be added if not already registered" 12 70
+2. The files found (txt, pdf, epub, mobi, azw3) that are not registered yet are listed. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+3. Select __ADD__ to add ALL the listed files to the database" 14 100
 
-    # Directory selection
     local selected_dir
     selected_dir=$(navigate "$(pwd)")
 
     if [[ -z "$selected_dir" ]]; then
-        #whiptail --msgbox "Directory selection canceled." 8 40
         return 1
     fi
 
+    in_operation_msg
 
-    # Ask for a single glob pattern (example: *.pdf)
-    local pattern
-    pattern=$(whiptail --inputbox "Enter a glob to filter by file name (empty for wildcard):" \
-        --title "Search Pattern" 10 70 3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && return 1  # User cancelled
+    # Files already registered
+    local -A existing_map=()
+    local path _rest
+    if [[ -f "$EBOOKS_DB" ]]; then
+        while IFS='|' read -r path _rest; do
+            existing_map["$path"]=1
+        done < "$EBOOKS_DB"
+    fi
 
-    : ${pattern:=*}
-
-    local found_files=()
-
-    # Case insensitive search to populate found_files.
-    # Only allowed extensions.
-    mapfile -d $'\0' -t found_files < <(
+    # Candidates: not registered yet (file names containing '|' cannot be stored)
+    local tmp file skipped=0
+    tmp=$(mktemp) || return 1
+    while IFS= read -r -d '' file; do
+        file="${file//\/\//\/}"  # Normalize path
+        [[ -v existing_map["$file"] ]] && continue
+        if [[ "$file" == *"|"* ]]; then
+            (( skipped++ ))
+            continue
+        fi
+        printf '%s|\n' "$file" >> "$tmp"
+    done < <(
         find "$selected_dir" \
             -type f \
-            -iname "$pattern" \
             \( \
                 -iname '*.txt' \
                 -o -iname '*.pdf' \
@@ -3105,71 +2225,54 @@ It involves the following steps:\n\
                 -o -iname '*.mobi' \
                 -o -iname '*.azw3' \
             \) \
-            -print0 2>/dev/null
-    )    
+            -print0 2>/dev/null | sort -z
+    )
 
-    if [[ ${#found_files[@]} -eq 0 ]]; then
-        whiptail --msgbox "No files found matching pattern: $pattern" 8 60
-        return 1
-    fi
-
-    # Load existing entries
-    local -A existing_map
-    if [[ -f "$EBOOKS_DB" ]]; then
-        while IFS='|' read -r path _; do
-            existing_map["$path"]=1
-        done < "$EBOOKS_DB"
-    fi
-
-    # Filter new files
-    local new_entries=()
-    for file in "${found_files[@]}"; do
-        file="${file//\/\///}"  # Normalize path
-        [[ ! -v existing_map["$file"] ]] && new_entries+=("$file")
-    done
-
-    # Handle no new entries
-    if [[ ${#new_entries[@]} -eq 0 ]]; then
-        whiptail --msgbox "All matching files already exist in database." 8 50
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 170
         return 0
     fi
 
-    # Inform user of list of selected files for addition.
-    local message
-    message="The following files are candidates for addition:\n\n"
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=1
+    EB_PATH_MAX=140
+    EB_LIST_ONLY=1
+    EB_PROCEED="__ADD__"
+    EB_PROCEED_DESC="Add all matched files (@N@) to the database"
 
-    local p_count=1
-    local path
-    for path in "${new_entries[@]}"; do
-        ((p_count>10)) && message+="and more..." && break
-        message+="• $path\n"
-        ((p_count++))
-    done
+    local rc=0
+    ebooks_pick_file "Bulk Add eBooks" "New files under: ${selected_dir}. Select __ADD__ to add all listed files." || rc=$?
 
-    whiptail --scrolltext --title "Alert" --msgbox "$message" 20 170
+    local -a to_add=("${EB_FILTERED[@]}")
+    EB_NO_TAGS=0
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    ebooks_filter_reset
 
-    # Confirm yes/no to proceed.
-    whiptail --title "Confirm" --yesno "${#new_entries[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
+    (( rc != 2 )) && return 1
 
-    # Add to database
+    if (( ${#to_add[@]} == 0 )); then
+        whiptail --msgbox "No files matched. Nothing to add." 8 50
+        return 1
+    fi
+
+    whiptail --title "Confirm" --yesno "${#to_add[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
+
+    printf '%s\n' "${to_add[@]}" >> "$EBOOKS_DB"
+
+    local result_file
+    result_file=$(mktemp)
     {
-        for file in "${new_entries[@]}"; do
-            echo "${file}|"
+        echo "Successfully added ${#to_add[@]} files:"
+        echo
+        for file in "${to_add[@]}"; do
+            echo "• ${file%|}"
         done
-    } >> "$EBOOKS_DB"
-
-    # Show results
-    local result_msg="Successfully added ${#new_entries[@]} files:\n\n"
-    for file in "${new_entries[@]}"; do
-        #result_msg+="${file##*/}\n"  # Show filename only
-        result_msg+="• ${file}\n" 
-    done
-    
-    # Too large to display from msgbox so use temporary file and textbox.
-    echo "$result_msg" > /tmp/result_msg.txt
-    whiptail --scrolltext --title "Results" --textbox /tmp/result_msg.txt 20 170
-    rm /tmp/result_msg.txt
-    #whiptail --title "Results" --scrolltext --msgbox "$result_msg" 20 80
+    } > "$result_file"
+    whiptail --scrolltext --title "Results" --textbox "$result_file" 20 170
+    rm -f "$result_file"
 }
 
 # Parser for custom boolean patterns into a grep -P regex
@@ -3360,7 +2463,7 @@ format_file_info() {
     echo "${directory}/"
     echo ""
     echo "Tags:"
-    echo "$tags"
+    echo "$(format_tags_short "$tags")"
     echo ""
     echo "$(file --mime-type -b "$file_with_path")"
     echo ""
@@ -3370,290 +2473,20 @@ format_file_info() {
 
 # Depends on parser code above for parsing custom boolean patterns to be used here.
 lookup_registered_files() {
-    # Show initial information
     whiptail --title "Lookup Registered Files" --msgbox \
-    "This advanced feature allows you to look up full file information by narrowing it down by file name and tags." 8 78
+    "This advanced feature allows you to look up full file information. Narrow the list down with the items shown on top of it:\n\n__APPLY_GLOB__ / __RESET_GLOB__: filter by file path and file name (glob)\n__FILTER_BY_TAG__ / __RESET_FILTER__: filter by tag (literal substring match)\n\nBoth filters can be applied at the same time." 14 100
 
-    local pattern regex filtered_paths filtered_lines final_list tag_pattern
-
-    # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
+    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
+        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
-    # Defaults to *
-    pattern="${pattern:-*}"
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    # Convert pattern to regex using your existing parse_expr function - DON'T USE BOOLEAN PATTERN ANY MORE!
-    #regex=$(parse_expr "$pattern")
-
-    # Filter file paths from $EBOOKS_DB using the regex.
-    # Only the file path part is considered (everything before the |)
-    #filtered_paths=$(cut -d'|' -f1 "$EBOOKS_DB" | grep -iP "$regex")   # DON'T USE BOOLEAN PATTERN ANY MORE!
-    filtered_paths=$(
-    awk -F'|' -v glob="$pattern" 'BEGIN { IGNORECASE = 1
-        re = "^"
-        for (i = 1; i <= length(glob); ++i) {
-        c = substr(glob, i, 1)
-        if (c == "*")       re = re ".*"
-        else if (c == "?")  re = re "."
-        else {
-            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
-            else re = re c
-        }
-        }
-        re = re "$"
-    }
-    $1 ~ re { print $1 }
-    ' "$EBOOKS_DB"
-    )    
-
-    if [ -z "$filtered_paths" ]; then
-        whiptail --msgbox "No files match the given file name pattern." 8 60
-        return 1
-    fi
-
-    # DEBUG
-    #echo filtered_paths: >&2
-    #echo "$filtered_paths" >&2 # check!
-
-    # Get the full lines from $EBOOKS_DB corresponding to the filtered file paths.
-    # The grep -F -x -f ensures we only get exact matches from the file path field.
-    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
-
-    # DEBUG
-    #echo filtered_lines: >&2
-    #echo "$filtered_lines" >&2
-
-    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
-    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
-    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
-This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
-
-    # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to .*
-    tag_pattern="${tag_pattern:-.*}"
-
-    # Further filter the lines by matching the tag pattern (which appears after the |)
-    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
-    if [ -z "$final_list" ]; then
-        whiptail --msgbox "No files match the given tag pattern." 8 60
-        return 1
-    fi
-
-    #in_operation_msg # show 'in operation...' while building menu items...
-
-    #local menu_items=()
-#    local idx=1
-#    declare -A line_map=()
-#    
-#    # Build the menu items array. Each menu entry is a pair:
-#    # the index number and a description (file path with tags)
-#    # FIX: CONSTRUCT TRUNC HERE TO POTENTIALLY SPEED UP BOTTLENECK.
-#    # Count total lines once
-#    local total_lines
-#    total_lines=$(wc -l <<< "$final_list")
-#
-#    TRUNC=()
-#    # Make a temporary FIFO and ensure cleanup on exit
-#    local fifo
-#    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
-#    mkfifo "$fifo"
-#    trap 'rm -f "$fifo"' EXIT
-#    
-#    # Start whiptail reading from the FIFO in background
-#    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
-#    local gauge_pid=$!
-#    
-#    # Open the FIFO for writing on fd 3 (keeps writer open until we close it)
-#    exec 3> "$fifo"
-#    
-#    # Build TRUNC in main shell; send gauge updates to fd 3
-#    while IFS= read -r line; do
-#        [[ -z $line ]] && continue
-#    
-#        local path=${line%|*}
-#        local tags=${line##*|}
-#    
-#        local dir="$(dirname "$path")"
-#        local file="$(basename "$path")"
-#    
-#        local truncated_dir="$(truncate_dirname "$dir" 35)"
-#        local truncated_file="$(truncate_filename "$file" 65)"
-#        local truncated_tags="$(truncate_tags "$tags")"
-#    
-#        TRUNC+=("$idx" "${truncated_dir}/${truncated_file} T:${truncated_tags}")
-#        line_map["$idx"]="$line"
-#    
-#        if (( idx % 100 == 0 || idx == total_lines )); then
-#            local progress=$(( idx * 100 / total_lines ))
-#            # Must send the XXX blocks exactly as below
-#            printf 'XXX\n%d\nProcessing file %d of %d...\nXXX\n' \
-#                "$progress" "$idx" "$total_lines" >&3
-#        fi
-#    
-#        ((idx++))
-#    done < <(printf "%s\n" "$final_list")
-#    
-#    # Finalise the gauge (ensure 100% and a friendly message), then close FD3
-#    printf 'XXX\n100\nFinished building list (%d files)\nXXX\n' "$total_lines" >&3
-#    exec 3>&-
-#    
-#    # Wait for whiptail to exit and remove FIFO (trap will handle rm -f)
-#    wait "$gauge_pid"
-#    # --- end gauge-via-fifo pattern ---
-
-    # NEW FIX: BOTTLENECK SPEEDUP BY REPLACING LOOPS WITH AWK.
-    local total_lines
-    total_lines=$(wc -l <<< "$final_list")
-    
-    # Create temporary files for awk output
-    trunc_file=$(mktemp)
-    line_map_file=$(mktemp)
-    
-    # FIFO for whiptail gauge
-    local fifo
-    fifo="$(mktemp -u --tmpdir gauge.XXXXXX)"
-    mkfifo "$fifo"
-    trap 'rm -f "$fifo" "$trunc_file" "$line_map_file"' EXIT
-    
-    # Start whiptail
-    whiptail --gauge "Preparing file list..." 7 60 0 < "$fifo" &
-    local gauge_pid=$!
-    
-    # Open FIFO for writing
-    exec 3> "$fifo"
-    
-    # Process lines with awk
-    awk -v total_lines="$total_lines" \
-        -v trunc_file="$trunc_file" \
-        -v line_map_file="$line_map_file" \
-        -v fifo="$fifo" '
-    function truncate_dirname(dir, max_len) {
-        if (length(dir) <= max_len) return dir;
-        return "..." substr(dir, length(dir) - max_len + 4);
-    }
-    function truncate_filename(file, max_len) {
-        # If the filename is already short enough, return it as is
-        if (length(file) <= max_len) {
-            return file
-        }
-        
-        # Find the last dot to separate extension
-        dot_position = 0
-        for (i = length(file); i > 0; i--) {
-            if (substr(file, i, 1) == ".") {
-                dot_position = i
-                break
-            }
-        }
-        
-        # If no extension found, just truncate the filename
-        if (dot_position == 0) {
-            return substr(file, 1, max_len - 3) "..."
-        }
-        
-        # Extract the base name and extension
-        base = substr(file, 1, dot_position - 1)
-        ext = substr(file, dot_position)
-        
-        # Calculate how much space we have for the base name
-        base_max_len = max_len - length(ext) - 3  # 3 for the "..."
-        
-        # Truncate the base name and add dots and extension
-        truncated_base = substr(base, 1, base_max_len)
-        return truncated_base "..." ext
-    }
-    function truncate_tags(tags, max_len) {
-        if (length(tags) <= max_len) return tags;
-        return substr(tags, 1, max_len - 3) "...";
-    }
-    {
-        if (!NF) next;
-        
-        split($0, parts, "|");
-        path = parts[1];
-        tags = parts[2];
-        
-        dir = path;
-        sub("/[^/]*$", "", dir);
-        file = path;
-        sub(".*/", "", file);
-        
-        truncated_dir = truncate_dirname(dir, 35);
-        truncated_file = truncate_filename(file, 65);
-        truncated_tags = truncate_tags(tags, 20); # Adjust tag length as needed
-        
-        # Write to temporary files using null delimiter
-        printf "%s\0%s\0", NR, truncated_dir "/" truncated_file " T:" truncated_tags >> trunc_file;
-        printf "%s\0%s\0", NR, $0 >> line_map_file;
-        
-        # Progress update
-        if (NR % 100 == 0 || NR == total_lines) {
-            progress = NR * 100 / total_lines;
-            printf "XXX\n%d\nProcessing file %d of %d...\nXXX\n", progress, NR, total_lines >> fifo;
-            fflush(fifo);
-        }
-    }
-    END {
-        printf "XXX\n100\nFinished building list (%d files)\nXXX\n", total_lines >> fifo;
-        close(fifo);
-        close(trunc_file);
-        close(line_map_file);
-    }
-    ' < <(printf "%s\n" "$final_list")
-    
-    # Close FIFO and wait for whiptail
-    exec 3>&-
-    wait "$gauge_pid"
-    
-    # Read temporary files into arrays using null delimiter
-    declare -a TRUNC
-    declare -A line_map
-    
-    # Read trunc_file
-    while IFS= read -r -d '' idx && IFS= read -r -d '' value; do
-        TRUNC+=("$idx" "$value")
-    done < "$trunc_file"
-    
-    # Read line_map_file
-    while IFS= read -r -d '' idx && IFS= read -r -d '' value; do
-        line_map["$idx"]="$value"
-    done < "$line_map_file"
-    # NEW FIX ENDS.
-
-    # menu_items need truncating. the format is "idx#" "full path including tags"
-    # Build the large list once:
-    #mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
-
-    # Reset CURRENT_PAGE for this new TRUNC array.
-    CURRENT_PAGE=0
-
-    # Step 3: Loop to show the final list in a whiptail menu repeatedly
-    while true; do
-        # then paginate it.
-        paginate
-
-        if [ $? -ne 0 ]; then
-            break
-        fi
-
-        # Display the whiptail menu.
-        local selection
-        selection="$SELECTED_ITEM"
-
-        # Retrieve and display the selected file (full line with path and tags)
-        local selected_line="${line_map[$selection]}"
-
-        # Format file info and display it.
-        local formatted_str="$(format_file_info "$selected_line")"
-        whiptail --scrolltext --msgbox "$formatted_str" 25 80
+    while ebooks_pick_file "Lookup Registered Files" "Select a file to see its details"; do
+        whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
     done
 }
 
@@ -3663,7 +2496,7 @@ build_bulk() {
     local pattern regex filtered_paths filtered_lines final_list tag_pattern
 
     # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
+    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file path and file name (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3 </dev/tty)
     if [ $? -ne 0 ]; then
         return 1
     fi
@@ -3696,7 +2529,7 @@ build_bulk() {
         }
         re = re "$"
     }
-    $1 ~ re { print $1 }
+    { n = $1; sub(/^.*\//, "", n); if ($1 ~ re || n ~ re) print $1 }
     ' "$EBOOKS_DB"
     )
 
@@ -3752,7 +2585,7 @@ assoc_tag_to_bulk() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -3781,7 +2614,7 @@ assoc_tag_to_bulk() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -3901,7 +2734,7 @@ assoc_tag_to_bulk() {
     # Loop through the keys and format each line - display just first ten entries.
     for key in "${!updated_entries[@]}"; do
         ((count > 10)) && break
-        entries_str+="• $key New:${updated_entries[$key]}\n"
+        entries_str+="• $key New:$(format_tags_short "${updated_entries[$key]}")\n"
         ((count++))
     done
 
@@ -3951,7 +2784,7 @@ dissoc_tag_to_bulk() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -3980,7 +2813,7 @@ dissoc_tag_to_bulk() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -4166,7 +2999,7 @@ dissoc_tag_to_bulk() {
     # Loop through the keys and format each line - display just first ten entries.
     for key in "${!updated_entries[@]}"; do
         ((count > 10)) && break
-        entries_str+="• $key New:${updated_entries[$key]}\n"
+        entries_str+="• $key New:$(format_tags_short "${updated_entries[$key]}")\n"
         ((count++))
     done
 
@@ -4214,93 +3047,57 @@ If you proceed, all selected entries will have the tag '${selected_tag}' removed
 
 # Remove files in bulk.
 remove_files_in_bulk() {
-    # Initial message
     whiptail --title "DANGER: Bulk File Removal" --msgbox \
-"This feature lets you remove multiple files from the database in bulk. Selected entries will be permanently removed from the database." 10 60
+"This feature lets you remove multiple files from the database in bulk. All files shown in the list are removed permanently from the database when you select __PROCEED__.\n\n\
+Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag). Both filters can be combined." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
-    # Read bulk entries
-    local tempfile=$(mktemp) || return 1
+    EB_SRC_FILE="$EBOOKS_DB"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_PATH_MAX=120
+    EB_TAG_PICK=1
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Remove all matched files (@N@) from the database"
 
-    build_bulk > "$tempfile" || {
-        #whiptail --title "Error" --msgbox "User cancelled." 10 70
-        return 1
-    }
+    local rc=0
+    ebooks_pick_file "DANGER: Bulk File Removal" "Select __PROCEED__ to remove ALL listed files from the database." || rc=$?
 
-    local bulk
-    mapfile -d '' bulk < "$tempfile"
-    rm -f "$tempfile"
+    local -a to_remove=("${EB_FILTERED[@]}")
+    local no_filter=0
+    [[ -z "$EB_GLOB" && -z "$EB_TAGF" ]] && no_filter=1
+    ebooks_filter_reset
 
-    # Debug
-    #printf "%s\n" "${bulk[@]}" >&2
-    #exit
+    (( rc != 2 )) && return 1
 
-    # Extract paths from bulk entries
-    declare -A paths_to_remove
-    for entry in "${bulk[@]}"; do
-        IFS='|' read -r path _ <<< "$entry"
-        paths_to_remove["$path"]=1
-    done
-
-    # Check if any paths were selected
-    [[ ${#paths_to_remove[@]} -eq 0 ]] && {
+    if (( ${#to_remove[@]} == 0 )); then
         whiptail --title "Error" --msgbox "No files selected for removal." 10 70
         return 1
-    }
-
-    # Inform user of list of selected files for removal.
-    local message
-    message="The following files are candidates for removal:\n\n"
-
-    local p_count=1
-    local path
-    for path in "${!paths_to_remove[@]}"; do
-        ((p_count>10)) && message+="and more..." && break   # Only list first ten paths.
-        message+="• $path\n"
-        ((p_count++))
-    done
-
-    whiptail --scrolltext --title "Alert" --msgbox "$message" 20 170
-
-    # Confirmation dialog
-    whiptail --title "Confirm Removal" --yesno \
-"About to remove ${#paths_to_remove[@]} entries from the database. This operation cannot be undone!\n\nProceed with deletion?" \
-0 0
-
-    [[ $? -ne 0 ]] && {
-        #whiptail --title "Cancelled" --msgbox "Database remains unchanged. No files were removed." 10 70
-        return 1
-    }
-
-    # Process database file
-    local tmpfile=$(mktemp) || return 1
-    local removed_count=0
-
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        
-        IFS='|' read -r path _ <<< "$line"
-        if [[ -v paths_to_remove["$path"] ]]; then
-            ((removed_count++))
-        else
-            echo "$line" >> "$tmpfile"
-        fi
-    done < "$EBOOKS_DB"
-
-    # Handle actual removals
-    if (( removed_count > 0 )); then
-        mv -- "$tmpfile" "$EBOOKS_DB"
-        whiptail --title "Removal Complete" --msgbox \
-"Successfully removed $removed_count entries from the database." 10 70
-    else
-        rm -f "$tmpfile"
-        whiptail --title "No Changes" --msgbox \
-"No matching entries found in the database. No files were removed." 10 70
     fi
+
+    local warn=""
+    (( no_filter == 1 )) && warn="NO FILTER IS ACTIVE: this removes EVERY registered file!\n\n"
+
+    whiptail --title "Confirm Removal" --yesno \
+"${warn}About to remove ${#to_remove[@]} entries from the database. This operation cannot be undone!\n\nProceed with deletion?" \
+12 78 || return 1
+
+    local list tmpdb
+    list=$(mktemp) || return 1
+    tmpdb=$(mktemp) || { rm -f "$list"; return 1; }
+    printf '%s\n' "${to_remove[@]%%|*}" > "$list"
+
+    awk -F'|' 'NR == FNR { rm[$0] = 1; next } !($1 in rm)' "$list" "$EBOOKS_DB" > "$tmpdb"
+    mv -- "$tmpdb" "$EBOOKS_DB"
+    rm -f "$list"
+
+    whiptail --title "Removal Complete" --msgbox \
+"Successfully removed ${#to_remove[@]} entries from the database." 10 70
 }
 
 # Search each line in $EBOOKS_DB for broken entries and remove them.
@@ -4348,7 +3145,7 @@ remove_broken_entries() {
   local count=0
   for entry in "${conflicting_entries[@]}"; do
     if (( count < 20 )); then
-      message+="$entry\n"
+      message+="${entry%%|*} $(format_tags_short "${entry#*|}")\n"
       ((count++))
     else
       message+="...\n"
@@ -4357,10 +3154,10 @@ remove_broken_entries() {
   done
   
   # Inform the user about the conflicting lines.
-  whiptail --scrolltext --msgbox "$message" 20 78
+  whiptail --scrolltext --msgbox "$message" 20 170
 
   # Confirm deletion with the user.
-  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 78; then
+  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 170; then
     # Create a temporary file.
     local tmp_file
     tmp_file=$(mktemp) || { whiptail --msgbox "Failed to create temporary file." 8 78; return 1; }
@@ -4391,452 +3188,75 @@ remove_broken_entries() {
 
 # Lookup by choosing a file path from registered files first.
 lookup_by_filepath() {
-    select_dir_paginated_lookup() {
-        local page_size=80   # number of items per page
-        local page=0
-        local choice=""
-        local dirs
-        local total_pages
-        local menu_items=()
-        
-        # Extract unique directories
-        dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
-        
-        # Convert dirs to array
-        IFS=$'\n' read -rd '' -a dirs_array <<< "$dirs"
-        
-        if (( ${#dirs_array[@]} == 0 )); then
-            whiptail --title "Attention" \
-                    --msgbox "No directories found! Perhaps ebooks db is empty." \
-                    10 60
-            return 1
-        fi
-
-        # Calculate total pages
-        total_pages=$(( (${#dirs_array[@]} + page_size - 1) / page_size ))
-        
-        while true; do
-            menu_items=()
-            # Slice array for current page
-            start=$(( page * page_size ))
-            end=$(( start + page_size ))
-            (( end > ${#dirs_array[@]} )) && end=${#dirs_array[@]}
-            
-            for (( i=start; i<end; i++ )); do
-                menu_items+=( "${dirs_array[i]}" "" )
-            done
-            
-            # Add navigation options if needed
-            (( page > 0 )) && menu_items+=( "<< Prev" "" )
-            (( page < total_pages - 1 )) && menu_items+=( "Next >>" "" )
-            
-            # Show menu
-            local sel
-            sel=$(whiptail --title "Select Directory" \
-                        --menu "Choose a directory for registered files:" \
-                        20 170 10 \
-                        "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1            
-            
-            case "$sel" in
-                "Next >>")
-                    ((page++))
-                    ;;
-                "<< Prev")
-                    ((page--))
-                    ;;
-                *)
-                    choice="$sel"
-                    break
-                    ;;
-            esac
-        done
-        
-        echo "$choice"
-    }
-
     # Initial message.
     whiptail --title "Lookup By File Path" --msgbox \
-"This feature allows you to query files by first choosing a file path among registered files:\n\
-After choosing a path from the list, you can further narrow the search by both file name(glob pattern) and tag(literal substring match)." 20 80
+"This feature allows you to query files by first choosing a file path among registered files.\n\
+After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
+A path marked '(parent: includes sub-directories)' covers the files in all of its sub-directories." 20 170
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
-    # FEATURE: PAGINATE PATH SEL.
     local choice
-    choice="$(select_dir_paginated_lookup)" || return 1
+    choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
 
-    # Display all lines in ebooks.db that match the chosen directory
-    local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" "${EBOOKS_DB}")"
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_in_scope "$choice" > "$tmp"
 
-    # Now, get from user pattern and tag_pattern to further narrow the search.
+    EB_SRC_FILE="$tmp"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    # REPLACE BOOLEAN SEARCH WITH GLOBBING
-
-    local pattern regex filtered_lines final_list tag_pattern
-
-    # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to *
-    pattern="${pattern:-*}"
-
-    # DEBUG - if need be save to a temp file perhaps?
-    #echo pattern: >&2
-    #echo "$pattern" >&2
-
-    # Convert pattern to regex using your existing parse_expr function
-    #regex=$(parse_expr "$pattern")
-
-    # Filter file paths from $EBOOKS_DB using the regex.
-    # Only the file path part is considered (everything before the |)
-    #filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
-
-    filtered_paths=$(
-    awk -F'|' -v glob="$pattern" '
-    BEGIN {
-        IGNORECASE = 1
-        # build regex from glob
-        re = "^"
-        for (i = 1; i <= length(glob); ++i) {
-        c = substr(glob, i, 1)
-        if (c == "*")      re = re ".*"
-        else if (c == "?") re = re "."
-        else {
-            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
-            else re = re c
-        }
-        }
-        re = re "$"
-    }
-    $1 ~ re { print $1 }
-    ' <(echo "$matching_files_in_chosen_dir")
-    )
-
-    if [ -z "$filtered_paths" ]; then
-        whiptail --msgbox "No files match the given file name pattern." 8 60
-        return 1
-    fi
-
-    filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")
-
-    # DEBUG
-    #echo filtered lines:
-    #echo "$filtered_lines"
-    #exit 1
-
-    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
-    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
-    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
-This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
-
-    # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to .*
-    tag_pattern="${tag_pattern:-.*}"
-
-    # Further filter the lines by matching the tag pattern (which appears after the |)
-    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
-
-    # DEBUG
-    #echo final list
-    #echo "$final_list"
-    #exit 1
-
-    if [ -z "$final_list" ]; then
-        whiptail --msgbox "No files match the given tag pattern." 8 60
-        return 1
-    fi
-
-    in_operation_msg # show 'in operation...' while building menu items...
-
-    local menu_items=()
-    local idx=1
-    declare -A line_map
-    # Build the menu items array. Each menu entry is a pair:
-    # the index number and a description (file path with tags)
-    while IFS= read -r line; do
-        # Replace the | separator with a more readable format for display.
-        menu_items+=("$idx" "$(echo "$line")")
-        line_map["$idx"]="$line"
-        idx=$((idx + 1))
-    done <<< "$final_list"
-
-    # menu_items need truncating. the format is "idx#" "full path including tags"
-    # Build the large list once:
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
-
-    # Reset CURRENT_PAGE for this new TRUNC array.
-    CURRENT_PAGE=0
-
-    # Step 3: Loop to show the final list in a whiptail menu repeatedly
-    while true; do
-        # then paginate it.
-        paginate
-
-        if [ $? -ne 0 ]; then
-            break
-        fi
-
-        # Display the whiptail menu.
-        local selection
-        selection="$SELECTED_ITEM"
-
-        # Retrieve and display the selected file (full line with path and tags)
-        local selected_line="${line_map[$selection]}"
-
-        # Truncate whiptail title.
-        local whip_title="Matching file in ${choice}/:"
-        if [ ${#whip_title} -gt 50 ]; then
-            whip_title="${whip_title:0:50}..."
-        fi
-
-        # Format file info and display it.
-        local formatted_str="$(format_file_info "$selected_line")"
-        whiptail --scrolltext --title "$whip_title" --msgbox "$formatted_str" 25 80
+    while ebooks_pick_file "Matching files in ${choice}/" "Select a file to see its details"; do
+        whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
     done
+
+    EB_SRC_FILE=""
+    rm -f "$tmp"
 }
 
 # Open file by first selecting its file path and matching by file name pattern and tag pattern.
 open_file_by_filepath() {
-    select_dir_paginated() {
-        local page_size=80   # number of items per page
-        local page=0
-        local choice=""
-        local dirs
-        local total_pages
-        local menu_items=()
-        
-        # Extract unique directories
-        dirs=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
-        
-        # Convert dirs to array
-        IFS=$'\n' read -rd '' -a dirs_array <<< "$dirs"
-        
-        if (( ${#dirs_array[@]} == 0 )); then
-            whiptail --title "Attention" \
-                    --msgbox "No directories found! Perhaps ebooks db is empty." \
-                    10 60
-            return 1
-        fi
-
-        # Calculate total pages
-        total_pages=$(( (${#dirs_array[@]} + page_size - 1) / page_size ))
-        
-        while true; do
-            menu_items=()
-            # Slice array for current page
-            start=$(( page * page_size ))
-            end=$(( start + page_size ))
-            (( end > ${#dirs_array[@]} )) && end=${#dirs_array[@]}
-            
-            for (( i=start; i<end; i++ )); do
-                menu_items+=( "${dirs_array[i]}" "" )
-            done
-            
-            # Add navigation options if needed
-            (( page > 0 )) && menu_items+=( "<< Prev" "" )
-            (( page < total_pages - 1 )) && menu_items+=( "Next >>" "" )
-            
-            # Show menu
-            local sel
-            sel=$(whiptail --title "Select Directory" \
-                        --menu "Choose a directory for registered files:" \
-                        20 170 10 \
-                        "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1            
-            
-            case "$sel" in
-                "Next >>")
-                    ((page++))
-                    ;;
-                "<< Prev")
-                    ((page--))
-                    ;;
-                *)
-                    choice="$sel"
-                    break
-                    ;;
-            esac
-        done
-        
-        echo "$choice"
-    }
-
     # Initial message.
     whiptail --title "Open File By File Path" --msgbox \
-"This feature allows you to open a registered file by first choosing a file path from registered files:\n\
-After choosing a path from the list, you can further narrow the search by both file name(glob) and tag(literal substring match).\n\
-Then, you can select to open a file item." 20 80
+"This feature allows you to open a registered file by first choosing a file path from registered files.\n\
+After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
+A path marked '(parent: includes sub-directories)' covers the files in all of its sub-directories.\n\
+Then, you can select to open a file item." 20 170
 
-    # If EBOOKS_DB are empty
-    # TAGS_DB are not mandatory here.
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }    
+    }
 
-    # First, choose the path among registered files.
-
-    # FIX: PAGINATE SELECTION OF DIR
     local choice
-    choice="$(select_dir_paginated)" || return 1
+    choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
 
-    # Display all lines in ebooks.db that match the chosen directory
-    # Displays matching lines from ebooks.db that has the chosen dir.
-    local matching_files_in_chosen_dir="$(grep -E "^${choice}/[^/]+\|" ${EBOOKS_DB})"
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_in_scope "$choice" > "$tmp"
 
-    # Now, get from user pattern and tag_pattern to further narrow the search.
-    # REPLACE BOOLEAN SEARCH WITH GLOBBING.
+    EB_SRC_FILE="$tmp"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    local pattern regex filtered_paths filtered_lines final_list tag_pattern
-
-    # Step 1: Get the file name search pattern from the user
-    pattern=$(whiptail --title "File Lookup" --inputbox "Enter glob pattern for file names (if empty defaults to *):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to *
-    pattern="${pattern:-*}"
-    pattern="${pattern,,}"
-
-    # Convert pattern to regex using your existing parse_expr function
-    #regex=$(parse_expr "$pattern")
-
-    # Filter file paths from $EBOOKS_DB using the regex.
-    # Only the file name is considered
-    #filtered_paths="$(cut -d'|' -f1 <(echo "$matching_files_in_chosen_dir") | grep -iP "$regex")"
-    # filtered_paths="$(
-    #     while IFS='|' read -r path rest; do
-    #         fname=${path##*/}
-    #         if grep -iqP "$regex" <<< "$fname"; then
-    #             echo "$path|$rest"
-    #         fi
-    #     done <<< "$matching_files_in_chosen_dir"
-    # )"
-
-    filtered_paths="$(
-    awk -F'|' -v glob="$pattern" '
-    BEGIN {
-        IGNORECASE = 1
-        # build regex from glob
-        re = "^"
-        for (i = 1; i <= length(glob); ++i) {
-        c = substr(glob, i, 1)
-        if (c == "*")      re = re ".*"
-        else if (c == "?") re = re "."
-        else {
-            if (c ~ /[][\.\\^$+(){}|]/) re = re "\\" c
-            else re = re c
-        }
-        }
-        re = re "$"
-    }
-    {
-        if ($1 ~ re) print $0
-    }
-    ' <<< "$matching_files_in_chosen_dir"
-    )"
-
-    if [ -z "$filtered_paths" ]; then
-        whiptail --msgbox "No files match the given file name pattern." 8 60
-        return 1
-    fi
-
-    #filtered_lines=$(grep -F -f <(echo "$filtered_paths" | sed 's/$/|/') "$EBOOKS_DB")     # this seems wrong.
-    filtered_lines="$filtered_paths"    # seems redundant but failsafe.
-
-    # DEBUG
-    #echo filtered lines:
-    #echo "$filtered_lines"
-    #exit 1
-
-    # Tag pattern info. Inform user that tag patterns is not regex or globbing but simple substring match.
-    whiptail --title "IMPORTANT NOTE about Tag Patterns" --msgbox \
-    "You are about to provide value for a tag pattern. Remember that it is not regex or globbing but simple substring match.\n\
-This means if you enter '*schaum*' \\* will be matched literally not as wildcard." 12 60
-
-    # Step 2: Ask the user for a tag search pattern
-    tag_pattern=$(whiptail --title "Tag Lookup" --inputbox "Enter tag search pattern (literal substring match; if empty wildcard):" 8 60 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        return 1
-    fi
-
-    # Defaults to .*
-    tag_pattern="${tag_pattern:-.*}"
-
-    # Further filter the lines by matching the tag pattern (which appears after the |)
-    final_list=$(echo "$filtered_lines" | grep -iP "\|.*$tag_pattern")
-
-    # DEBUG
-    #echo final list
-    #echo "$final_list"
-    #exit 1
-
-    if [ -z "$final_list" ]; then
-        whiptail --msgbox "No files match the given tag pattern." 8 60
-        return 1
-    fi
-
-    in_operation_msg # show 'in operation...' while building menu items...
-
-    local menu_items=()
-    local idx=1
-    declare -A line_map
-    # Build the menu items array. Each menu entry is a pair:
-    # the index number and a description (file path with tags)
-    while IFS= read -r line; do
-        # Replace the | separator with a more readable format for display.
-        menu_items+=("$idx" "$(echo "$line")")
-        line_map["$idx"]="$line"
-        idx=$((idx + 1))
-    done <<< "$final_list"
-
-    # menu_items need truncating. the format is "idx#" "full path including tags"
-    # Build the large list once:
-    mapfile -d $'\x1e' -t TRUNC < <(generate_trunc_lookup "${menu_items[@]}" | sed 's/\x1E$//')
-
-    # Reset CURRENT_PAGE for this new TRUNC array.
-    CURRENT_PAGE=0
-
-    # Step 3: Loop to show the final list in a whiptail menu repeatedly
-    while true; do
-        # then paginate it.
-        paginate
-
-        if [ $? -ne 0 ]; then
-            break
-        fi
-
-        # Display the whiptail menu.
-        local selection
-        selection="$SELECTED_ITEM"
-        
-        # First, check line_map[$selection] is set.
-        [[ ! -v line_map[$selection] ]] && whiptail --msgbox "File entry not found." 20 80 && return 1
-        
-        # Retrieve and display the selected file (full line with path and tags delimited by |)
-        local selected_line="${line_map[$selection]}"
-        
-        # Retrieve full file path portion first.
-        local file="$(echo "$selected_line" | cut -d'|' -f1)"
-        
-        # Open selected file.
-        open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 80
+    local file
+    while ebooks_pick_file "Open file in ${choice}/" "Select a file to open"; do
+        file="${EB_SELECTED_LINE%%|*}"
+        open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 170
     done
+
+    EB_SRC_FILE=""
+    rm -f "$tmp"
 }
 
 add_ebooks_from_checklist() {
-    local ITEMS_PER_PAGE=100
+    local ITEMS_PER_PAGE=$EB_PAGE_SIZE
+    ebooks_filter_reset
+    EB_PATH_MAX=140
     local start_dir="$(pwd)"
     local current_dir="$start_dir"
     declare -A global_selected
@@ -4848,7 +3268,8 @@ add_ebooks_from_checklist() {
     while true; do
         # Build lists of subdirs and files
         mapfile -t dirs < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type d | sort)
-        mapfile -t files < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort)
+        # files are filtered by the glob (file path or file name); directories stay visible
+        mapfile -t files < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
 
         # Combine into one array for paging
         local -a items=("${dirs[@]}" "${files[@]}")
@@ -4869,7 +3290,7 @@ add_ebooks_from_checklist() {
                 local name="$(basename "$path")"
 
                 local name_tr
-                name_tr="$(truncate_filename "$name" 80)"
+                name_tr="$(eb_trunc_path "$path" "$EB_PATH_MAX")"
 
                 if [[ -d "$path" ]]; then
                     choices+=("dir_$i" "[DIR] $name_tr" "OFF")
@@ -4881,6 +3302,8 @@ add_ebooks_from_checklist() {
             done
 
             # Navigation controls
+            choices+=("__APPLY_GLOB__" "Filter files by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "OFF")
+            choices+=("__RESET_GLOB__" "Reset glob filter" "OFF")
             choices+=("__up__"   "[DIR] .. (parent)"            "OFF")
             (( current_page > 0 ))        && choices+=("__prev__" "Previous page"               "OFF")
             (( current_page < pages-1 ))  && choices+=("__next__" "Next page"                   "OFF")
@@ -4891,7 +3314,7 @@ add_ebooks_from_checklist() {
             result=$(whiptail \
                 --title "Add eBooks: ${current_dir}" \
                 --checklist "Page $((current_page+1))/$pages\nSelect files/directories or navigation action:" \
-                20 170 10 \
+                $(eb_menu_dims) \
                 "${choices[@]}" \
                 3>&1 1>&2 2>&3) \
                 || { return 1; }
@@ -4919,7 +3342,7 @@ add_ebooks_from_checklist() {
             local movement_nav_count=0 dir_count=0 proceed_count=0 file_count=0
             for tag in "${sel_tags[@]}"; do
                 case "$tag" in
-                    "__up__"|"__prev__"|"__next__") ((movement_nav_count++)) ;;
+                    "__up__"|"__prev__"|"__next__"|"__APPLY_GLOB__"|"__RESET_GLOB__") ((movement_nav_count++)) ;;
                     "__add__")                       ((proceed_count++)) ;;
                     dir_*)                           ((dir_count++)) ;;
                     file_*)                          ((file_count++)) ;;
@@ -4928,7 +3351,7 @@ add_ebooks_from_checklist() {
 
             # Validation rules
             if (( movement_nav_count > 1 )); then
-                whiptail --title "Invalid Selection" --msgbox "Please select only one of Previous, Next, or Up." 10 40
+                whiptail --title "Invalid Selection" --msgbox "Please select only one of Previous, Next, Up, Apply glob or Reset glob." 10 40
                 continue
             fi
             if (( dir_count > 1 )); then
@@ -4954,7 +3377,13 @@ add_ebooks_from_checklist() {
 
             # Handle movement navigation
             if (( movement_nav_count == 1 )); then
-                if printf "%s\n" "${sel_tags[@]}" | grep -qx "__up__"; then
+                if printf "%s\n" "${sel_tags[@]}" | grep -qx "__APPLY_GLOB__"; then
+                    ebooks_ask_glob
+                    break
+                elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__RESET_GLOB__"; then
+                    EB_GLOB=""
+                    break
+                elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__up__"; then
                     current_dir="$(dirname "$current_dir")"
                     break
                 elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__next__"; then
@@ -5000,7 +3429,7 @@ add_ebooks_from_checklist() {
         msg+="  $f\n"
     done
 
-    if whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Addition"; then
+    if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Addition"; then
         for f in "${to_add[@]}"; do
             if ! grep -Fq "${f}|" "$EBOOKS_DB"; then
                 echo "${f}|" >> "$EBOOKS_DB"
@@ -5114,7 +3543,7 @@ and physically on drive. You can also revert the changes later." 15 80
             echo "  $old -> $new" >> "$change_list"
         done
 
-        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 80
+        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 170
         rm -f "$change_list"
 
         if ! whiptail --title "Confirmation" --yesno "Proceed with these changes?" 10 80; then
@@ -5151,7 +3580,7 @@ and physically on drive. You can also revert the changes later." 15 80
 
         if ! mv -- "$old" "$new"; then
             echo "Error: Failed to rename '$old' to '$new'" >&2
-            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 8 60
+            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 10 170
             rm -f "$TEMP_DB"
             return 1
         fi
@@ -5162,7 +3591,7 @@ and physically on drive. You can also revert the changes later." 15 80
     printf "%s\n" "${new_lines[@]}" > "$TEMP_DB"
     mv -- "$TEMP_DB" "$EBOOKS_DB" || return 1
 
-    whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 80
+    whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 170
 }
 
 revert_rename_illegal_ebook_filenames() {  
@@ -5239,163 +3668,19 @@ remove_ebooks_from_checklist() {
         return 1
     }
 
-    local ITEMS_PER_PAGE=100
-    local current_page=0
-    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
+    EB_PATH_MAX=120
+    EB_TAG_PICK=1
 
-    # Ask for search term first
-    local search_term
-    search_term=$(whiptail --inputbox "Enter a string to filter by filename (globbing; leave empty for wildcard):" 8 50 --title "Search Filter" 3>&1 1>&2 2>&3) || { 
-        #whiptail --msgbox "Cancelled." 8 40
-        return 1
-    }
+    ebooks_pick_files_checklist "Remove Registered eBooks From DB" \
+        "Select entries to remove." "Proceed to remove selected entries" || return 1
 
-    : ${search_term:=*}
-
-    # Prepare case-insensitive search
-    local search_term_lower=""
-    [[ -n "$search_term" ]] && search_term_lower="$(tr '[:upper:]' '[:lower:]' <<< "$search_term")"
-
-    # Waiting... info box
-    TERM=ansi whiptail --title "Building..." --infobox "Preparing menu, please wait" 8 40
-
-    # Read entries with filtering
-    local -a entries=()
-    while IFS='|' read -r path tags; do
-        # Filter logic
-        if [[ "$search_term" == "*" ]]; then  # No filter
-            entries+=("$path")
-        else
-            local filename="$(basename "$path")"
-            local filename_lower="$(tr '[:upper:]' '[:lower:]' <<< "$filename")"
-            [[ "$filename_lower" == $search_term_lower ]] && entries+=("$path")
-        fi
-    done < "$EBOOKS_DB"
-
-    # Empty state message
-    local total=${#entries[@]}
-    if (( total == 0 )); then
-        if [[ -n "$search_term" ]]; then
-            whiptail --msgbox "No eBooks found matching '$search_term'." 8 40
-        else
-            whiptail --msgbox "No eBooks in database." 8 40
-        fi
-        return 1
-    fi
-    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
-
-    # Pagination loop
-    while true; do
-	# Waiting... info box
-	TERM=ansi whiptail --title "Building..." --infobox "Preparing menu, please wait" 8 40
-
-        local start=$(( current_page * ITEMS_PER_PAGE ))
-        local end=$(( start + ITEMS_PER_PAGE ))
-        (( end > total )) && end=$total
-
-        # Build choices for the current page
-        local -a choices=()
-        for ((i = start; i < end; i++)); do
-            local path="${entries[$i]}"
-            
-            # Split path into directory and filename
-			local dir_part=$(dirname "$path")
-			local file_part=$(basename "$path")
-			# Truncate components
-			local trunc_dir=$(truncate_dirname "$dir_part")
-			local trunc_file=$(truncate_filename "$file_part" 50)
-			local truncated_path="${trunc_dir}/${trunc_file}"            
-
-            local state="OFF"
-            [[ -n "${selected_entries[$i]}" ]] && state="ON"
-            choices+=("entry_$i" "$truncated_path" "$state")
-        done
-
-        # Add navigation controls
-        if (( current_page > 0 )); then
-            choices+=("__prev__" "Previous page" "OFF")
-        fi
-        if (( current_page < pages - 1 )); then
-            choices+=("__next__" "Next page" "OFF")
-        fi
-        choices+=("__proceed__" "Proceed to remove selected entries" "OFF")
-
-        # Show checklist
-        local result
-        result=$(whiptail \
-            --title "Remove Registered eBooks From DB" \
-            --checklist "Page $((current_page+1))/$pages\nSelect entries to remove or navigation action:" \
-            20 150 10 \
-            "${choices[@]}" \
-            3>&1 1>&2 2>&3) \
-            || { whiptail --msgbox "Cancelled." 8 40; return 1; }
-
-        # Process selections
-        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
-
-        # Update selected_entries for current page
-        for ((i = start; i < end; i++)); do
-            local tag="entry_$i"
-            if printf "%s\n" "${sel_tags[@]}" | grep -qx "$tag"; then
-                selected_entries["$i"]=1
-            else
-                unset selected_entries["$i"]
-            fi
-        done
-
-        # Count selection types
-        local nav_count=0 proceed_count=0 entry_count=0
-        for tag in "${sel_tags[@]}"; do
-            case "$tag" in
-                __prev__|__next__) ((nav_count++)) ;;
-                __proceed__) ((proceed_count++)) ;;
-                entry_*) ((entry_count++)) ;;
-            esac
-        done
-
-        # Validate selections
-        if (( nav_count > 1 || proceed_count > 1 )); then
-            whiptail --msgbox "Please select only one of navigation actions." 10 40
-            continue
-        fi
-        if (( nav_count + proceed_count > 1 )); then
-            whiptail --msgbox "Please select only one action (Previous, Next, or Proceed)." 10 40
-            continue
-        fi
-
-        # Handle navigation
-        if (( nav_count == 1 )); then
-            for tag in "${sel_tags[@]}"; do
-                case "$tag" in
-                    __prev__)
-                        ((current_page--))
-                        # Ensure current_page doesn't go below 0
-                        ((current_page < 0)) && current_page=0                        
-                        break
-                        ;;
-                    __next__)
-                        ((current_page++))
-                        # Ensure current_page doesn't exceed pages-1
-                        ((current_page >= pages)) && current_page=$((pages - 1))                        
-                        break
-                        ;;
-                esac
-            done
-            continue
-        fi
-
-        # Handle proceed
-        if (( proceed_count == 1 )); then
-            break
-        fi
-
-        # If no action, continue to next iteration (same page)
-    done
-
-    # Collect selected paths
     local -a selected_paths=()
-    for index in "${!selected_entries[@]}"; do
-        selected_paths+=("${entries[$index]}")
+    local p
+    for p in "${!EB_SEL[@]}"; do
+        [[ "${EB_SEL["$p"]}" == "1" ]] && selected_paths+=("$p")
     done
 
     if (( ${#selected_paths[@]} == 0 )); then
@@ -5403,20 +3688,21 @@ remove_ebooks_from_checklist() {
         return 1
     fi
 
-    # Confirm removal
+    mapfile -t selected_paths < <(printf '%s\n' "${selected_paths[@]}" | sort)
+
     local msg="The following entries will be removed:\n"
-    for path in "${selected_paths[@]}"; do
-        msg+="  $path\n"
+    for p in "${selected_paths[@]}"; do
+        msg+="  $p\n"
     done
-    if whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Removal"; then
-        # Create a temporary file
-        local tmp_db
+
+    if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Removal"; then
+        local tmp_db list
         tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temporary file." 8 40; return 1; }
-        # Use grep to exclude selected paths
-        grep -vf <(printf '^%s|\n' "${selected_paths[@]}") "$EBOOKS_DB" > "$tmp_db"
-                
-        # Replace the original database
+        list=$(mktemp) || { rm -f "$tmp_db"; return 1; }
+        printf '%s\n' "${selected_paths[@]}" > "$list"
+        awk -F'|' 'NR == FNR { rm[$0] = 1; next } !($1 in rm)' "$list" "$EBOOKS_DB" > "$tmp_db"
         mv "$tmp_db" "$EBOOKS_DB"
+        rm -f "$list"
         whiptail --msgbox "Entries removed successfully." 8 40
     else
         whiptail --msgbox "Removal cancelled." 8 40
@@ -5428,7 +3714,7 @@ dissociate_tag_from_checklist() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -5457,7 +3743,7 @@ dissociate_tag_from_checklist() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -5490,7 +3776,7 @@ dissociate_tag_from_checklist() {
         return 1
     }      
 
-    local ITEMS_PER_PAGE=100
+    local ITEMS_PER_PAGE=$EB_PAGE_SIZE
     local current_page=0
     declare -A selected_entries  # Keys are entry indices, value is 1 if selected
 
@@ -5564,8 +3850,8 @@ dissociate_tag_from_checklist() {
             # truncate display
             local dir_part=$(dirname "$path")
             local file_part=$(basename "$path")
-            local trunc_dir=$(truncate_dirname "$dir_part")
-            local trunc_file=$(truncate_filename "$file_part" 50)
+            local trunc_dir="$dir_part"
+            local trunc_file="$file_part"
             local disp="${trunc_dir}/${trunc_file}"
 
             local state="OFF"
@@ -5580,7 +3866,7 @@ dissociate_tag_from_checklist() {
         local result
         result=$(whiptail --title "Dissociate Tag: $tag_to_remove" \
             --checklist "Page $((current_page+1))/$pages\nSelect eBooks to update or navigate:" \
-            20 150 10 "${choices[@]}" 3>&1 1>&2 2>&3) \
+            $(eb_menu_dims) "${choices[@]}" 3>&1 1>&2 2>&3) \
             || { return 1; }
 
         IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
@@ -5637,7 +3923,7 @@ dissociate_tag_from_checklist() {
     # Confirm
     local msg="The tag '$tag_to_remove' will be removed from:\n"
     for p in "${selected_paths[@]}"; do msg+="  $p\n"; done
-    if ! whiptail --scrolltext --yesno "$msg" 20 78 --title "Confirm Dissociation"; then
+    if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Dissociation"; then
         whiptail --msgbox "Cancelled." 8 40
         return 1
     fi
@@ -5671,80 +3957,22 @@ dissociate_tag_from_checklist() {
 }
 
 associate_tag_from_checklist() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=20
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
     touch "$EBOOKS_DB" "$TAGS_DB"
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }        
+    }
 
-    local ITEMS_PER_PAGE=100
-    local current_page=0
-    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
-
-    # --- Step 1: Pick a tag from $TAGS_DB ---
-    local -a tags
+    local -a tags=() sorted=() tag_choices=()
+    local tag t
     while IFS= read -r tag; do
-        tags+=("$tag")
+        [[ -n "$tag" ]] && tags+=("$tag")
     done < "$TAGS_DB"
 
     if (( ${#tags[@]} == 0 )); then
@@ -5752,155 +3980,25 @@ associate_tag_from_checklist() {
         return 1
     fi
 
-    # FIX: SORT TAGS AND REBUILD TAGS ARRAY.
-    # Sort the array
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
-    unset IFS
-    
-    # Rebuild the original array
-    tags=("${sorted[@]}")
-    # END FIX.
-
-
-    # Build a numeric menu so we can handle spaces in tag names
-    local -a tag_choices=()
-    for i in "${!tags[@]}"; do
-        tag_choices+=("$i" "${tags[$i]}")
+    mapfile -t sorted < <(printf '%s\n' "${tags[@]}" | sort)
+    for t in "${sorted[@]}"; do
+        tag_choices+=("$t" "")
     done
 
-    # local selected_index
-    # selected_index=$(whiptail --title "Select Tag to Associate" \
-    #     --menu "Choose one tag:" 20 60 10 \
-    #     "${tag_choices[@]}" \
-    #     3>&1 1>&2 2>&3) || {
-    #         whiptail --msgbox "Cancelled." 8 40
-    #         return 1
-    #     }
+    local selected_tag
+    selected_tag="$(eb_paginate_tags_menu "Select Tag to Associate" "${tag_choices[@]}")" || return 1
 
-    # FIX: PAGINATE TAG SELECTION.
-    local selected_index
-    selected_index="$(paginate_tags_menu "Select Tag to Associate" "${tag_choices[@]}")" || return 1
+    EB_SRC_FILE="$EBOOKS_DB"
+    EB_NO_TAGS=0
+    ebooks_filter_reset
 
-    local selected_tag="${tags[$selected_index]}"
+    ebooks_pick_files_checklist "Associate Tag: ${selected_tag}" \
+        "Select e-Books to tag." "Proceed to tag association" || return 1
 
-    # --- Step 2: Ask for filename filter ---
-    local search_term
-    search_term=$(whiptail --inputbox \
-        "Enter a substring to filter filenames (globbing; empty is wildcard):" \
-        8 50 --title "Search Filter" \
-        3>&1 1>&2 2>&3) || {
-            #whiptail --msgbox "Cancelled." 8 40
-            return 1
-        }
-
-    : ${search_term:=*}
-    local search_lower="${search_term,,}"
-        
-    # Bulding... infobox
-    TERM=ansi whiptail --title "Building" --infobox "Building menu.\n\nPlease wait..." 10 40
-
-    # --- Step 3: Load & filter e-book entries ---
-    local -a entries=()
-    while IFS='|' read -r path tags_on_book; do
-        local file_="$(basename "$path")"
-
-        if [[ "$search_term" == "*" ]] || \
-           [[ "${file_,,}" == $search_lower ]]; then
-            entries+=("$path|$tags_on_book")
-        fi
-    done < "$EBOOKS_DB"
-
-    if (( ${#entries[@]} == 0 )); then
-        whiptail --msgbox "No eBooks found matching '$search_term'." 8 40
-        return 1
-    fi
-
-    local total=${#entries[@]}
-    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
-
-    # --- Step 4: Paginated checklist of e-books ---
-    while true; do        
-        # Bulding... infobox
-        TERM=ansi whiptail --title "Processing" --infobox "Please wait..." 10 40
-
-        local start=$(( current_page * ITEMS_PER_PAGE ))
-        local end=$(( start + ITEMS_PER_PAGE ))
-        (( end > total )) && end=$total
-
-        local -a choices=()
-        for ((i = start; i < end; i++)); do
-            local entry="${entries[$i]}"
-            local path="${entry%%|*}"
-            local display="$(truncate_filename "$(basename "$path")" 50)"
-            local state="OFF"
-            [[ -n "${selected_entries[$i]}" ]] && state="ON"
-            choices+=("entry_$i" "$display" "$state")
-        done
-
-        # navigation
-        (( current_page > 0 )) && choices+=("__prev__" "< Previous page" OFF)
-        (( current_page < pages-1 )) && choices+=("__next__" "> Next page" OFF)
-        choices+=("__proceed__" "Proceed to tag association" OFF)
-
-        local result
-        result=$(whiptail --title "Associate Tag: Page $((current_page+1))/$pages" \
-            --checklist "Select e-Books to tag or navigate:" \
-            20 100 10 \
-            "${choices[@]}" \
-            3>&1 1>&2 2>&3) || {
-                whiptail --msgbox "Cancelled." 8 40
-                return 1
-            }
-
-        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
-
-        # update selected_entries
-        for ((i = start; i < end; i++)); do
-            tag="entry_$i"
-            if printf '%s\n' "${sel_tags[@]}" | grep -qx "$tag"; then
-                selected_entries[$i]=1
-            else
-                unset selected_entries[$i]
-            fi
-        done
-
-        # Count selection types
-        local nav=0 proc=0
-        for tag in "${sel_tags[@]}"; do
-            [[ $tag == __prev__ || $tag == __next__ ]] && ((nav++))
-            [[ $tag == __proceed__ ]] && ((proc++))
-        done
-
-		# Validate selections
-        if (( nav > 1 || proc > 1 )); then
-            whiptail --msgbox "Please select only one of navigation actions." 10 40
-            continue
-        fi
-        if (( nav + proc > 1 )); then
-            whiptail --msgbox "Please select only one action (Previous, Next, or Proceed)." 10 40
-            continue
-        fi        
-
-        # handle navigation
-        if (( nav == 1 )); then
-            for tag in "${sel_tags[@]}"; do
-                [[ $tag == __prev__ ]] && ((current_page--))
-                [[ $tag == __next__ ]] && ((current_page++))
-            done
-            (( current_page < 0 )) && current_page=0
-            (( current_page >= pages )) && current_page=$((pages-1))
-            continue
-        fi
-
-        # proceed
-        (( proc == 1 )) && break
-    done
-
-    # --- Step 5: Collect selected entries & update DB ---
     local -a to_update=()
-    for idx in "${!selected_entries[@]}"; do
-        to_update+=("${entries[$idx]}")
+    local p
+    for p in "${!EB_SEL[@]}"; do
+        [[ "${EB_SEL["$p"]}" == "1" ]] && to_update+=("$p")
     done
 
     if (( ${#to_update[@]} == 0 )); then
@@ -5908,26 +4006,25 @@ associate_tag_from_checklist() {
         return 1
     fi
 
+    mapfile -t to_update < <(printf '%s\n' "${to_update[@]}" | sort)
+
     local msg="Tag '${selected_tag}' will be added to (excluding duplicates):\n"
-    for line in "${to_update[@]}"; do
-        msg+="  ${line%%|*}\n"
+    for p in "${to_update[@]}"; do
+        msg+="  ${p}\n"
     done
 
-    if ! whiptail --scrolltext --yesno "$msg" 20 70 --title "Confirm Association"; then
+    if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Association"; then
         whiptail --msgbox "Operation cancelled." 8 40
         return 1
     fi
 
-    # perform in-place update without duplicating tags
     local tmp_db
     tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temp file." 8 40; return 1; }
 
+    local path tags_on_book new_tags
     while IFS='|' read -r path tags_on_book; do
-        local new_tags="$tags_on_book"
-        local line="$path|$tags_on_book"
-
-        # if this is one of the selected entries, append only if missing
-        if printf '%s\n' "${to_update[@]}" | grep -Fxq -- "$line"; then
+        new_tags="$tags_on_book"
+        if [[ "${EB_SEL["$path"]:-0}" == "1" ]]; then
             if [[ ",$tags_on_book," != *",$selected_tag,"* ]]; then
                 if [[ -z "$new_tags" ]]; then
                     new_tags="$selected_tag"
@@ -5936,7 +4033,6 @@ associate_tag_from_checklist() {
                 fi
             fi
         fi
-
         printf '%s|%s\n' "$path" "$new_tags" >> "$tmp_db"
     done < "$EBOOKS_DB"
 
@@ -5949,7 +4045,7 @@ assoc_tag_by_filepath() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -5978,7 +4074,7 @@ assoc_tag_by_filepath() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -6054,25 +4150,8 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
     selected_tag="$(paginate_tags_menu "Choose a tag to associate:" "${tag_menu_items[@]}")" || return 1
 
     # Get unique directories
-    local dirs
-    dirs=$(cut -d'|' -f1 "$EBOOKS_DB" | sed -E 's:/[^/]+$::' | sort | uniq)
-    
-    # Check if directories exist
-    if [[ -z "$dirs" ]]; then
-        whiptail --msgbox "No directories found in ebooks database." 10 60 >/dev/tty
-        return 1
-    fi
-
-    # Build directory menu
-    local dir_menu_items=()
-    while IFS= read -r dir; do
-        dir_menu_items+=("$dir" "")
-    done <<< "$dirs"
-
-    # Select directory
     local selected_dir
-    selected_dir=$(whiptail --title "Select Directory" --menu "Choose directory to tag:" \
-        20 150 10 "${dir_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    selected_dir="$(ebooks_select_dir "Choose directory to tag:")" || return 1
     
     [[ -z "$selected_dir" ]] && return  # User canceled
 
@@ -6096,22 +4175,7 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
     # matching_lines=$(grep -E "^${escaped_dir}/[^/]+\|" "$EBOOKS_DB")
 
     # FIX: AWK REPLACEMENT (DOESN'T DO REGEX SO ESCAPING META NOT REQUIRED)
-    local matching_lines=$(
-        awk -v dir="$selected_dir" -F'|' '
-        BEGIN {
-            prefix = dir "/"
-            plen = length(prefix)
-        }
-        {
-            if (index($1, prefix) == 1) {
-                rest = substr($1, plen+1)
-                if (length(rest) > 0 && index(rest, "/") == 0 && NF > 1) {
-                    print
-                }
-            }
-        }
-        ' "$EBOOKS_DB"
-    )
+    local matching_lines=$(ebooks_lines_in_scope "$selected_dir")
 
     # Debug
     #echo matching_lines: >&2
@@ -6122,7 +4186,7 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
 
     # Check for matches
     if [[ -z "$matching_lines" ]]; then
-        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 60 >/dev/tty
+        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 170 >/dev/tty
         return 1
     fi
 
@@ -6137,12 +4201,14 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
     # Confirm action
     whiptail --scrolltext --yesno --title "Confirm Association" \
         "Add tag to ALL files in directory?\n\n$message" \
-        20 60 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        20 170 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
 	# Create temporary file for new database
 	local temp_db
 	temp_db=$(mktemp) || return 1
 	local updated=0
+	local scope_recursive=0
+	ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
 
 	# Process every line in EBOOKS_DB
 	while IFS= read -r line; do
@@ -6153,7 +4219,7 @@ You may choose from a list of directories registered in the ebooks db." 12 80 >/
 		local parent_dir="${filepath%/*}"
 
 		# Check if this file is in the selected directory
-		if [[ "$parent_dir" == "$selected_dir" ]]; then
+		if [[ "$parent_dir" == "$selected_dir" || ( $scope_recursive -eq 1 && "$parent_dir" == "$selected_dir"/* ) ]]; then
 			# This file is in our target directory - check tag
 			if [[ ",${tags_str}," == *",${selected_tag},"* ]]; then
 				# Tag already exists - keep original line
@@ -6188,7 +4254,7 @@ dissoc_tag_by_filepath() {
         local title="$1"
         shift
         local items=("$@")
-        local per_page=20
+        local per_page=$EB_PAGE_SIZE
         local total_items=$(( ${#items[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local current_page=1
@@ -6217,7 +4283,7 @@ dissoc_tag_by_filepath() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -6294,36 +4360,19 @@ You may choose from a list of directories registered in the ebooks db. It is inv
     selected_tag="$(paginate_tags_menu "Choose a tag to remove:" "${tag_menu_items[@]}")" || return 1
 
     # Get unique directories
-    local dirs
-    dirs=$(cut -d'|' -f1 "$EBOOKS_DB" | sed -E 's:/[^/]+$::' | sort | uniq)
-    
-    # Check if directories exist
-    if [[ -z "$dirs" ]]; then
-        whiptail --msgbox "No directories found in ebooks database." 10 60 >/dev/tty
-        return 1
-    fi
-
-    # Build directory menu
-    local dir_menu_items=()
-    while IFS= read -r dir; do
-        dir_menu_items+=("$dir" "")
-    done <<< "$dirs"
-
-    # Select directory
     local selected_dir
-    selected_dir=$(whiptail --title "Select Directory" --menu "Choose directory to remove tag from:" \
-        20 150 10 "${dir_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    selected_dir="$(ebooks_select_dir "Choose directory to remove tag from:")" || return 1
     
     [[ -z "$selected_dir" ]] && return 1 # User canceled
 
     # Get matching lines
     local matching_lines
-    matching_lines=$(grep -E "^${selected_dir}/[^/]+\|" "$EBOOKS_DB")
+    matching_lines=$(ebooks_lines_in_scope "$selected_dir")
     #matching_lines=$(grep -F "$selected_dir/" "$EBOOKS_DB")
     
     # Check for matches
     if [[ -z "$matching_lines" ]]; then
-        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 60 >/dev/tty
+        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 170 >/dev/tty
         return 1
     fi
 
@@ -6338,12 +4387,14 @@ You may choose from a list of directories registered in the ebooks db. It is inv
     # Confirm action
     whiptail --scrolltext --yesno --title "Confirm Removal" \
         "Remove tag from ALL files in directory?\n\n$message" \
-        20 60 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        20 170 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     # Process updates
     local temp_db
     temp_db=$(mktemp) || return 1
     local removed=0
+    local scope_recursive=0
+    ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
 
     while IFS= read -r line; do
         local filepath="${line%%|*}"
@@ -6351,7 +4402,7 @@ You may choose from a list of directories registered in the ebooks db. It is inv
         local parent_dir="${filepath%/*}"
 
         # Only process files in selected directory
-        if [[ "$parent_dir" == "$selected_dir" ]]; then
+        if [[ "$parent_dir" == "$selected_dir" || ( $scope_recursive -eq 1 && "$parent_dir" == "$selected_dir"/* ) ]]; then
             # Check if tag exists
             if [[ ",${tags_str}," == *",${selected_tag},"* ]]; then
                 # Remove tag using pattern substitution
@@ -6395,10 +4446,111 @@ You may choose from a list of directories registered in the ebooks db. It is inv
     fi
 }
 
+# Shared by 'Remove Files by Filepath' and 'Remove Files by Filepath Recursively'.
+# $1 = directory, $2 = "auto" (a directory that only is a parent also covers its
+# sub-directories) or "recursive" (always the directory and ALL its sub-directories).
+# Lists every registered file in scope WITH its tags (paginated, paths truncated
+# to 120 characters). __PROCEED__ removes the files without tags; files with
+# tags are never removed.
+ebooks_remove_files_in_path() {
+    local selected_dir="$1" mode="$2"
+
+    local scope_recursive=0
+    if [[ "$mode" == "recursive" ]]; then
+        scope_recursive=1
+    else
+        ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
+    fi
+
+    # every registered file in scope, tagged or not
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_in_scope "$selected_dir" "$scope_recursive" > "$tmp"
+
+    local -a files_to_delete=() tagged_files=()
+    local line filepath tags
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        filepath="${line%%|*}"
+        tags="${line#*|}"
+        if [[ -z "$tags" ]]; then
+            files_to_delete+=("$filepath")
+        else
+            tagged_files+=("$filepath")
+        fi
+    done < "$tmp"
+
+    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
+        rm -f "$tmp"
+        whiptail --title "Information" --msgbox "No files found to delete in '$selected_dir' without tags." 10 170 >/dev/tty
+        return 1
+    fi
+
+    local scope_txt="(non-recursive)"
+    (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
+
+    # Show the files (with their tags). __PROCEED__ continues to the confirmation.
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_NO_FILTERS=1
+    EB_PATH_MAX=120
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Proceed to remove the ${#files_to_delete[@]} file(s) without tags"
+
+    local rc=0
+    ebooks_pick_file "Files Under ${selected_dir}" \
+        "All registered files under '${selected_dir}' ${scope_txt} with their tags. ${#files_to_delete[@]} without tags will be removed; ${#tagged_files[@]} with tags are kept." || rc=$?
+
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    ebooks_filter_reset
+
+    (( rc != 2 )) && return 1
+
+    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
+
+    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 170; then
+        return 1
+    fi
+
+    # Backup before modification
+    local backup_file="${EBOOKS_DB}.backup"
+    cp "$EBOOKS_DB" "$backup_file"
+
+    # Remove the untagged entries in scope (fixed-string comparison, no regex)
+    awk -F'|' -v d="$selected_dir" -v rec="$scope_recursive" '
+        {
+            p = $1
+            sub(/\/[^\/]+$/, "", p)
+            if ((p == d || (rec == 1 && index(p, d "/") == 1)) && $0 ~ /\|$/) next
+            print
+        }
+    ' "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
+
+    local deleted_msg="Removed files from ebooks db:\n\n$(printf '%s\n' "${files_to_delete[@]:0:10}")"
+    if [[ ${#files_to_delete[@]} -gt 10 ]]; then
+        deleted_msg+="\n..."
+    fi
+    whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 170
+
+    if [[ ${#tagged_files[@]} -gt 0 ]]; then
+        local excluded_msg="The following files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
+        if [[ ${#tagged_files[@]} -gt 10 ]]; then
+            excluded_msg+="\n..."
+        fi
+        excluded_msg+="\n\nPlease dissociate tag(s) from these files first."
+        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 170
+    fi
+
+    return 0
+}
+
 remove_files_by_filepath() {
-    # Inform user of the purpose
     whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path. \
-It does not search recursively but just files under selected path. If a file has a tag associated with it, it will not be removed. \
+It does not search recursively but just files under selected path (a path marked '(parent: includes sub-directories)' covers the files below it). \
+The files are listed with their tags. If a file has a tag associated with it, it will not be removed. \
 It does not delete the files physically on drive." 12 78 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
@@ -6406,91 +4558,19 @@ It does not delete the files physically on drive." 12 78 >/dev/tty
         return 1
     }
 
-    # Get unique directories
-    local directories
-    directories=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
-    
-    # Check if there are any directories
-    if [[ -z "$directories" ]]; then
-        whiptail --title "Error" --msgbox "No directories found in the database." 8 50 >/dev/tty
-        return 1
-    fi
-
-    # Create whiptail menu options
-    local menu_options=()
-    while IFS= read -r dir; do
-        menu_options+=("$dir" "")
-    done <<< "$directories"
-
-    # Show directory selection menu
     local selected_dir
-    selected_dir=$(whiptail --title "Select Directory" --menu "Choose a directory to remove files from:" 20 150 12 "${menu_options[@]}" 3>&1 1>&2 2>&3) </dev/tty >/dev/tty
-    
-    # Exit if user cancelled
+    selected_dir="$(ebooks_select_dir "Choose a directory to remove files from:")" || return 1
+
     if [[ -z "$selected_dir" ]]; then
         return 1
     fi
 
-    # Find files to delete (those without tags)
-    local files_to_delete=()
-    local tagged_files=()
-    while IFS= read -r line; do
-        local filepath="${line%%|*}"
-        local dirpath="${filepath%/*}"
-        local tags="${line#*|}"
-        
-        if [[ "$dirpath" == "$selected_dir" ]]; then
-            if [[ -z "$tags" ]]; then
-                files_to_delete+=("$filepath")
-            else
-                tagged_files+=("$filepath")
-            fi
-        fi
-    done < "$EBOOKS_DB"
-
-    # Check if there are files to delete
-    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
-        whiptail --title "Information" --msgbox "No files found to delete in '$selected_dir' without tags." 10 70 >/dev/tty
-        return 1
-    fi
-
-    # Show confirmation dialog
-    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' (non-recursive).\n\nFiles with tags will not be deleted."
-    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 78; then
-        return 1
-    fi
-
-    # Backup the database file
-    local backup_file="${EBOOKS_DB}.backup"
-    cp "$EBOOKS_DB" "$backup_file"
-
-    # Remove entries from the database
-    grep -v -E "^${selected_dir}/[^/]+\|$" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
-
-    # Show deleted files
-    local deleted_msg="Removed files from ebooks db:\n\n$(printf '%s\n' "${files_to_delete[@]:0:10}")"
-    if [[ ${#files_to_delete[@]} -gt 10 ]]; then
-        deleted_msg+="\n..."
-    fi
-    whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 78
-
-    # Show tagged files that were excluded
-    if [[ ${#tagged_files[@]} -gt 0 ]]; then
-        local excluded_msg="The following files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
-        if [[ ${#tagged_files[@]} -gt 10 ]]; then
-            excluded_msg+="\n..."
-        fi
-        excluded_msg+="\n\nPlease dissociate tag(s) from these files first."
-        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 78
-    fi
-
-    return 0
+    ebooks_remove_files_in_path "$selected_dir" auto
 }
 
 remove_files_by_filepath_recursive() {
-    # Inform user of the purpose
-    whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path including files in sub-directories. \
-If a file has a tag associated with it, it will not be removed. \
+    whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path including files in ALL of its sub-directories. \
+The files are listed with their tags. If a file has a tag associated with it, it will not be removed. \
 It does not delete the files physically on drive." 12 78 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
@@ -6498,86 +4578,16 @@ It does not delete the files physically on drive." 12 78 >/dev/tty
         return 1
     }
 
-    # Get unique directories
-    local directories
-    directories=$(cut -d'|' -f1 "${EBOOKS_DB}" | sed -E 's:/[^/]+$::' | sort | uniq)
-    
-    # Check if there are any directories
-    if [[ -z "$directories" ]]; then
-        whiptail --title "Error" --msgbox "No directories found in the database." 8 50 >/dev/tty
-        return 1
-    fi
-
-    # Create whiptail menu options
-    local menu_options=()
-    while IFS= read -r dir; do
-        menu_options+=("$dir" "")
-    done <<< "$directories"
-
-    # Show directory selection menu
     local selected_dir
-    selected_dir=$(whiptail --title "Select Directory" --menu "Choose a root directory to remove files from:" 20 150 12 "${menu_options[@]}" 3>&1 1>&2 2>&3) </dev/tty >/dev/tty
-    
-    # Exit if user cancelled
+    selected_dir="$(ebooks_select_dir "Choose a root directory to remove files from:")" || return 1
+
     if [[ -z "$selected_dir" ]]; then
         return 1
     fi
 
-	# Find files to delete (those without tags)
-	local files_to_delete=()
-	local tagged_files=()
-	while IFS= read -r line; do
-		local filepath="${line%%|*}"
-		local dirpath="${filepath%/*}"
-		local tags="${line#*|}"
-		
-		if [[ "$dirpath" =~ ^"${selected_dir}"(/.*)?$ ]]; then
-			if [[ -z "$tags" ]]; then
-				files_to_delete+=("$filepath")
-			else
-				tagged_files+=("$filepath")
-			fi
-		fi
-	done < "$EBOOKS_DB"
-
-    # Check if there are files to delete
-    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
-        whiptail --title "Information" --msgbox "No files found to delete in '$selected_dir' without tags." 10 70 >/dev/tty
-        return 1
-    fi
-
-    # Show confirmation dialog
-    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' (recursive).\n\nFiles with tags will not be deleted."
-    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 78; then
-        return 1
-    fi
-
-    # Backup the database file
-    local backup_file="${EBOOKS_DB}.backup"
-    cp "$EBOOKS_DB" "$backup_file"
-
-    # Remove entries from the database    
-    grep -v -E "^${selected_dir}(/.*)?\|$" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
-
-    # Show deleted files
-    local deleted_msg="Removed files from ebooks db:\n\n$(printf '%s\n' "${files_to_delete[@]:0:10}")"
-    if [[ ${#files_to_delete[@]} -gt 10 ]]; then
-        deleted_msg+="\n..."
-    fi
-    whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 78
-
-    # Show tagged files that were excluded
-    if [[ ${#tagged_files[@]} -gt 0 ]]; then
-        local excluded_msg="The following files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
-        if [[ ${#tagged_files[@]} -gt 10 ]]; then
-            excluded_msg+="\n..."
-        fi
-        excluded_msg+="\n\nPlease dissociate tag(s) from these files first."
-        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 78
-    fi
-
-    return 0
+    ebooks_remove_files_in_path "$selected_dir" recursive
 }
+
 
 # Manage eBooks menu
 show_ebooks_menu() {
