@@ -1655,6 +1655,8 @@ associate_tag() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
 
     local ebook existing_tags tag t tmpfile
     local -a tags sorted tags_whip
@@ -2580,203 +2582,101 @@ This means if you enter '*schaum*' \\* will be matched literally not as wildcard
     done    
 }
 
+# Adds tag $1 to every registered file whose path is listed (one per line) in
+# file $2. Files that already have the tag are left unchanged.
+ebooks_add_tag_to_paths() {
+    local tag="$1" list="$2" tmp
+    tmp=$(mktemp) || return 1
+    EB_T="$tag" awk -F'|' '
+        BEGIN { OFS = "|" }
+        NR == FNR { m[$0] = 1; next }
+        ($1 in m) {
+            n = split($2, a, ",")
+            has = 0
+            for (i = 1; i <= n; i++) {
+                x = a[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", x)
+                if (x == ENVIRON["EB_T"]) has = 1
+            }
+            if (!has) {
+                if ($2 == "") $2 = ENVIRON["EB_T"]
+                else $2 = $2 "," ENVIRON["EB_T"]
+            }
+        }
+        { print }
+    ' "$list" "$EBOOKS_DB" > "$tmp" && mv -- "$tmp" "$EBOOKS_DB"
+}
+
 assoc_tag_to_bulk() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=$EB_PAGE_SIZE
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    # Initial message.
-    whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files." 10 60
+    whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files.\n\nAfter choosing the tag, the registered files are listed. Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag), then select __PROCEED__ to associate the tag with ALL listed files." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }      
+    }
 
-    # Present tag selection menu using whiptail
-    local tags=()
+    local -a tags=() sorted=() tag_items=()
+    local tag
     while IFS= read -r tag; do
-        tags+=("$tag" "")
+        [[ -n "$tag" ]] && tags+=("$tag")
     done < "$TAGS_DB"
-    
-    [[ ${#tags[@]} -eq 0 ]] && { 
+
+    [[ ${#tags[@]} -eq 0 ]] && {
         whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
         return 1
     }
 
-    # FIX: SORT TAGS ALPHABETICALLY.
-    # Step 1: Flatten.
-    local pairs=()
-    for ((i=0; i<${#tags[@]}; i+=2)); do
-        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
-    done
-    
-    # Step 2: Sort tags
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
-    unset IFS
-    
-    # Step 3: Rebuild tags array
-    tags=()
+    mapfile -t sorted < <(printf '%s\n' "${tags[@]}" | sort)
     for tag in "${sorted[@]}"; do
-        tags+=("$tag" "")
+        tag_items+=("$tag" "")
     done
-    # END FIX.
-    
-    # local selected_tag
-    # selected_tag=$(whiptail --menu "Choose a tag to associate to bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
-    # [[ -z "$selected_tag" ]] && return 1  # User canceled
-    
-    # FIX: PAGINATE TAG SELECTION.
+
     local selected_tag
-    selected_tag="$(paginate_tags_menu "Choose a tag to associate to bulk" "${tags[@]}")" || return 1
+    selected_tag="$(eb_paginate_tags_menu "Choose a tag to associate to bulk" "${tag_items[@]}")" || return 1
 
-    # Read bulk entries
-    local tempfile=$(mktemp) || return 1
+    EB_SRC_FILE="$EBOOKS_DB"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
 
-    build_bulk > "$tempfile" || {
-        #whiptail --title "Error" --msgbox "User cancelled." 10 70
+    local rc=0
+    ebooks_pick_file "Bulk Associate Tag: ${selected_tag}" "Select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+
+    local -a matched=("${EB_FILTERED[@]}")
+    ebooks_filter_reset
+
+    (( rc != 2 )) && return 1
+
+    if (( ${#matched[@]} == 0 )); then
+        whiptail --title "Error" --msgbox "No files matched. Nothing to update." 10 70
         return 1
-    }
-
-    local bulk
-    mapfile -d '' bulk < "$tempfile"
-    rm -f "$tempfile"
-    
-    # Process bulk entries
-    local processed_bulk=()
-    for entry in "${bulk[@]}"; do
-        IFS='|' read -r path current_tags <<< "$entry"
-        
-        # Handle empty tags case
-        if [[ -z "$current_tags" ]]; then
-            new_tags="$selected_tag"
-        else
-            # Check if tag already exists
-            if [[ ",$current_tags," == *",$selected_tag,"* ]]; then
-                new_tags="$current_tags"
-            else
-                new_tags="$current_tags,$selected_tag"
-            fi
-        fi
-        
-        processed_bulk+=("$path|$new_tags")
-    done
-
-    # Create associative array for updates
-    declare -A updated_entries
-    for entry in "${processed_bulk[@]}"; do
-        IFS='|' read -r path tags <<< "$entry"
-        updated_entries["$path"]="$tags"
-    done
-
-    # Before updating database, show the candidates for update:
-    local key
-    local entries_str=""
-
-    local count=1
-
-    # Loop through the keys and format each line - display just first ten entries.
-    for key in "${!updated_entries[@]}"; do
-        ((count > 10)) && break
-        entries_str+="• $key New:$(format_tags_short "${updated_entries[$key]}")\n"
-        ((count++))
-    done
-
-    if ((${#updated_entries[@]} > 10)); then
-        entries_str+="and more...\n"
     fi
 
-    # Inform user of candidates for update
-    local tempfile=$(mktemp)
-    printf "%b" "$entries_str" > "$tempfile"
-    whiptail --scrolltext --title "ATTENTION Candidates For Tag Update" --textbox "$tempfile" 20 170
-    rm -f "$tempfile"
+    local line to_update=0
+    for line in "${matched[@]}"; do
+        [[ ",${line#*|}," == *",${selected_tag},"* ]] || (( to_update++ ))
+    done
 
-    # Before updating database, ask user to confirm.
     whiptail --title "Confirm Update" --yesno \
-"We have maximum of ${#updated_entries[@]} entries that could potentially be overwritten. \
-If you proceed, all of the matching entries will be associated with the tag '${selected_tag}'. Do you want to update the database?" 10 70
+"${#matched[@]} files are listed; ${to_update} of them do not have the tag yet.\n\nIf you proceed, all of the listed files will be associated with the tag '${selected_tag}'. Do you want to update the database?" 12 100 || return 1
 
-    [[ $? -ne 0 ]] && {
-        #whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
-        return 1
-    }
+    local list
+    list=$(mktemp) || return 1
+    printf '%s\n' "${matched[@]%%|*}" > "$list"
+    ebooks_add_tag_to_paths "$selected_tag" "$list"
+    rm -f "$list"
 
-    # Update EBOOKS_DB
-    local tmpfile=$(mktemp) || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        
-        IFS='|' read -r path tags <<< "$line"
-        if [[ -v "updated_entries[$path]" ]]; then
-            echo "$path|${updated_entries[$path]}" >> "$tmpfile"
-        else
-            echo "$line" >> "$tmpfile"
-        fi
-    done < "$EBOOKS_DB"
-
-    # Replace original file with updated version
-    mv -- "$tmpfile" "$EBOOKS_DB"
-
-    # Display final message.
     whiptail --title "Bulk Update Finished" --msgbox \
-"Bulk files have been associated with the tag '${selected_tag}'." 10 70
+"${to_update} file(s) have been associated with the tag '${selected_tag}'." 10 100
 }
 
 dissoc_tag_to_bulk() {
@@ -3991,6 +3891,8 @@ associate_tag_from_checklist() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
 
     ebooks_pick_files_checklist "Associate Tag: ${selected_tag}" \
         "Select e-Books to tag." "Proceed to tag association" || return 1
@@ -4041,212 +3943,94 @@ associate_tag_from_checklist() {
 }
 
 assoc_tag_by_filepath() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=$EB_PAGE_SIZE
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    # Help message
     whiptail --title "Help" \
          --msgbox "This function will associate your chosen tag to every file in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db." 12 80 >/dev/tty
+You may choose from a list of directories registered in the ebooks db (a path marked '(parent: includes sub-directories)' covers the files below it). \
+The matching files are listed with their tags before anything is changed." 12 80 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }      
+    }
 
-    # Read tags into array
-    local tags=()
+    local -a tags=() sorted=() tag_menu_items=()
+    local tag
     if ! mapfile -t tags < "$TAGS_DB"; then
         whiptail --msgbox "Error: Failed to read tags database." 10 60 >/dev/tty
         return 1
     fi
-
-    # Check if tags exist
     if [[ ${#tags[@]} -eq 0 ]]; then
         whiptail --msgbox "No tags found in database. Add tags first." 10 60 >/dev/tty
         return 1
     fi
 
-    # FIX: SORT TAG AND REBUILD TAGS ARRAY
-    # Sort the array
-    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
-    unset IFS
-    
-    # Rebuild the original array
-    tags=("${sorted[@]}")
-    # END FIX.
-
-    # Build tag selection menu
-    local tag_menu_items=()
-    for tag in "${tags[@]}"; do
-        tag_menu_items+=("$tag" "")
+    mapfile -t sorted < <(printf '%s\n' "${tags[@]}" | sort)
+    for tag in "${sorted[@]}"; do
+        [[ -n "$tag" ]] && tag_menu_items+=("$tag" "")
     done
 
-    # Select tag
-    # local selected_tag
-    # selected_tag=$(whiptail --title "Select Tag" --menu "Choose a tag to associate:" \
-    #     20 150 10 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-    
-    # [[ -z "$selected_tag" ]] && return 1 # User canceled
-
-    # FIX: PAGINATE TAG SELECTION.
     local selected_tag
-    selected_tag="$(paginate_tags_menu "Choose a tag to associate:" "${tag_menu_items[@]}")" || return 1
+    selected_tag="$(eb_paginate_tags_menu "Choose a tag to associate:" "${tag_menu_items[@]}")" || return 1
 
-    # Get unique directories
     local selected_dir
     selected_dir="$(ebooks_select_dir "Choose directory to tag:")" || return 1
-    
-    [[ -z "$selected_dir" ]] && return  # User canceled
+    [[ -z "$selected_dir" ]] && return
 
-    # # Escape special regex characters in directory path
-    # local escaped_dir="$selected_dir"
-    # #local escaped_dir="${selected_dir//\//\\/}"
-    # #escaped_dir="${escaped_dir//./\\.}"
-    # #escaped_dir="${escaped_dir//|/\\|}"
-    # #escaped_dir="${escaped_dir//^/\\^}"
-    # #escaped_dir="${escaped_dir//\$/\\\$}"
-    # #escaped_dir="${escaped_dir//+/\\+}"
-    # #escaped_dir="${escaped_dir//(/\(}"
-    # #escaped_dir="${escaped_dir//)/\)}"
-    # #escaped_dir="${escaped_dir//\[/\[}"
-    # #escaped_dir="${escaped_dir//]/\]}"
-    # #escaped_dir="${escaped_dir//\{/\{}"
-    # #escaped_dir="${escaped_dir//\}/\}}"
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_in_scope "$selected_dir" > "$tmp"
 
-    # # Get matching lines
-    # local matching_lines
-    # matching_lines=$(grep -E "^${escaped_dir}/[^/]+\|" "$EBOOKS_DB")
-
-    # FIX: AWK REPLACEMENT (DOESN'T DO REGEX SO ESCAPING META NOT REQUIRED)
-    local matching_lines=$(ebooks_lines_in_scope "$selected_dir")
-
-    # Debug
-    #echo matching_lines: >&2
-    #echo "$matching_lines" >&2
-    #exit
-
-    local escaped_dir="$selected_dir"   # just included here for failsafe.
-
-    # Check for matches
-    if [[ -z "$matching_lines" ]]; then
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
         whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 170 >/dev/tty
         return 1
     fi
 
-    # Prepare confirmation message
-    local file_count
-    file_count=$(wc -l <<< "$matching_lines")
-    local sample_files
-    sample_files=$(head -n 5 <<< "$matching_lines" | cut -d'|' -f1 | sed 's:.*/::')
-    local message="Directory: $selected_dir\nTag: $selected_tag\nFiles: $file_count\n\nSample files:\n$sample_files"
-    [[ $file_count -gt 5 ]] && message+="\n...and $((file_count - 5)) more"
+    # Show the matching files (paginated) with their tags
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_NO_FILTERS=1
+    EB_PATH_MAX=110
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Associate tag '${selected_tag}' with all listed files (@N@)"
 
-    # Confirm action
+    local rc=0
+    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+
+    local -a matched=("${EB_FILTERED[@]}")
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    ebooks_filter_reset
+
+    (( rc != 2 )) && return 1
+
+    local line to_update=0
+    for line in "${matched[@]}"; do
+        [[ ",${line#*|}," == *",${selected_tag},"* ]] || (( to_update++ ))
+    done
+
     whiptail --scrolltext --yesno --title "Confirm Association" \
-        "Add tag to ALL files in directory?\n\n$message" \
-        20 170 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        "Add tag to ALL files in directory?\n\nDirectory: $selected_dir\nTag: $selected_tag\nFiles: ${#matched[@]} (${to_update} without the tag yet)" \
+        14 170 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
-	# Create temporary file for new database
-	local temp_db
-	temp_db=$(mktemp) || return 1
-	local updated=0
-	local scope_recursive=0
-	ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
-
-	# Process every line in EBOOKS_DB
-	while IFS= read -r line; do
-		local filepath="${line%%|*}"
-		local tags_str="${line#*|}"
-    
-		# Extract directory portion from filepath
-		local parent_dir="${filepath%/*}"
-
-		# Check if this file is in the selected directory
-		if [[ "$parent_dir" == "$selected_dir" || ( $scope_recursive -eq 1 && "$parent_dir" == "$selected_dir"/* ) ]]; then
-			# This file is in our target directory - check tag
-			if [[ ",${tags_str}," == *",${selected_tag},"* ]]; then
-				# Tag already exists - keep original line
-				echo "$line" >> "$temp_db"
-			else
-				# Add new tag
-				if [[ -z "$tags_str" ]]; then
-					echo "${filepath}|${selected_tag}" >> "$temp_db"
-				else
-					echo "${filepath}|${tags_str},${selected_tag}" >> "$temp_db"
-				fi
-				((updated++))
-			fi
-		else
-			# Not in selected directory - keep original line
-			echo "$line" >> "$temp_db"
-		fi
-	done < "$EBOOKS_DB"    
-
-    # Replace original database
-    if ! mv "$temp_db" "$EBOOKS_DB"; then
+    local list
+    list=$(mktemp) || return 1
+    printf '%s\n' "${matched[@]%%|*}" > "$list"
+    if ! ebooks_add_tag_to_paths "$selected_tag" "$list"; then
+        rm -f "$list"
         whiptail --msgbox "Error: Failed to update database." 10 60 >/dev/tty
         return 1
     fi
+    rm -f "$list"
 
-    # Show results
-    whiptail --msgbox "Successfully updated ${updated} files with '${selected_tag}' tag." 10 60
+    whiptail --msgbox "Successfully updated ${to_update} files with '${selected_tag}' tag." 10 60
 }
 
 dissoc_tag_by_filepath() {
