@@ -1899,6 +1899,8 @@ dissociate_tag_from_registered_ebook() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
 
     ebooks_pick_file "Dissociate Tag" "Select an eBook to remove a tag from" || return 0
 
@@ -2680,269 +2682,66 @@ assoc_tag_to_bulk() {
 }
 
 dissoc_tag_to_bulk() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=$EB_PAGE_SIZE
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    # Initial message.
-    whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files." 10 60
+    whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files.\n\nAfter choosing the tag, the files carrying it are listed with their tags. Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag), then select __PROCEED__ to remove the tag from ALL listed files." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }      
-
-    # Present tag selection menu using whiptail
-    local tags=()
-    while IFS= read -r tag; do
-        tags+=("$tag" "")
-    done < "$TAGS_DB"
-    
-    [[ ${#tags[@]} -eq 0 ]] && { 
-        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
-        return 1
     }
 
-    # FIX: FLATTEN TAGS ARRAY, SORT, THEN REBUILD.
-    # Step 1: Flatten.
-    local pairs=()
-    for ((i=0; i<${#tags[@]}; i+=2)); do
-        pairs+=("${tags[i]}")  # Only the tag matters since values are empty
-    done
-    
-    # Step 2: Sort tags
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
-    unset IFS
-    
-    # Step 3: Rebuild tags array
-    tags=()
-    for tag in "${sorted[@]}"; do
-        tags+=("$tag" "")
-    done
-    # END FIX.
-    
-    # local selected_tag
-    # selected_tag=$(whiptail --menu "Choose a tag to dissociate from bulk" 20 150 10 "${tags[@]}" 3>&1 1>&2 2>&3)
-    # [[ -z "$selected_tag" ]] && return 1  # User canceled
-    
-    # FIX: PAGINATE TAG SELECTION.
     local selected_tag
-    selected_tag="$(paginate_tags_menu "Choose a tag to dissociate from bulk" "${tags[@]}")" || return 1
+    selected_tag="$(ebooks_choose_registered_tag "Choose a tag to dissociate from bulk")" || return 1
 
-    # In operation msg because building bulk takes time.
-    in_operation_msg
-
-    # Read bulk entries
-    local tempfile=$(mktemp) || return 1
-
-    build_bulk > "$tempfile" || {
-        #whiptail --title "Error" --msgbox "User cancelled." 10 70
-        return 1
-    }
-
-#    local bulk
-#    mapfile -d '' bulk < "$tempfile"
-#    rm -f "$tempfile"
-#    
-#    # Process bulk entries
-#    local processed_bulk=()
-#    for entry in "${bulk[@]}"; do
-#        IFS='|' read -r path current_tags <<< "$entry"
-#        local new_tags
-#
-#        # Remove selected_tag if present
-#        if [[ -n "$current_tags" ]]; then
-#            IFS=',' read -ra tags_array <<< "$current_tags"
-#            local new_tags_array=()
-#            for tag in "${tags_array[@]}"; do
-#                [[ "$tag" != "$selected_tag" ]] && new_tags_array+=("$tag")
-#            done
-#            # Join array back to comma-separated string
-#            new_tags=$(IFS=','; echo "${new_tags_array[*]}")
-#        else
-#            new_tags="$current_tags"
-#        fi
-#
-#        processed_bulk+=("$path|$new_tags")
-#    done
-
-    # NEW FIX: USE AWK INSTEAD TO POPULATE PROCESSED_BULK
-    local processed_bulk=()
-    mapfile -d '' processed_bulk < <(
-      awk -v sel="$selected_tag" 'BEGIN { RS = "\0"; ORS = "\0" }
-      {
-        split($0, a, "|")
-        path = a[1]
-        tags = a[2]
-        if (tags == "") {
-          print path "|"
-          next
-        }
-        n = split(tags, arr, ",")
-        out = ""
-        for (i = 1; i <= n; i++) {
-          if (arr[i] != sel && arr[i] != "") {
-            out = out "," arr[i]
-          }
-        }
-        gsub(/^,|,$/, "", out)
-        print path "|" out
-      }' "$tempfile"
-    )
-    rm -f "$tempfile"
-    # NEW FIX ENDS.
-
-    # Create associative array for updates
-    declare -A updated_entries
-#    for entry in "${processed_bulk[@]}"; do
-#        IFS='|' read -r path tags <<< "$entry"
-#        # Only add to updates if tags changed
-#        if [[ "$tags" != "$(grep -F "$path|" "$EBOOKS_DB" | cut -d'|' -f2-)" ]]; then
-#            updated_entries["$path"]="$tags"
-#        fi
-#    done
-
-    # NEW FIX: POPULATE UPDATED_ENTRIES USING AWK.
-    # Create temporary files for the data
-    local processed_bulk_file=$(mktemp)
-    printf "%s\n" "${processed_bulk[@]}" > "$processed_bulk_file"
-
-    local updated_list=$(awk -F'|' '
-      NR==FNR {
-        a[$1] = $2
-        next
-      }
-      {
-        if ($1 in a && a[$1] != $2) {
-          print $1 "|" a[$1]
-        }
-      }' "$processed_bulk_file" "$EBOOKS_DB")
-    
-    # Populate the bash associative array from the awk output
-    if [[ -n "$updated_list" ]]; then
-      while IFS='|' read -r path tags; do
-        updated_entries["$path"]="$tags"
-      done <<< "$updated_list"
-    fi
-
-    rm "$processed_bulk_file"
-    # NEW FIX END.
-
-    # Skip if no changes
-    [[ ${#updated_entries[@]} -eq 0 ]] && {
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_having_tag "$selected_tag" < "$EBOOKS_DB" > "$tmp"
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
         whiptail --title "No Changes" --msgbox "No files were found with the tag '${selected_tag}'. Database remains unchanged." 10 70
         return 0
-    }
-
-    # Before updating database, show the candidates for update:
-    local key
-    local entries_str=""
-
-    local count=1
-
-    # Loop through the keys and format each line - display just first ten entries.
-    for key in "${!updated_entries[@]}"; do
-        ((count > 10)) && break
-        entries_str+="• $key New:$(format_tags_short "${updated_entries[$key]}")\n"
-        ((count++))
-    done
-
-    if ((${#updated_entries[@]} > 10)); then
-        entries_str+="and more...\n"
     fi
 
-    # Inform user of candidates for update
-    local tempfile=$(mktemp)
-    printf "%b" "$entries_str" > "$tempfile"
-    whiptail --scrolltext --title "ATTENTION Candidates For Tag '${selected_tag}' Removal" --textbox "$tempfile" 20 170
-    rm -f "$tempfile"
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
 
-    # Confirmation dialog
-    whiptail --title "Confirm Update" --yesno \
-"We have ${#updated_entries[@]} entries that will be modified. \
-If you proceed, all selected entries will have the tag '${selected_tag}' removed. Update database?" \
-0 0
+    local rc=0
+    ebooks_pick_file "Bulk Dissociate Tag: ${selected_tag}" "Files carrying '${selected_tag}'. Select __PROCEED__ to remove it from ALL listed files." || rc=$?
 
-    [[ $? -ne 0 ]] && {
-        #whiptail --title "Error" --msgbox "User cancelled. Database has not been modified." 10 70
+    local -a matched=("${EB_FILTERED[@]}")
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    ebooks_filter_reset
+
+    (( rc != 2 )) && return 1
+
+    if (( ${#matched[@]} == 0 )); then
+        whiptail --title "No Changes" --msgbox "No files matched. Database remains unchanged." 10 70
         return 1
-    }
+    fi
 
-    # Update EBOOKS_DB
-    local tmpfile=$(mktemp) || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        
-        IFS='|' read -r path tags <<< "$line"
-        if [[ -v "updated_entries[$path]" ]]; then
-            echo "$path|${updated_entries[$path]}" >> "$tmpfile"
-        else
-            echo "$line" >> "$tmpfile"
-        fi
-    done < "$EBOOKS_DB"
+    whiptail --title "Confirm Update" --yesno \
+"We have ${#matched[@]} entries that will be modified. If you proceed, all listed entries will have the tag '${selected_tag}' removed. Update database?" \
+10 100 || return 1
 
-    # Replace original file with updated version
-    mv -- "$tmpfile" "$EBOOKS_DB"
+    local list
+    list=$(mktemp) || return 1
+    printf '%s\n' "${matched[@]%%|*}" > "$list"
+    ebooks_remove_tag_from_paths "$selected_tag" "$list"
+    rm -f "$list"
 
-    # Final message
     whiptail --title "Bulk Update Finished" --msgbox \
-"Bulk files have been dissociated from the tag '${selected_tag}'." 10 70
+"${#matched[@]} file(s) have been dissociated from the tag '${selected_tag}'." 10 70
 }
 
 # Remove files in bulk.
@@ -3609,250 +3408,126 @@ remove_ebooks_from_checklist() {
     fi
 }
 
+# stdin: db lines. Prints those that carry tag $1 (exact tag match).
+ebooks_lines_having_tag() {
+    EB_T="$1" awk -F'|' '
+    {
+        n = split($2, a, ",")
+        for (i = 1; i <= n; i++) {
+            x = a[i]
+            gsub(/^[ \t]+|[ \t]+$/, "", x)
+            if (x == ENVIRON["EB_T"]) { print; break }
+        }
+    }'
+}
+
+# Removes tag $1 from every registered file whose path is listed (one per line)
+# in file $2.
+ebooks_remove_tag_from_paths() {
+    local tag="$1" list="$2" tmp
+    tmp=$(mktemp) || return 1
+    EB_T="$tag" awk -F'|' '
+        BEGIN { OFS = "|" }
+        NR == FNR { m[$0] = 1; next }
+        ($1 in m) {
+            n = split($2, a, ",")
+            out = ""
+            for (i = 1; i <= n; i++) {
+                x = a[i]
+                gsub(/^[ \t]+|[ \t]+$/, "", x)
+                if (x != "" && x != ENVIRON["EB_T"]) out = out (out == "" ? "" : ",") x
+            }
+            $2 = out
+        }
+        { print }
+    ' "$list" "$EBOOKS_DB" > "$tmp" && mv -- "$tmp" "$EBOOKS_DB"
+}
+
+# Asks for a registered tag (paginated). $1 = menu title. Prints the tag.
+ebooks_choose_registered_tag() {
+    local title="$1" tag
+    local -a tags=() sorted=() items=()
+    while IFS= read -r tag; do
+        [[ -n "$tag" ]] && tags+=("$tag")
+    done < "$TAGS_DB"
+    if (( ${#tags[@]} == 0 )); then
+        whiptail --title "Error" --msgbox "No tags registered. Register at least one tag." 10 70
+        return 1
+    fi
+    mapfile -t sorted < <(printf '%s\n' "${tags[@]}" | sort)
+    for tag in "${sorted[@]}"; do
+        items+=("$tag" "")
+    done
+    eb_paginate_tags_menu "$title" "${items[@]}"
+}
+
 dissociate_tag_from_checklist() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=$EB_PAGE_SIZE
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
     touch "$EBOOKS_DB" "$TAGS_DB"
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }      
+    }
 
-    local ITEMS_PER_PAGE=$EB_PAGE_SIZE
-    local current_page=0
-    declare -A selected_entries  # Keys are entry indices, value is 1 if selected
-
-    # Ask for tag to dissociate
     local tag_to_remove
-    # build tag menu options (tag and empty description)
-    local -a tag_choices=()
-    while IFS= read -r tag; do
-        [[ -z "$tag" ]] && continue
-        tag_choices+=("$tag" "")
-    done < "$TAGS_DB"
-    if [[ ${#tag_choices[@]} -eq 0 ]]; then
-        whiptail --msgbox "No tags found in database." 8 40
+    tag_to_remove="$(ebooks_choose_registered_tag "Select Tag to Dissociate")" || return 1
+
+    # the files that carry the chosen tag
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_having_tag "$tag_to_remove" < "$EBOOKS_DB" > "$tmp"
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        whiptail --msgbox "No eBooks found with tag '$tag_to_remove'." 8 60
         return 1
     fi
 
-    # FIX: FLATTEN TAG_CHOICES, SORT, THEN REBUILD
-    # Step 1: Flatten.
-    local pairs=()
-    for ((i=0; i<${#tag_choices[@]}; i+=2)); do
-        pairs+=("${tag_choices[i]}")  # Only the tag matters since values are empty
-    done
-    
-    # Step 2: Sort tags
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${pairs[*]}"))
-    unset IFS
-    
-    # Step 3: Rebuild tag_choices array
-    tag_choices=()
-    for tag in "${sorted[@]}"; do
-        tag_choices+=("$tag" "")
-    done
-    # END FIX.
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
 
-    # tag_to_remove=$(whiptail --title "Select Tag to Remove" --menu "Choose a tag to dissociate from eBooks:" \
-    #     20 60 10 \
-    #     "${tag_choices[@]}" \
-    #     3>&1 1>&2 2>&3) || { whiptail --msgbox "Cancelled." 8 40; return 1; }
+    local rc=0
+    ebooks_pick_files_checklist "Dissociate Tag: ${tag_to_remove}" \
+        "Select e-Books to remove the tag '${tag_to_remove}' from." "Proceed to tag dissociation" || rc=1
 
-    # FIX: PAGINATE TAG SELECTION.
-    local tag_to_remove
-    tag_to_remove="$(paginate_tags_menu "Select Tag to Remove" "${tag_choices[@]}")" || return 1
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    (( rc != 0 )) && return 1
 
-    # Gather entries containing that tag
-    local -a entries=()
-    while IFS='|' read -r path tags; do
-        IFS=',' read -ra tag_array <<< "$tags"
-        for t in "${tag_array[@]}"; do
-            [[ "$t" == "$tag_to_remove" ]] && entries+=("$path|$tags") && break
-        done
-    done < "$EBOOKS_DB"
-
-    local total=${#entries[@]}
-    if (( total == 0 )); then
-        whiptail --msgbox "No eBooks found with tag '$tag_to_remove'." 8 50
-        return 1
-    fi
-    local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
-
-    # Pagination loop
-    while true; do        
-        local start=$(( current_page * ITEMS_PER_PAGE ))
-        local end=$(( start + ITEMS_PER_PAGE ))
-        (( end > total )) && end=$total
-
-        local -a choices=()
-        for ((i = start; i < end; i++)); do
-            local entry="${entries[$i]}"
-            local path="${entry%%|*}"
-            # truncate display
-            local dir_part=$(dirname "$path")
-            local file_part=$(basename "$path")
-            local trunc_dir="$dir_part"
-            local trunc_file="$file_part"
-            local disp="${trunc_dir}/${trunc_file}"
-
-            local state="OFF"
-            [[ -n "${selected_entries[$i]}" ]] && state="ON"
-            choices+=("entry_$i" "$disp" "$state")
-        done
-        # nav
-        (( current_page > 0 )) && choices+=("__prev__" "Previous page" OFF)
-        (( current_page < pages-1 )) && choices+=("__next__" "Next page" OFF)
-        choices+=("__proceed__" "Proceed to dissociate tag" OFF)
-
-        local result
-        result=$(whiptail --title "Dissociate Tag: $tag_to_remove" \
-            --checklist "Page $((current_page+1))/$pages\nSelect eBooks to update or navigate:" \
-            $(eb_menu_dims) "${choices[@]}" 3>&1 1>&2 2>&3) \
-            || { return 1; }
-
-        IFS=' ' read -r -a sel_tags <<< "${result//\"/}"
-        # update selection
-        for ((i = start; i < end; i++)); do
-            local tagkey="entry_$i"
-            if printf "%s\n" "${sel_tags[@]}" | grep -qx "$tagkey"; then
-                selected_entries[$i]=1
-            else
-                unset selected_entries[$i]
-            fi
-        done
-
-        # count actions
-        local nav_count=0 proceed_count=0
-        for tag in "${sel_tags[@]}"; do
-            [[ "$tag" == __prev__ || "$tag" == __next__ ]] && ((nav_count++))
-            [[ "$tag" == __proceed__ ]] && ((proceed_count++))
-        done
-        # validations
-        if (( nav_count > 1 || proceed_count > 1 )); then
-            whiptail --msgbox "Select only one navigation or proceed action." 10 40
-            continue
-        fi
-        if (( nav_count + proceed_action > 1 )); then
-            whiptail --msgbox "Do not select both navigation option and proceed at the same time." 10 40
-			continue
-        fi
-        
-        # navigation
-        if (( nav_count == 1 )); then
-            for tag in "${sel_tags[@]}"; do
-                case "$tag" in
-                    __prev__) ((current_page--)); ((current_page<0)) && current_page=0;;
-                    __next__) ((current_page++)); ((current_page>=pages)) && current_page=$((pages-1));;
-                esac
-            done
-            continue
-        fi
-        # proceed
-        (( proceed_count == 1 )) && break
-    done
-
-    # Build selected paths
     local -a selected_paths=()
-    for idx in "${!selected_entries[@]}"; do
-        selected_paths+=("${entries[$idx]%%|*}")
+    local p
+    for p in "${!EB_SEL[@]}"; do
+        [[ "${EB_SEL["$p"]}" == "1" ]] && selected_paths+=("$p")
     done
+
     if (( ${#selected_paths[@]} == 0 )); then
         whiptail --msgbox "No entries selected." 8 40
         return 1
     fi
 
-    # Confirm
+    mapfile -t selected_paths < <(printf '%s\n' "${selected_paths[@]}" | sort)
+
     local msg="The tag '$tag_to_remove' will be removed from:\n"
     for p in "${selected_paths[@]}"; do msg+="  $p\n"; done
+
     if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Dissociation"; then
         whiptail --msgbox "Cancelled." 8 40
         return 1
     fi
 
-    # Process removal
-    local tmp_db
-    tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temp file." 8 40; return 1; }
-    declare -A tofix
-    for p in "${selected_paths[@]}"; do tofix["$p"]=1; done
-    while IFS='|' read -r path tags; do
-        if [[ -n "${tofix[$path]}" ]]; then
-            IFS=',' read -ra arr <<< "$tags"
-            local new_arr=()
-            for t in "${arr[@]}"; do
-                [[ "$t" != "$tag_to_remove" && -n "$t" ]] && new_arr+=("$t")
-            done
-            local new_tags
-            # only join if there are remaining tags
-            if (( ${#new_arr[@]} > 0 )); then
-                new_tags="$(IFS=','; echo "${new_arr[*]}")"
-            else
-                new_tags=""
-            fi
-            echo "$path|$new_tags" >> "$tmp_db"
-        else
-            echo "$path|$tags" >> "$tmp_db"
-        fi
-    done < "$EBOOKS_DB"
-    mv "$tmp_db" "$EBOOKS_DB"
+    local list
+    list=$(mktemp) || { whiptail --msgbox "Error creating temp file." 8 40; return 1; }
+    printf '%s\n' "${selected_paths[@]}" > "$list"
+    ebooks_remove_tag_from_paths "$tag_to_remove" "$list"
+    rm -f "$list"
+
     whiptail --msgbox "Tag '$tag_to_remove' dissociated successfully." 8 50
 }
 
@@ -3995,14 +3670,14 @@ The matching files are listed with their tags before anything is changed." 12 80
     EB_SRC_FILE="$tmp"
     ebooks_filter_reset
     EB_NO_TAGS=0
-    EB_NO_FILTERS=1
     EB_PATH_MAX=110
+    EB_TAG_PICK=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
-    EB_PROCEED_DESC="Associate tag '${selected_tag}' with all listed files (@N@)"
+    EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Narrow the list down with the filters, then select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     EB_SRC_FILE=""
@@ -4034,200 +3709,77 @@ The matching files are listed with their tags before anything is changed." 12 80
 }
 
 dissoc_tag_by_filepath() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=$EB_PAGE_SIZE
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-    
-    # Help message
     whiptail --title "Help" \
-         --msgbox "This function will dissociate your chosen tag to every file in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db. It is inverse of associate tag by filepath function." 12 80 >/dev/tty	
-	
+         --msgbox "This function will dissociate your chosen tag from the files in a directory that you choose. \
+You may choose from a list of directories registered in the ebooks db (a path marked '(parent: includes sub-directories)' covers the files below it). \
+The files carrying the tag are listed with their tags before anything is changed. It is inverse of associate tag by filepath function." 12 80 >/dev/tty
+
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
-    
+
     [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
         return 1
-    }          
+    }
 
-    # Read tags into array
-    local tags=()
-    if ! mapfile -t tags < "$TAGS_DB"; then
-        whiptail --msgbox "Error: Failed to read tags database." 10 60 >/dev/tty
-        return 1
-    fi
-
-    # Check if tags exist
-    if [[ ${#tags[@]} -eq 0 ]]; then
-        whiptail --msgbox "No tags found in database. Add tags first." 10 60 >/dev/tty
-        return 1
-    fi
-
-    # FIX: FILTER TAGS IN TAGS ARRAY AND REBUILD TAGS ARRAY.
-    # Sort the array
-    local sorted=()
-    IFS=$'\n' sorted=($(sort <<<"${tags[*]}"))
-    unset IFS
-    
-    # Rebuild the original array
-    tags=("${sorted[@]}")
-    # FIX END.
-
-    # Build tag selection menu
-    local tag_menu_items=()
-    for tag in "${tags[@]}"; do
-        tag_menu_items+=("$tag" "")
-    done
-
-    # # Select tag
-    # local selected_tag
-    # selected_tag=$(whiptail --title "Remove Tag" --menu "Choose a tag to remove:" \
-    #     20 150 10 "${tag_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-    
-    # [[ -z "$selected_tag" ]] && return 1 # User canceled
-
-    # FIX: PAGINATE TAG SELECTION.
     local selected_tag
-    selected_tag="$(paginate_tags_menu "Choose a tag to remove:" "${tag_menu_items[@]}")" || return 1
+    selected_tag="$(ebooks_choose_registered_tag "Choose a tag to remove:")" || return 1
 
-    # Get unique directories
     local selected_dir
     selected_dir="$(ebooks_select_dir "Choose directory to remove tag from:")" || return 1
-    
-    [[ -z "$selected_dir" ]] && return 1 # User canceled
+    [[ -z "$selected_dir" ]] && return 1  # User canceled
 
-    # Get matching lines
-    local matching_lines
-    matching_lines=$(ebooks_lines_in_scope "$selected_dir")
-    #matching_lines=$(grep -F "$selected_dir/" "$EBOOKS_DB")
-    
-    # Check for matches
-    if [[ -z "$matching_lines" ]]; then
-        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 170 >/dev/tty
+    local tmp
+    tmp=$(mktemp) || return 1
+    ebooks_lines_in_scope "$selected_dir" | ebooks_lines_having_tag "$selected_tag" > "$tmp"
+
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in directory: $selected_dir" 10 170 >/dev/tty
         return 1
     fi
 
-    # Prepare confirmation message
-    local file_count
-    file_count=$(wc -l <<< "$matching_lines")
-    local sample_files
-    sample_files=$(head -n 5 <<< "$matching_lines" | cut -d'|' -f1 | sed 's:.*/::')
-    local message="Directory: $selected_dir\nTag: $selected_tag\nFiles: $file_count\n\nSample files:\n$sample_files"
-    [[ $file_count -gt 5 ]] && message+="\n...and $((file_count - 5)) more"
+    EB_SRC_FILE="$tmp"
+    ebooks_filter_reset
+    EB_NO_TAGS=0
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_LIST_ONLY=1
+    EB_PROCEED="__PROCEED__"
+    EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
 
-    # Confirm action
+    local rc=0
+    ebooks_pick_file "Dissociate Tag By File Path" "Files in '${selected_dir}' carrying '${selected_tag}'. Select __PROCEED__ to remove it from ALL listed files." || rc=$?
+
+    local -a matched=("${EB_FILTERED[@]}")
+    EB_SRC_FILE=""
+    rm -f "$tmp"
+    ebooks_filter_reset
+
+    (( rc != 2 )) && return 1
+
+    if (( ${#matched[@]} == 0 )); then
+        whiptail --msgbox "No files matched. No changes made." 10 60
+        return 1
+    fi
+
     whiptail --scrolltext --yesno --title "Confirm Removal" \
-        "Remove tag from ALL files in directory?\n\n$message" \
-        20 170 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        "Remove tag from ALL listed files?\n\nDirectory: $selected_dir\nTag: $selected_tag\nFiles: ${#matched[@]}" \
+        14 170 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
-    # Process updates
-    local temp_db
-    temp_db=$(mktemp) || return 1
-    local removed=0
-    local scope_recursive=0
-    ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
-
-    while IFS= read -r line; do
-        local filepath="${line%%|*}"
-        local tags_str="${line#*|}"
-        local parent_dir="${filepath%/*}"
-
-        # Only process files in selected directory
-        if [[ "$parent_dir" == "$selected_dir" || ( $scope_recursive -eq 1 && "$parent_dir" == "$selected_dir"/* ) ]]; then
-            # Check if tag exists
-            if [[ ",${tags_str}," == *",${selected_tag},"* ]]; then
-                # Remove tag using pattern substitution
-                tags_str=${tags_str//,$selected_tag/}  # Remove tag with leading comma
-                tags_str=${tags_str//$selected_tag,/}  # Remove tag with trailing comma
-                tags_str=${tags_str//$selected_tag/}   # Remove standalone tag
-                
-                # Clean up potential double commas
-                tags_str=${tags_str//,,/,}
-                
-                # Remove leading/trailing commas
-                tags_str=${tags_str#,}
-                tags_str=${tags_str%,}
-                
-                # Remove any empty tag strings
-                [[ -z "$tags_str" ]] && tags_str=""
-                
-                echo "${filepath}|${tags_str}" >> "$temp_db"
-                ((removed++))
-            else
-                # Tag not present - keep original line
-                echo "$line" >> "$temp_db"
-            fi
-        else
-            # Not in selected directory - keep original line
-            echo "$line" >> "$temp_db"
-        fi
-    done < "$EBOOKS_DB"
-
-    # Replace original database
-    if ! mv "$temp_db" "$EBOOKS_DB"; then
+    local list
+    list=$(mktemp) || return 1
+    printf '%s\n' "${matched[@]%%|*}" > "$list"
+    if ! ebooks_remove_tag_from_paths "$selected_tag" "$list"; then
+        rm -f "$list"
         whiptail --msgbox "Error: Failed to update database." 10 60 >/dev/tty
         return 1
     fi
+    rm -f "$list"
 
-    # Show results
-    if ((removed > 0)); then
-        whiptail --msgbox "Successfully removed '${selected_tag}' from $removed files." 10 60
-    else
-        whiptail --msgbox "No changes made. The tag was not found in any files." 10 60
-    fi
+    whiptail --msgbox "Successfully removed '${selected_tag}' from ${#matched[@]} files." 10 60
 }
 
 # Shared by 'Remove Files by Filepath' and 'Remove Files by Filepath Recursively'.
@@ -4251,20 +3803,7 @@ ebooks_remove_files_in_path() {
     tmp=$(mktemp) || return 1
     ebooks_lines_in_scope "$selected_dir" "$scope_recursive" > "$tmp"
 
-    local -a files_to_delete=() tagged_files=()
-    local line filepath tags
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        filepath="${line%%|*}"
-        tags="${line#*|}"
-        if [[ -z "$tags" ]]; then
-            files_to_delete+=("$filepath")
-        else
-            tagged_files+=("$filepath")
-        fi
-    done < "$tmp"
-
-    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
+    if ! grep -q '|$' "$tmp"; then
         rm -f "$tmp"
         whiptail --title "Information" --msgbox "No files found to delete in '$selected_dir' without tags." 10 170 >/dev/tty
         return 1
@@ -4277,21 +3816,37 @@ ebooks_remove_files_in_path() {
     EB_SRC_FILE="$tmp"
     ebooks_filter_reset
     EB_NO_TAGS=0
-    EB_NO_FILTERS=1
     EB_PATH_MAX=120
+    EB_TAG_PICK=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
-    EB_PROCEED_DESC="Proceed to remove the ${#files_to_delete[@]} file(s) without tags"
+    EB_PROCEED_DESC="Remove the files without tags among the @N@ matched files"
 
     local rc=0
     ebooks_pick_file "Files Under ${selected_dir}" \
-        "All registered files under '${selected_dir}' ${scope_txt} with their tags. ${#files_to_delete[@]} without tags will be removed; ${#tagged_files[@]} with tags are kept." || rc=$?
+        "Registered files under '${selected_dir}' ${scope_txt} with their tags. Narrow the list down with the filters; files with tags are never removed." || rc=$?
 
+    local -a matched=("${EB_FILTERED[@]}")
     EB_SRC_FILE=""
     rm -f "$tmp"
     ebooks_filter_reset
 
     (( rc != 2 )) && return 1
+
+    local -a files_to_delete=() tagged_files=()
+    local line
+    for line in "${matched[@]}"; do
+        if [[ -z "${line#*|}" ]]; then
+            files_to_delete+=("${line%%|*}")
+        else
+            tagged_files+=("${line%%|*}")
+        fi
+    done
+
+    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
+        whiptail --title "Information" --msgbox "None of the matched files is without tags. Nothing to remove." 10 100
+        return 1
+    fi
 
     local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
 
@@ -4303,15 +3858,12 @@ ebooks_remove_files_in_path() {
     local backup_file="${EBOOKS_DB}.backup"
     cp "$EBOOKS_DB" "$backup_file"
 
-    # Remove the untagged entries in scope (fixed-string comparison, no regex)
-    awk -F'|' -v d="$selected_dir" -v rec="$scope_recursive" '
-        {
-            p = $1
-            sub(/\/[^\/]+$/, "", p)
-            if ((p == d || (rec == 1 && index(p, d "/") == 1)) && $0 ~ /\|$/) next
-            print
-        }
-    ' "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
+    # Remove exactly the matched files without tags (fixed-string comparison, no regex)
+    local list
+    list=$(mktemp) || return 1
+    printf '%s\n' "${files_to_delete[@]}" > "$list"
+    awk -F'|' 'NR == FNR { m[$0] = 1; next } !(($1 in m) && $0 ~ /\|$/)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
+    rm -f "$list"
 
     local deleted_msg="Removed files from ebooks db:\n\n$(printf '%s\n' "${files_to_delete[@]:0:10}")"
     if [[ ${#files_to_delete[@]} -gt 10 ]]; then
@@ -4320,7 +3872,7 @@ ebooks_remove_files_in_path() {
     whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 170
 
     if [[ ${#tagged_files[@]} -gt 0 ]]; then
-        local excluded_msg="The following files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
+        local excluded_msg="The following matched files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
         if [[ ${#tagged_files[@]} -gt 10 ]]; then
             excluded_msg+="\n..."
         fi
