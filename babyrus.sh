@@ -812,6 +812,8 @@ EB_LIST_ONLY=0           # 1 = list is informational (selecting a file shows its
 EB_NO_FILTERS=0          # 1 = hide the glob / tag filter items
 EB_PROCEED=""            # name of an extra "proceed" item of a menu (e.g. __ADD__); returns 2
 EB_PROCEED_DESC=""       # its description (@N@ = number of listed files)
+EB_NO_TAG_ITEM=0         # 1 = the tag picker also offers [NO TAG] (only files without tags)
+EB_NO_TAG_VALUE="__NO_TAG__"   # value of EB_TAGF while the [NO TAG] filter is active
 
 # Prints "height width list-height" for a whiptail list that shows
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
@@ -839,6 +841,7 @@ ebooks_filter_reset() {
     EB_NO_FILTERS=0
     EB_PROCEED=""
     EB_PROCEED_DESC=""
+    EB_NO_TAG_ITEM=0
 }
 
 # Truncates a file path for a whiptail menu / checklist item: when the path is
@@ -910,7 +913,11 @@ ebooks_filter_apply() {
                 if (!(lp ~ re || name ~ re)) next
             }
             if (t != "") {
-                if (exact) {
+                if (t == "__no_tag__") {
+                    x = $2
+                    gsub(/^[ \t,]+|[ \t,]+$/, "", x)
+                    if (x != "") next
+                } else if (exact) {
                     found = 0
                     n = split(tolower($2), a, ",")
                     for (i = 1; i <= n; i++) {
@@ -985,19 +992,31 @@ Empty input lists ALL tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
     )
 
     if (( ${#matches[@]} == 0 )); then
-        if [[ -z "$sub" ]]; then
-            whiptail --title "No Tags" --msgbox "None of the listed files has a tag." 8 60
-        else
-            whiptail --title "No Matching Tags" --msgbox "No tag contains '$sub'." 8 60
+        # Without matching tags only the [NO TAG] item (if enabled) can be offered,
+        # and only when the user did not type a pattern.
+        if (( EB_NO_TAG_ITEM == 0 )) || [[ -n "$sub" ]]; then
+            if [[ -z "$sub" ]]; then
+                whiptail --title "No Tags" --msgbox "None of the listed files has a tag." 8 60
+            else
+                whiptail --title "No Matching Tags" --msgbox "No tag contains '$sub'." 8 60
+            fi
+            return 1
         fi
-        return 1
     fi
 
+    # [NO TAG]: only list the files that have no tags associated
+    if (( EB_NO_TAG_ITEM == 1 )); then
+        pairs+=("[NO TAG]" "Only show files with no tags")
+    fi
     for tag in "${matches[@]}"; do
         pairs+=("$tag" "")
     done
     tag="$(eb_paginate_tags_menu "Select a Tag to Filter By" "${pairs[@]}")" || return 1
-    EB_TAGF="$tag"
+    if [[ "$tag" == "[NO TAG]" ]]; then
+        EB_TAGF="$EB_NO_TAG_VALUE"
+    else
+        EB_TAGF="$tag"
+    fi
     EB_PAGE=0
 }
 
@@ -1011,7 +1030,7 @@ ebooks_action_items() {
         EB_ACTION_ITEMS+=("__APPLY_GLOB__" "Filter by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "${extra[@]}")
         EB_ACTION_ITEMS+=("__RESET_GLOB__" "Reset glob filter" "${extra[@]}")
         if (( EB_NO_TAGS == 0 )); then
-            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by tag${EB_TAGF:+   [tag filter: $EB_TAGF]}" "${extra[@]}")
+            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by tag${EB_TAGF:+   [tag filter: ${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}]}" "${extra[@]}")
             EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset tag filter" "${extra[@]}")
         fi
     fi
@@ -1039,7 +1058,8 @@ ebooks_list_status() {
     local s="Page ${page}/${pages}  |  ${total} file(s)"
     if (( EB_NO_FILTERS == 0 )); then
         s+="  |  glob: ${EB_GLOB:-(none)}"
-        (( EB_NO_TAGS == 0 )) && s+="  |  tag filter: ${EB_TAGF:-(none)}"
+        (( EB_NO_TAGS == 0 )) && local tf="${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}"
+        s+="  |  tag filter: ${tf:-(none)}"
     fi
     printf '%s' "$s"
 }
@@ -1657,6 +1677,7 @@ associate_tag() {
     ebooks_filter_reset
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     local ebook existing_tags tag t tmpfile
     local -a tags sorted tags_whip
@@ -1901,6 +1922,7 @@ dissociate_tag_from_registered_ebook() {
     ebooks_filter_reset
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     ebooks_pick_file "Dissociate Tag" "Select an eBook to remove a tag from" || return 0
 
@@ -2241,7 +2263,7 @@ It involves the following steps:\n\
     EB_SRC_FILE="$tmp"
     ebooks_filter_reset
     EB_NO_TAGS=1
-    EB_PATH_MAX=140
+    EB_PATH_MAX=120
     EB_LIST_ONLY=1
     EB_PROCEED="__ADD__"
     EB_PROCEED_DESC="Add all matched files (@N@) to the database"
@@ -2646,6 +2668,7 @@ assoc_tag_to_bulk() {
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
@@ -2711,6 +2734,7 @@ dissoc_tag_to_bulk() {
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
@@ -3492,6 +3516,7 @@ dissociate_tag_from_checklist() {
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     local rc=0
     ebooks_pick_files_checklist "Dissociate Tag: ${tag_to_remove}" \
@@ -3568,6 +3593,7 @@ associate_tag_from_checklist() {
     ebooks_filter_reset
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     ebooks_pick_files_checklist "Associate Tag: ${selected_tag}" \
         "Select e-Books to tag." "Proceed to tag association" || return 1
@@ -3672,6 +3698,7 @@ The matching files are listed with their tags before anything is changed." 12 80
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
@@ -3746,6 +3773,7 @@ The files carrying the tag are listed with their tags before anything is changed
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
