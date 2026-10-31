@@ -2058,8 +2058,10 @@ open_file() {
     $open_cmd "$file" &>/dev/null & disown
 }
 
-# Open file by search by filename workflow
-open_file_search_by_filename() {
+# Open eBook by Search workflow: filter by glob (file path / file name) and by
+# tag (__FILTER_BY_TAG__ asks for a literal substring, lists the matching tags
+# paginated, or ALL tags when empty, plus a [NO TAG] item).
+open_file_by_search() {
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
@@ -2068,35 +2070,15 @@ open_file_search_by_filename() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
-    ebooks_pick_file "Open eBook" "Select a file to open (filter with __APPLY_GLOB__ / __FILTER_BY_TAG__)" || return 1
+    ebooks_pick_file "Open eBook by Search" "Select a file to open (filter with __APPLY_GLOB__ / __FILTER_BY_TAG__)" || return 1
 
     local selected="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
     open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 170
-}
-
-# Open file by search by tag workflow
-open_file_search_by_tag() {
-    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
-        return 1
-    fi
-
-    if [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No tags found. Register at least one tag and try again." 8 40 </dev/tty >/dev/tty
-        return 1
-    fi
-
-    EB_SRC_FILE="$EBOOKS_DB"
-    EB_NO_TAGS=0
-    ebooks_filter_reset
-
-    ebooks_pick_file "Open eBook by Tag" "Select a file to open (use __FILTER_BY_TAG__ to narrow by tag)" || return 1
-
-    local selected_file="${EB_SELECTED_LINE%%|*}"
-    [ -z "$selected_file" ] && whiptail --msgbox "No file selected." 10 60 && return 1
-    open_file "$selected_file" || whiptail --msgbox "Error opening file: ${selected_file}." 20 170
 }
 
 illegal_pattern() {
@@ -2875,6 +2857,9 @@ Then, you can select to open a file item." 20 170
     EB_SRC_FILE="$tmp"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     local file
     while ebooks_pick_file "Open file in ${choice}/" "Select a file to open"; do
@@ -3946,16 +3931,14 @@ show_ebooks_menu() {
                 esac
                 ;;
             "4")
-                # Open & Read submenu: Items 5 and 6
-                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 4 \
-                    "1" "Open eBook Search by Filename" \
-                    "2" "Open eBook Search by Tag" \
-                    "3" "Open File by File Path" 3>&1 1>&2 2>&3)
+                # Open & Read submenu: Open eBook by Search, Open File by File Path
+                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 2 \
+                    "1" "Open eBook by Search" \
+                    "2" "Open File by File Path" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$OPEN_OPTION" in
-                    "1") open_file_search_by_filename ;;
-                    "2") open_file_search_by_tag ;;
-                    "3") open_file_by_filepath ;;
+                    "1") open_file_by_search ;;
+                    "2") open_file_by_filepath ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
@@ -30865,8 +30848,7 @@ Finding a book is only half the job. BABYRUS lets you open it immediately in you
 
 You can launch books by:
 
-    Searching by filename.
-    Searching by tag.
+    Searching by filename (glob) and/or tag, including a [NO TAG] filter for untagged files.
     Searching within a selected file path.
 
 Instead of navigating folders or trying to remember where a particular title is stored, simply search, select, and begin reading.
