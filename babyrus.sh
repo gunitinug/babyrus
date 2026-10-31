@@ -31049,13 +31049,11 @@ about_babyrus() {
 Version: ${BABYRUS_VERSION}
 Copyleft © 2025, 2026 Logan Lee — GPLv3.
 
-The Lord is my shepherd; I have all that I need.
-He lets me rest in green meadows;
-he leads me beside peaceful streams.
-He renews my strength.
-He guides me along right paths,
-bringing honor to his name.
-†Psalm 23:1-3"
+You are my friends if you do what I command. 
+I no longer call you slaves, because a master doesn’t confide in his slaves.
+Now you are my friends, 
+since I have told you everything the Father told me.
+†John 15:14-15"
 
     whiptail --title "About BABYRUS" --msgbox "$msg" 18 72
 }
