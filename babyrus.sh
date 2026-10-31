@@ -1745,164 +1745,68 @@ generate_ebooks_result_list() {
 }
 
 # generate_ebooks_list is orphaned.
-view_ebooks() {
-    # EDGE CASE: EBOOKS_DB file
-    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        #whiptail --title "Alert" --msgbox "Ebooks db file does not exist or is empty!" 10 60
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
-        return 1
-    fi
-
-    local page_size=$EB_PAGE_SIZE
-    local current_page=1
-    local total_lines total_pages
-
-    # Count non-empty lines using awk
-    total_lines=$(awk 'NF > 0 {count++} END {print count+0}' "$EBOOKS_DB")
-    if [[ $total_lines -eq 0 ]]; then
-        whiptail --msgbox "No ebooks found in database." 8 50
+view_tags() {
+    if [[ ! -f "$TAGS_DB" || ! -s "$TAGS_DB" ]]; then
+        whiptail --title "Attention" --msgbox "No tags registered." 10 40
         return
     fi
 
-    total_pages=$(( (total_lines + page_size - 1) / page_size ))
+    local -a all_tags=() tags=() items=()
+    mapfile -t all_tags < <(sort "$TAGS_DB" | awk 'NF')
 
-    while true; do
-        # Create menu options array directly using process substitution
-        local -a menu_options_array
-        
-        # # Use awk to generate the main menu items
-        # mapfile -d '' -t menu_options_array < <(
-        #     awk -v page="$current_page" -v size="$page_size" '
-        #         NF > 0 {
-        #             if (++count > (page-1)*size && count <= page*size) 
-        #                 printf "%s\0%s\0", count, $0
-        #         }
-        #     ' "$EBOOKS_DB"
-        # )
-
-        mapfile -d '' -t menu_options_array < <(
-            awk -v page="$current_page" -v size="$page_size" -v path_max=30 -v file_max=80 '
-                NF > 0 {
-                    if (++count > (page-1)*size && count <= page*size) {
-                        # Split line by "|" to get the path part
-                        split($0, parts, "|")
-                        full_path = parts[1]
-                        
-                        # Extract filename and path
-                        last_slash = match(full_path, /\/[^\/]*$/)
-                        if (last_slash > 0) {
-                            path = substr(full_path, 1, last_slash - 1)
-                            file = substr(full_path, last_slash + 1)
-                        } else {
-                            path = ""
-                            file = full_path
-                        }
-                        
-                        # Extract file extension
-                        ext = ""
-                        dot_pos = match(file, /\.[^.]*$/)
-                        if (dot_pos > 0) {
-                            ext = substr(file, dot_pos)
-                            file_base = substr(file, 1, dot_pos - 1)
-                        } else {
-                            file_base = file
-                        }
-                        
-                        # Truncate path
-                        path_tr = path
-                        file_tr = file
-
-                        printf "%s\0%s/%s\0", count, path_tr, file_tr
-                    }
-                }
-            ' "$EBOOKS_DB"
-        )        
-
-        # Add navigation buttons directly to the array
-        if [[ $current_page -gt 1 ]]; then
-            menu_options_array+=("__prev__" "Previous Page")
-        fi
-        if [[ $current_page -lt $total_pages ]]; then
-            menu_options_array+=("__next__" "Next Page")
-        fi
-
-        # If no items on this page (shouldn't happen, but safe)
-        if [[ ${#menu_options_array[@]} -eq 0 ]]; then
-            menu_options_array=("" "No items on this page")
-        fi
-
-        # Show menu with fixed dimensions
-        local choice
-        choice=$(whiptail --title "E-Books (Page $current_page/$total_pages)" \
-                 --menu "Choose an ebook:" $(eb_menu_dims) \
-                 --ok-button "OK" --cancel-button "Back" \
-                 "${menu_options_array[@]}" 3>&1 1>&2 2>&3)
-
-        [[ $? -ne 0 ]] && return  # Exit on cancel
-
-        case "$choice" in
-            "__next__") 
-                ((current_page++))
-                continue
-                ;;
-            "__prev__")
-                ((current_page--))
-                continue
-                ;;
-            *)
-            	# Edge case
-            	[[ -z "$choice" ]] && continue
-                # Get original line using awk
-                local selected_line
-                selected_line=$(awk -v line_num="$choice" '
-                    NF > 0 && ++count == line_num {print; exit}
-                ' "$EBOOKS_DB")
-                
-                if [[ -n "$selected_line" ]]; then
-                    local formatted_str="$(format_file_info "$selected_line")"
-                    whiptail --scrolltext --msgbox "$formatted_str" 25 170
-                fi
-                ;;
-        esac
-    done
-}
-
-# OLD VERSION
-# view_ebooks() {
-#     [[ $(wc -l < "$EBOOKS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No ebooks registered." 10 40 && return
-
-#     local tmpfile
-#     tmpfile=$(mktemp)
-#     generate_ebooks_list > "$tmpfile"
-#     whiptail --scrolltext --title "All Registered eBooks" --textbox "$tmpfile" 20 80
-#     rm -f "$tmpfile"
-# }
-
-view_tags() {
-    [[ $(wc -l < "$TAGS_DB") -eq 0 ]] && whiptail --title "Attention" --msgbox "No tags registered." 10 40 && return
-
-    local tmp
-    tmp=$(mktemp) || { echo "mktemp failed" >&2; return 1; }
-
-    sort "$TAGS_DB" >"$tmp"
-    whiptail --scrolltext --title "Tags" --textbox "$tmp" 20 60
-    rm -f "$tmp"
-
-    #whiptail --scrolltext --title "Tags" --textbox "$TAGS_DB" 20 60	# now tags are sorted alphabetically for viewing.
-}
-
-search_tags() {
-    if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
-        return 1
+    if (( ${#all_tags[@]} == 0 )); then
+        whiptail --title "Attention" --msgbox "No tags registered." 10 40
+        return
     fi
 
-    EB_SRC_FILE="$EBOOKS_DB"
-    EB_NO_TAGS=0
-    ebooks_filter_reset
+    local filter="" page=0
+    local total pages start end i h w lh choice t sub
 
-    while ebooks_pick_file "Search eBooks by Tag" "Use __FILTER_BY_TAG__ to search by tag, select a file for its details"; do
-        whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
+    while true; do
+        # __FILTER_BY_TAG__: literal, case insensitive substring match on the tag
+        tags=()
+        if [[ -z "$filter" ]]; then
+            tags=("${all_tags[@]}")
+        else
+            for t in "${all_tags[@]}"; do
+                [[ "${t,,}" == *"${filter,,}"* ]] && tags+=("$t")
+            done
+        fi
+
+        total=${#tags[@]}
+        pages=$(( (total + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+        (( pages < 1 )) && pages=1
+        (( page >= pages )) && page=$(( pages - 1 ))
+        (( page < 0 )) && page=0
+        start=$(( page * EB_PAGE_SIZE ))
+        end=$(( start + EB_PAGE_SIZE ))
+        (( end > total )) && end=$total
+
+        items=()
+        items+=("__FILTER_BY_TAG__" "Filter tags by literal substring${filter:+   [tag filter: $filter]}")
+        items+=("__RESET_FILTER__" "Reset tag filter")
+        (( page > 0 )) && items+=("__PREV_PAGE__" "Previous page")
+        (( page < pages - 1 )) && items+=("__NEXT_PAGE__" "Next page")
+        for (( i=start; i<end; i++ )); do
+            items+=("${tags[i]}" "")
+        done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        choice=$(whiptail --title "Tags" --cancel-button "Back" \
+            --menu "Registered tags: ${#all_tags[@]}  |  Matching: ${total}  |  Page $((page + 1))/${pages}  |  tag filter: ${filter:-(none)}" \
+            "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 0
+
+        case "$choice" in
+            __FILTER_BY_TAG__)
+                sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
+"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
+Only the tags that contain this text are listed.\n\
+Empty input lists ALL tags." 12 "$EB_WIDTH" "$filter" 3>&1 1>&2 2>&3) && { filter="$sub"; page=0; }
+                ;;
+            __RESET_FILTER__) filter=""; page=0 ;;
+            __NEXT_PAGE__)    (( page++ )) ;;
+            __PREV_PAGE__)    (( page-- )) ;;
+        esac
     done
 }
 
@@ -2510,6 +2414,9 @@ lookup_registered_files() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     while ebooks_pick_file "Lookup Registered Files" "Select a file to see its details"; do
         whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
@@ -2932,6 +2839,9 @@ A path marked '(parent: includes sub-directories)' covers the files in all of it
     EB_SRC_FILE="$tmp"
     EB_NO_TAGS=0
     ebooks_filter_reset
+    EB_PATH_MAX=110
+    EB_TAG_PICK=1
+    EB_NO_TAG_ITEM=1
 
     while ebooks_pick_file "Matching files in ${choice}/" "Select a file to see its details"; do
         whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
@@ -4023,19 +3933,15 @@ show_ebooks_menu() {
                 ;;
             "3")
                 # Search & Lookup submenu: Items 2, 10, 8, and 9
-                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 6 \
+                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 3 \
                     "1" "Lookup Registered Files" \
-                    "2" "Search by eBook by Tag" \
-                    "3" "Lookup By Filepath" \
-                    "4" "View All Registered eBooks" \
-                    "5" "View All Registered Tags" 3>&1 1>&2 2>&3)
+                    "2" "Lookup By Filepath" \
+                    "3" "View All Registered Tags" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$SEARCH_OPTION" in
                     "1") lookup_registered_files ;;
-                    "2") search_tags ;;
-                    "3") lookup_by_filepath ;;
-                    "4") view_ebooks ;;
-                    "5") view_tags ;;
+                    "2") lookup_by_filepath ;;
+                    "3") view_tags ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
