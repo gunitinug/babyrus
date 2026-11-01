@@ -751,38 +751,23 @@ ebooks_dir_has_direct_files() {
 }
 
 # Fills DIR_MENU_ITEMS with "dir" "description" pairs ready for a whiptail menu.
-# Directories that only appear as a parent of registered directories are marked
-# and, when chosen, cover all registered files below them (sub-directories too).
-# Fails when there is nothing to list.
+# Parent directories remain selectable, but selecting one does not implicitly
+# include sub-directories; that is controlled explicitly in the file-list UI.
 ebooks_dir_menu_items() {
     DIR_MENU_ITEMS=()
     local d
-    local -A direct=()
     while IFS= read -r d; do
-        [[ -n "$d" ]] && direct["$d"]=1
-    done < <(awk -F'|' 'NF > 0 && $1 != "" { p = $1; if (sub(/\/[^\/]+$/, "", p) && p != "") print p }' "$EBOOKS_DB" | sort -u)
-
-    while IFS= read -r d; do
-        [[ -z "$d" ]] && continue
-        if [[ -n "${direct["$d"]+x}" ]]; then
-            DIR_MENU_ITEMS+=("$d" "")
-        else
-            DIR_MENU_ITEMS+=("$d" "(parent: includes sub-directories)")
-        fi
+        [[ -n "$d" ]] && DIR_MENU_ITEMS+=("$d" "")
     done < <(ebooks_dirs_with_parents)
 
     (( ${#DIR_MENU_ITEMS[@]} > 0 ))
 }
 
-# Prints the db lines of the files in directory $1. If no registered file lives
-# directly in $1 (it is only a parent directory) the files in all its
-# sub-directories are printed as well.
+# Prints the db lines of files directly inside directory $1, or also below it
+# when the optional second argument is 1.
 ebooks_lines_in_scope() {
     local dir="$1" rec="${2:-0}"
-    if [[ "$rec" != "1" ]]; then
-        rec=0
-        ebooks_dir_has_direct_files "$dir" || rec=1
-    fi
+    [[ "$rec" == "1" ]] || rec=0
     awk -F'|' -v d="$dir" -v rec="$rec" '
     NF > 0 {
         p = $1
@@ -814,6 +799,8 @@ EB_PROCEED=""            # name of an extra "proceed" item of a menu (e.g. __ADD
 EB_PROCEED_DESC=""       # its description (@N@ = number of listed files)
 EB_NO_TAG_ITEM=0         # 1 = the tag picker also offers [NO TAG] (only files without tags)
 EB_NO_TAG_VALUE="__NO_TAG__"   # value of EB_TAGF while the [NO TAG] filter is active
+EB_SCOPE_DIR=""           # restrict a file list to this directory
+EB_RECURSIVE=0             # include sub-directories when EB_SCOPE_DIR is set
 
 # Prints "height width list-height" for a whiptail list that shows
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
@@ -842,6 +829,8 @@ ebooks_filter_reset() {
     EB_PROCEED=""
     EB_PROCEED_DESC=""
     EB_NO_TAG_ITEM=0
+    EB_SCOPE_DIR=""
+    EB_RECURSIVE=0
 }
 
 # Truncates a file path for a whiptail menu / checklist item: when the path is
@@ -854,6 +843,37 @@ eb_trunc_path() {
         printf '...%s' "${p: -$(( max - 3 ))}"
     else
         printf '%s' "$p"
+    fi
+}
+
+# Print at most the first ten files from a named array. Entries may be plain
+# paths or EBOOKS_DB lines (path|tags). Set the second argument to "tags" to
+# include shortened tags beside each path; set it to "raw" for arbitrary text
+# such as old -> new rename pairs.
+ebooks_file_list_preview() {
+    local array_name="$1" mode="${2:-path}" total i line path tags
+    local -n entries="$array_name"
+    total=${#entries[@]}
+
+    for (( i=0; i<total && i<10; i++ )); do
+        line="${entries[i]}"
+        case "$mode" in
+            tags)
+                path="${line%%|*}"
+                tags="${line#*|}"
+                printf '  %s %s\n' "$(eb_trunc_path "$path" 110)" "$(format_tags_short "$tags")"
+                ;;
+            raw)
+                printf '  %s\n' "$line"
+                ;;
+            *)
+                printf '  %s\n' "${line%%|*}"
+                ;;
+        esac
+    done
+
+    if (( total > 10 )); then
+        printf '  ... (%d more)\n' "$(( total - 10 ))"
     fi
 }
 
@@ -897,15 +917,25 @@ ebooks_filter_apply() {
     [[ -f "$EB_SRC_FILE" ]] || return 0
     mapfile -t EB_FILTERED < <(
         EB_GLOB="$EB_GLOB" EB_TAGF="$EB_TAGF" EB_TAGEXACT="$EB_TAG_PICK" EB_NOFILT="$EB_NO_FILTERS" \
+        EB_SCOPE_DIR="$EB_SCOPE_DIR" EB_RECURSIVE="$EB_RECURSIVE" \
         awk -F'|' "$EB_AWK_GLOB"'
         BEGIN {
             g = tolower(ENVIRON["EB_GLOB"])
             t = tolower(ENVIRON["EB_TAGF"])
             exact = (ENVIRON["EB_TAGEXACT"] == "1")
+            d = ENVIRON["EB_SCOPE_DIR"]
+            rec = (ENVIRON["EB_RECURSIVE"] == "1")
+            prefix = (d == "/" ? "/" : d "/")
             if (ENVIRON["EB_NOFILT"] == "1") { g = ""; t = "" }
             if (g != "") re = glob2re(g)
         }
         NF > 0 {
+            if (d != "") {
+                p = $1
+                sub(/\/[^\/]*$/, "", p)
+                if (p == "") p = "/"
+                if (p != d && !(rec && index(p, prefix) == 1)) next
+            }
             if (g != "") {
                 lp = tolower($1)
                 name = lp
@@ -1034,6 +1064,10 @@ ebooks_action_items() {
             EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset tag filter" "${extra[@]}")
         fi
     fi
+    if [[ -n "$EB_SCOPE_DIR" ]]; then
+        EB_ACTION_ITEMS+=("__RECURSIVE__" "Include files from sub-directories" "${extra[@]}")
+        EB_ACTION_ITEMS+=("__RESET_RECURSIVE__" "Reset recursive scope (current directory only)" "${extra[@]}")
+    fi
     (( EB_PAGE > 0 )) && EB_ACTION_ITEMS+=("__PREV_PAGE__" "Previous page" "${extra[@]}")
     (( EB_PAGE < pages - 1 )) && EB_ACTION_ITEMS+=("__NEXT_PAGE__" "Next page" "${extra[@]}")
 }
@@ -1045,6 +1079,8 @@ ebooks_do_action() {
         __RESET_GLOB__)    EB_GLOB=""; EB_PAGE=0 ;;
         __FILTER_BY_TAG__) ebooks_ask_tagfilter ;;
         __RESET_FILTER__)  EB_TAGF=""; EB_PAGE=0 ;;
+        __RECURSIVE__)     EB_RECURSIVE=1; EB_PAGE=0 ;;
+        __RESET_RECURSIVE__) EB_RECURSIVE=0; EB_PAGE=0 ;;
         __PREV_PAGE__)     (( EB_PAGE-- )) ;;
         __NEXT_PAGE__)     (( EB_PAGE++ )) ;;
         *) return 1 ;;
@@ -1058,8 +1094,13 @@ ebooks_list_status() {
     local s="Page ${page}/${pages}  |  ${total} file(s)"
     if (( EB_NO_FILTERS == 0 )); then
         s+="  |  glob: ${EB_GLOB:-(none)}"
-        (( EB_NO_TAGS == 0 )) && local tf="${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}"
-        s+="  |  tag filter: ${tf:-(none)}"
+        if (( EB_NO_TAGS == 0 )); then
+            local tf="${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}"
+            s+="  |  tag filter: ${tf:-(none)}"
+        fi
+    fi
+    if [[ -n "$EB_SCOPE_DIR" ]]; then
+        (( EB_RECURSIVE == 1 )) && s+="  |  scope: including sub-directories" || s+="  |  scope: this directory only"
     fi
     printf '%s' "$s"
 }
@@ -1499,21 +1540,15 @@ check_illegal_filenames() {
             illegal_files+=("$basename")
         fi
     done
-    # Output results and return appropriate exit code
-    if [[ ${#illegal_files[@]} -gt 0 ]]; then
-        # Build the message
-        msg="Error: Illegal filenames found:\n"
-        for file in "${illegal_files[@]}"; do
-            msg+="  ${file}\n"
-        done
+    # Output results and return appropriate exit code.
+    if (( ${#illegal_files[@]} > 0 )); then
+        local msg="Error: ${#illegal_files[@]} illegal filename(s) found:\n\n"
+        msg+="$(ebooks_file_list_preview illegal_files raw)"
         msg+="\nConsider renaming the files and retry.\n"
-        
-        # Display the message using whiptail
         whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 170
         return 1
-    else
-        return 0
     fi
+    return 0
 }
 
 register_ebook() {
@@ -1526,18 +1561,22 @@ register_ebook() {
 
     # List the files of the chosen directory (non-recursive). Files that cannot
     # be registered (name starting with '-' or containing '|') are skipped.
-    local tmp f illegal_msg=""
+    local tmp f
+    local -a illegal_files=()
     tmp=$(mktemp) || return 1
     while IFS= read -r -d '' f; do
         if [[ "${f##*/}" == -* || "$f" == *"|"* ]]; then
-            illegal_msg+="  ${f##*/}\n"
+            illegal_files+=("${f##*/}")
             continue
         fi
         printf '%s|\n' "$f" >> "$tmp"
     done < <(find "$search_path" -maxdepth 1 -type f -print0 | sort -z)
 
-    if [[ -n "$illegal_msg" ]]; then
-        whiptail --title "Error" --msgbox "Illegal file names found (skipped, they cannot be registered):\n${illegal_msg}\nConsider renaming the files and retry." 20 170
+    if (( ${#illegal_files[@]} > 0 )); then
+        local illegal_msg="${#illegal_files[@]} illegal file name(s) skipped; they cannot be registered:\n\n"
+        illegal_msg+="$(ebooks_file_list_preview illegal_files raw)"
+        illegal_msg+="\nConsider renaming the files and retry."
+        whiptail --title "Error" --msgbox "$illegal_msg" 20 170
     fi
 
     if [[ ! -s "$tmp" ]]; then
@@ -1974,8 +2013,8 @@ delete_tag_from_global_list() {
     # If tag is still in use
     if [[ ${#used_in[@]} -gt 0 ]]; then
         local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
-        message+=$(printf '%s\n' "${used_in[@]}")
-        message+="\n\nDissociate tag first!"
+        message+="$(ebooks_file_list_preview used_in)"
+        message+="\nDissociate tag first!"
         whiptail --scrolltext --msgbox "$message" 20 170
         return 1
     fi
@@ -1999,7 +2038,7 @@ remove_registered_ebook() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
-    EB_PATH_MAX=120
+    EB_PATH_MAX=110
     EB_TAG_PICK=1
 
     ebooks_pick_file "Select Ebook to Remove" "Select a registered eBook to remove from the database" || return 1
@@ -2107,38 +2146,34 @@ It involves the following steps:\n\
 
     in_operation_msg
 
-    # Files already registered
-    local -A existing_map=()
-    local path _rest
-    if [[ -f "$EBOOKS_DB" ]]; then
-        while IFS='|' read -r path _rest; do
-            existing_map["$path"]=1
-        done < "$EBOOKS_DB"
-    fi
-
-    # Candidates: not registered yet (file names containing '|' cannot be stored)
-    local tmp file skipped=0
+    # Candidates: not registered yet. Done in ONE pipeline (find | awk | sort)
+    # instead of a bash loop doing a read + a printf >> per file, which is very
+    # slow with thousands of files. awk loads the registered paths from the DB
+    # (first input) and filters the find output (second input). File names
+    # containing '|' (or a newline) cannot be stored and are left out.
+    local tmp db_src="$EBOOKS_DB"
+    [[ -f "$db_src" ]] || db_src=/dev/null
     tmp=$(mktemp) || return 1
-    while IFS= read -r -d '' file; do
-        file="${file//\/\//\/}"  # Normalize path
-        [[ -v existing_map["$file"] ]] && continue
-        if [[ "$file" == *"|"* ]]; then
-            (( skipped++ ))
-            continue
-        fi
-        printf '%s|\n' "$file" >> "$tmp"
-    done < <(
-        find "$selected_dir" \
-            -type f \
-            \( \
-                -iname '*.txt' \
-                -o -iname '*.pdf' \
-                -o -iname '*.epub' \
-                -o -iname '*.mobi' \
-                -o -iname '*.azw3' \
-            \) \
-            -print0 2>/dev/null | sort -z
-    )
+    find "$selected_dir" \
+        -type f \
+        \( \
+            -iname '*.txt' \
+            -o -iname '*.pdf' \
+            -o -iname '*.epub' \
+            -o -iname '*.mobi' \
+            -o -iname '*.azw3' \
+        \) \
+        ! -name '*|*' ! -path $'*\n*' \
+        -print 2>/dev/null \
+    | awk -F'|' '
+        FILENAME == ARGV[1] { reg[$1] = 1; next }   # registered paths (DB, first field)
+        {
+            f = $0
+            gsub(/\/\//, "/", f)            # normalize path (same as before)
+            if (!(f in reg)) print f
+        }' "$db_src" - \
+    | sort \
+    | sed 's/$/|/' > "$tmp"
 
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
@@ -2179,9 +2214,7 @@ It involves the following steps:\n\
     {
         echo "Successfully added ${#to_add[@]} files:"
         echo
-        for file in "${to_add[@]}"; do
-            echo "• ${file%|}"
-        done
+        ebooks_file_list_preview to_add
     } > "$result_file"
     whiptail --scrolltext --title "Results" --textbox "$result_file" 20 170
     rm -f "$result_file"
@@ -2671,7 +2704,7 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
     EB_SRC_FILE="$EBOOKS_DB"
     ebooks_filter_reset
     EB_NO_TAGS=0
-    EB_PATH_MAX=120
+    EB_PATH_MAX=110
     EB_TAG_PICK=1
     EB_LIST_ONLY=1
     EB_PROCEED="__PROCEED__"
@@ -2752,18 +2785,9 @@ remove_broken_entries() {
   # Inform the user about the conflicting lines.
   #whiptail --msgbox "$message" 20 78
 
-  # Prepare a message listing the first 20 broken entries.
-  local message="${#conflicting_entries[@]} broken entries found:\n"
-  local count=0
-  for entry in "${conflicting_entries[@]}"; do
-    if (( count < 20 )); then
-      message+="${entry%%|*} $(format_tags_short "${entry#*|}")\n"
-      ((count++))
-    else
-      message+="...\n"
-      break
-    fi
-  done
+  # Show a concise preview; the helper includes the exact number omitted.
+  local message="${#conflicting_entries[@]} broken entries found:\n\n"
+  message+="$(ebooks_file_list_preview conflicting_entries tags)"
   
   # Inform the user about the conflicting lines.
   whiptail --scrolltext --msgbox "$message" 20 170
@@ -2804,7 +2828,7 @@ lookup_by_filepath() {
     whiptail --title "Lookup By File Path" --msgbox \
 "This feature allows you to query files by first choosing a file path among registered files.\n\
 After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
-A path marked '(parent: includes sub-directories)' covers the files in all of its sub-directories." 20 170
+Use __RECURSIVE__ in the file list to include sub-directories." 20 170
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -2814,23 +2838,21 @@ A path marked '(parent: includes sub-directories)' covers the files in all of it
     local choice
     choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
 
-    local tmp
-    tmp=$(mktemp) || return 1
-    ebooks_lines_in_scope "$choice" > "$tmp"
-
-    EB_SRC_FILE="$tmp"
+    EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
     EB_PATH_MAX=110
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
+    EB_SCOPE_DIR="$choice"
+    EB_RECURSIVE=0
 
     while ebooks_pick_file "Matching files in ${choice}/" "Select a file to see its details"; do
         whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
     done
 
+    ebooks_filter_reset
     EB_SRC_FILE=""
-    rm -f "$tmp"
 }
 
 # Open file by first selecting its file path and matching by file name pattern and tag pattern.
@@ -2839,7 +2861,7 @@ open_file_by_filepath() {
     whiptail --title "Open File By File Path" --msgbox \
 "This feature allows you to open a registered file by first choosing a file path from registered files.\n\
 After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
-A path marked '(parent: includes sub-directories)' covers the files in all of its sub-directories.\n\
+Use __RECURSIVE__ in the file list to include sub-directories.\n\
 Then, you can select to open a file item." 20 170
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
@@ -2850,16 +2872,14 @@ Then, you can select to open a file item." 20 170
     local choice
     choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
 
-    local tmp
-    tmp=$(mktemp) || return 1
-    ebooks_lines_in_scope "$choice" > "$tmp"
-
-    EB_SRC_FILE="$tmp"
+    EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
     EB_PATH_MAX=110
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
+    EB_SCOPE_DIR="$choice"
+    EB_RECURSIVE=0
 
     local file
     while ebooks_pick_file "Open file in ${choice}/" "Select a file to open"; do
@@ -2867,8 +2887,8 @@ Then, you can select to open a file item." 20 170
         open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 170
     done
 
+    ebooks_filter_reset
     EB_SRC_FILE=""
-    rm -f "$tmp"
 }
 
 add_ebooks_from_checklist() {
@@ -2877,6 +2897,7 @@ add_ebooks_from_checklist() {
     EB_PATH_MAX=140
     local start_dir="$(pwd)"
     local current_dir="$start_dir"
+    local -a dirs=() files=() items=()
     declare -A global_selected
 
     # Ensure the eBooks DB exists
@@ -2884,15 +2905,20 @@ add_ebooks_from_checklist() {
 
     # Outer loop: directory traversal
     while true; do
-        # Build lists of subdirs and files
+        # Build fresh lists of subdirectories and direct files. mapfile does not
+        # clear an existing array, so clear both before reading a new directory.
+        dirs=()
+        files=()
         mapfile -t dirs < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type d | sort)
-        # files are filtered by the glob (file path or file name); directories stay visible
+        # Files are filtered by the glob (file path or file name); directories stay visible.
         mapfile -t files < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
 
-        # Combine into one array for paging
-        local -a items=("${dirs[@]}" "${files[@]}")
+        # Put direct files first so they remain visible even when the directory
+        # contains many sub-directories; both kinds of entries are still paged.
+        items=("${files[@]}" "${dirs[@]}")
         local total=${#items[@]}
         local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
+        (( pages < 1 )) && pages=1
         local current_page=0
 
         # Paging & selection within this directory
@@ -2900,13 +2926,25 @@ add_ebooks_from_checklist() {
             local start=$(( current_page * ITEMS_PER_PAGE ))
             local end=$(( start + ITEMS_PER_PAGE ))
             (( end > total )) && end=$total
+            (( current_page >= pages )) && current_page=$(( pages - 1 ))
+            (( current_page < 0 )) && current_page=0
+            start=$(( current_page * ITEMS_PER_PAGE ))
+            end=$(( start + ITEMS_PER_PAGE ))
+            (( end > total )) && end=$total
 
-            # Build checklist entries
-            local -a choices=()
-            for i in $(seq "$start" $((end - 1))); do
+            # Put special actions first so they remain visible at the top of
+            # every page instead of appearing after the file/directory entries.
+            local -a choices=(
+                "__APPLY_GLOB__" "Filter files by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "OFF"
+                "__RESET_GLOB__" "Reset glob filter" "OFF"
+                "__up__" "[DIR] .. (parent)" "OFF"
+            )
+            (( current_page > 0 ))       && choices+=("__prev__" "Previous page" "OFF")
+            (( current_page < pages-1 )) && choices+=("__next__" "Next page" "OFF")
+            choices+=("__add__" "Proceed to add selected files" "OFF")
+
+            for (( i=start; i<end; i++ )); do
                 local path="${items[$i]}"
-                local name="$(basename "$path")"
-
                 local name_tr
                 name_tr="$(eb_trunc_path "$path" "$EB_PATH_MAX")"
 
@@ -2914,18 +2952,10 @@ add_ebooks_from_checklist() {
                     choices+=("dir_$i" "[DIR] $name_tr" "OFF")
                 else
                     local state="OFF"
-                    [[ "${global_selected[$path]}" == "1" ]] && state="ON"
+                    [[ "${global_selected[$path]:-0}" == "1" ]] && state="ON"
                     choices+=("file_$i" "$name_tr" "$state")
                 fi
             done
-
-            # Navigation controls
-            choices+=("__APPLY_GLOB__" "Filter files by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "OFF")
-            choices+=("__RESET_GLOB__" "Reset glob filter" "OFF")
-            choices+=("__up__"   "[DIR] .. (parent)"            "OFF")
-            (( current_page > 0 ))        && choices+=("__prev__" "Previous page"               "OFF")
-            (( current_page < pages-1 ))  && choices+=("__next__" "Next page"                   "OFF")
-            choices+=("__add__" "Proceed to add selected files" "OFF")
 
             # Show the checklist
             local result
@@ -2944,7 +2974,7 @@ add_ebooks_from_checklist() {
             ##
             # Snapshot the page’s file selections immediately,
             # so that global_selected is updated on any navigation.
-            for i in $(seq "$start" $((end - 1))); do
+            for (( i=start; i<end; i++ )); do
                 local p="${items[$i]}"
                 if [[ -f "$p" ]]; then
                     if printf "%s\n" "${sel_tags[@]}" | grep -qx "file_$i"; then
@@ -3042,10 +3072,8 @@ add_ebooks_from_checklist() {
     fi
 
     # Confirm and write to DB
-    local msg="These files will be added to $EBOOKS_DB (skipping duplicates):\n"
-    for f in "${to_add[@]}"; do
-        msg+="  $f\n"
-    done
+    local msg="These ${#to_add[@]} files will be added to $EBOOKS_DB (skipping duplicates):\n\n"
+    msg+="$(ebooks_file_list_preview to_add)"
 
     if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Addition"; then
         for f in "${to_add[@]}"; do
@@ -3156,10 +3184,12 @@ and physically on drive. You can also revert the changes later." 15 80
         local change_list
         change_list=$(mktemp) || return 1
         
+        local shown_changes=()
         for change in "${changes[@]}"; do
             IFS='|' read -r old new <<< "$change"
-            echo "  $old -> $new" >> "$change_list"
+            shown_changes+=("$old -> $new")
         done
+        ebooks_file_list_preview shown_changes raw > "$change_list"
 
         whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 170
         rm -f "$change_list"
@@ -3289,7 +3319,7 @@ remove_ebooks_from_checklist() {
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
     ebooks_filter_reset
-    EB_PATH_MAX=120
+    EB_PATH_MAX=110
     EB_TAG_PICK=1
 
     ebooks_pick_files_checklist "Remove Registered eBooks From DB" \
@@ -3308,10 +3338,8 @@ remove_ebooks_from_checklist() {
 
     mapfile -t selected_paths < <(printf '%s\n' "${selected_paths[@]}" | sort)
 
-    local msg="The following entries will be removed:\n"
-    for p in "${selected_paths[@]}"; do
-        msg+="  $p\n"
-    done
+    local msg="The following ${#selected_paths[@]} entries will be removed:\n\n"
+    msg+="$(ebooks_file_list_preview selected_paths)"
 
     if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Removal"; then
         local tmp_db list
@@ -3434,8 +3462,8 @@ dissociate_tag_from_checklist() {
 
     mapfile -t selected_paths < <(printf '%s\n' "${selected_paths[@]}" | sort)
 
-    local msg="The tag '$tag_to_remove' will be removed from:\n"
-    for p in "${selected_paths[@]}"; do msg+="  $p\n"; done
+    local msg="The tag '$tag_to_remove' will be removed from ${#selected_paths[@]} file(s):\n\n"
+    msg+="$(ebooks_file_list_preview selected_paths)"
 
     if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Dissociation"; then
         whiptail --msgbox "Cancelled." 8 40
@@ -3506,10 +3534,8 @@ associate_tag_from_checklist() {
 
     mapfile -t to_update < <(printf '%s\n' "${to_update[@]}" | sort)
 
-    local msg="Tag '${selected_tag}' will be added to (excluding duplicates):\n"
-    for p in "${to_update[@]}"; do
-        msg+="  ${p}\n"
-    done
+    local msg="Tag '${selected_tag}' will be added to ${#to_update[@]} file(s) (excluding duplicates):\n\n"
+    msg+="$(ebooks_file_list_preview to_update)"
 
     if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Association"; then
         whiptail --msgbox "Operation cancelled." 8 40
@@ -3541,7 +3567,7 @@ associate_tag_from_checklist() {
 assoc_tag_by_filepath() {
     whiptail --title "Help" \
          --msgbox "This function will associate your chosen tag to every file in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db (a path marked '(parent: includes sub-directories)' covers the files below it). \
+You may choose from a list of directories registered in the ebooks db. Use __RECURSIVE__ in the file list to include sub-directories. \
 The matching files are listed with their tags before anything is changed." 12 80 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
@@ -3577,34 +3603,25 @@ The matching files are listed with their tags before anything is changed." 12 80
     selected_dir="$(ebooks_select_dir "Choose directory to tag:")" || return 1
     [[ -z "$selected_dir" ]] && return
 
-    local tmp
-    tmp=$(mktemp) || return 1
-    ebooks_lines_in_scope "$selected_dir" > "$tmp"
-
-    if [[ ! -s "$tmp" ]]; then
-        rm -f "$tmp"
-        whiptail --msgbox "No ebooks found in directory: $selected_dir" 10 170 >/dev/tty
-        return 1
-    fi
-
-    # Show the matching files (paginated) with their tags
-    EB_SRC_FILE="$tmp"
+    EB_SRC_FILE="$EBOOKS_DB"
     ebooks_filter_reset
     EB_NO_TAGS=0
     EB_PATH_MAX=110
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
+    EB_SCOPE_DIR="$selected_dir"
+    EB_RECURSIVE=0
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Narrow the list down with the filters, then select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
-    EB_SRC_FILE=""
-    rm -f "$tmp"
+    local scope_recursive="$EB_RECURSIVE"
     ebooks_filter_reset
+    EB_SRC_FILE=""
 
     (( rc != 2 )) && return 1
 
@@ -3613,8 +3630,10 @@ The matching files are listed with their tags before anything is changed." 12 80
         [[ ",${line#*|}," == *",${selected_tag},"* ]] || (( to_update++ ))
     done
 
+    local scope_txt="this directory only"
+    (( scope_recursive == 1 )) && scope_txt="this directory and its sub-directories"
     whiptail --scrolltext --yesno --title "Confirm Association" \
-        "Add tag to ALL files in directory?\n\nDirectory: $selected_dir\nTag: $selected_tag\nFiles: ${#matched[@]} (${to_update} without the tag yet)" \
+        "Add tag to ALL files in directory?\n\nDirectory: $selected_dir ($scope_txt)\nTag: $selected_tag\nFiles: ${#matched[@]} (${to_update} without the tag yet)" \
         14 170 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     local list
@@ -3633,7 +3652,7 @@ The matching files are listed with their tags before anything is changed." 12 80
 dissoc_tag_by_filepath() {
     whiptail --title "Help" \
          --msgbox "This function will dissociate your chosen tag from the files in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db (a path marked '(parent: includes sub-directories)' covers the files below it). \
+You may choose from a list of directories registered in the ebooks db. Use __RECURSIVE__ in the file list to include sub-directories. \
 The files carrying the tag are listed with their tags before anything is changed. It is inverse of associate tag by filepath function." 12 80 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
@@ -3655,11 +3674,10 @@ The files carrying the tag are listed with their tags before anything is changed
 
     local tmp
     tmp=$(mktemp) || return 1
-    ebooks_lines_in_scope "$selected_dir" | ebooks_lines_having_tag "$selected_tag" > "$tmp"
-
+    ebooks_lines_having_tag "$selected_tag" < "$EBOOKS_DB" > "$tmp"
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in directory: $selected_dir" 10 170 >/dev/tty
+        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in the database." 10 170 >/dev/tty
         return 1
     fi
 
@@ -3670,13 +3688,16 @@ The files carrying the tag are listed with their tags before anything is changed
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
     EB_LIST_ONLY=1
+    EB_SCOPE_DIR="$selected_dir"
+    EB_RECURSIVE=0
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Dissociate Tag By File Path" "Files in '${selected_dir}' carrying '${selected_tag}'. Select __PROCEED__ to remove it from ALL listed files." || rc=$?
+    ebooks_pick_file "Dissociate Tag By File Path" "Files in '${selected_dir}' carrying '${selected_tag}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to remove it from ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
+    local scope_recursive="$EB_RECURSIVE"
     EB_SRC_FILE=""
     rm -f "$tmp"
     ebooks_filter_reset
@@ -3688,8 +3709,10 @@ The files carrying the tag are listed with their tags before anything is changed
         return 1
     fi
 
+    local scope_txt="this directory only"
+    (( scope_recursive == 1 )) && scope_txt="this directory and its sub-directories"
     whiptail --scrolltext --yesno --title "Confirm Removal" \
-        "Remove tag from ALL listed files?\n\nDirectory: $selected_dir\nTag: $selected_tag\nFiles: ${#matched[@]}" \
+        "Remove tag from ALL listed files?\n\nDirectory: $selected_dir ($scope_txt)\nTag: $selected_tag\nFiles: ${#matched[@]}" \
         14 170 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     local list
@@ -3705,54 +3728,30 @@ The files carrying the tag are listed with their tags before anything is changed
     whiptail --msgbox "Successfully removed '${selected_tag}' from ${#matched[@]} files." 10 60
 }
 
-# Shared by 'Remove Files by Filepath' and 'Remove Files by Filepath Recursively'.
-# $1 = directory, $2 = "auto" (a directory that only is a parent also covers its
-# sub-directories) or "recursive" (always the directory and ALL its sub-directories).
-# Lists every registered file in scope WITH its tags (paginated, paths truncated
-# to 120 characters). __PROCEED__ removes the files without tags; files with
-# tags are never removed.
+# Remove registered files from the selected directory. Sub-directories are
+# included only after the user selects __RECURSIVE__ in the file-list UI.
 ebooks_remove_files_in_path() {
-    local selected_dir="$1" mode="$2"
+    local selected_dir="$1"
 
-    local scope_recursive=0
-    if [[ "$mode" == "recursive" ]]; then
-        scope_recursive=1
-    else
-        ebooks_dir_has_direct_files "$selected_dir" || scope_recursive=1
-    fi
-
-    # every registered file in scope, tagged or not
-    local tmp
-    tmp=$(mktemp) || return 1
-    ebooks_lines_in_scope "$selected_dir" "$scope_recursive" > "$tmp"
-
-    if ! grep -q '|$' "$tmp"; then
-        rm -f "$tmp"
-        whiptail --title "Information" --msgbox "No files found to delete in '$selected_dir' without tags." 10 170 >/dev/tty
-        return 1
-    fi
-
-    local scope_txt="(non-recursive)"
-    (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
-
-    # Show the files (with their tags). __PROCEED__ continues to the confirmation.
-    EB_SRC_FILE="$tmp"
+    EB_SRC_FILE="$EBOOKS_DB"
     ebooks_filter_reset
     EB_NO_TAGS=0
-    EB_PATH_MAX=120
+    EB_PATH_MAX=110
     EB_TAG_PICK=1
     EB_LIST_ONLY=1
+    EB_SCOPE_DIR="$selected_dir"
+    EB_RECURSIVE=0
     EB_PROCEED="__PROCEED__"
     EB_PROCEED_DESC="Remove the files without tags among the @N@ matched files"
 
     local rc=0
     ebooks_pick_file "Files Under ${selected_dir}" \
-        "Registered files under '${selected_dir}' ${scope_txt} with their tags. Narrow the list down with the filters; files with tags are never removed." || rc=$?
+        "Registered files under '${selected_dir}' with their tags. Use __RECURSIVE__ to include sub-directories; files with tags are never removed." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
-    EB_SRC_FILE=""
-    rm -f "$tmp"
+    local scope_recursive="$EB_RECURSIVE"
     ebooks_filter_reset
+    EB_SRC_FILE=""
 
     (( rc != 2 )) && return 1
 
@@ -3766,40 +3765,33 @@ ebooks_remove_files_in_path() {
         fi
     done
 
-    if [[ ${#files_to_delete[@]} -eq 0 ]]; then
+    if (( ${#files_to_delete[@]} == 0 )); then
         whiptail --title "Information" --msgbox "None of the matched files is without tags. Nothing to remove." 10 100
         return 1
     fi
 
-    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
+    local scope_txt="(this directory only)"
+    (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
 
+    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
     if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 170; then
         return 1
     fi
 
-    # Backup before modification
     local backup_file="${EBOOKS_DB}.backup"
     cp "$EBOOKS_DB" "$backup_file"
 
-    # Remove exactly the matched files without tags (fixed-string comparison, no regex)
     local list
     list=$(mktemp) || return 1
     printf '%s\n' "${files_to_delete[@]}" > "$list"
     awk -F'|' 'NR == FNR { m[$0] = 1; next } !(($1 in m) && $0 ~ /\|$/)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
     rm -f "$list"
 
-    local deleted_msg="Removed files from ebooks db:\n\n$(printf '%s\n' "${files_to_delete[@]:0:10}")"
-    if [[ ${#files_to_delete[@]} -gt 10 ]]; then
-        deleted_msg+="\n..."
-    fi
+    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete)"
     whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 170
 
-    if [[ ${#tagged_files[@]} -gt 0 ]]; then
-        local excluded_msg="The following matched files were not deleted because they have tag(s):\n\n$(printf '%s\n' "${tagged_files[@]:0:10}")"
-        if [[ ${#tagged_files[@]} -gt 10 ]]; then
-            excluded_msg+="\n..."
-        fi
-        excluded_msg+="\n\nPlease dissociate tag(s) from these files first."
+    if (( ${#tagged_files[@]} > 0 )); then
+        local excluded_msg="The following matched files were not deleted because they have tag(s):\n\n$(ebooks_file_list_preview tagged_files)\nPlease dissociate tag(s) from these files first."
         whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 170
     fi
 
@@ -3807,10 +3799,7 @@ ebooks_remove_files_in_path() {
 }
 
 remove_files_by_filepath() {
-    whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path. \
-It does not search recursively but just files under selected path (a path marked '(parent: includes sub-directories)' covers the files below it). \
-The files are listed with their tags. If a file has a tag associated with it, it will not be removed. \
-It does not delete the files physically on drive." 12 78 >/dev/tty
+    whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If a file has a tag associated with it, it will not be removed. It does not delete files physically from the drive." 12 100 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -3819,34 +3808,10 @@ It does not delete the files physically on drive." 12 78 >/dev/tty
 
     local selected_dir
     selected_dir="$(ebooks_select_dir "Choose a directory to remove files from:")" || return 1
+    [[ -n "$selected_dir" ]] || return 1
 
-    if [[ -z "$selected_dir" ]]; then
-        return 1
-    fi
-
-    ebooks_remove_files_in_path "$selected_dir" auto
+    ebooks_remove_files_in_path "$selected_dir"
 }
-
-remove_files_by_filepath_recursive() {
-    whiptail --title "Attention" --msgbox "This function allows user to remove all files from ebooks db under file path including files in ALL of its sub-directories. \
-The files are listed with their tags. If a file has a tag associated with it, it will not be removed. \
-It does not delete the files physically on drive." 12 78 >/dev/tty
-
-    [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
-        return 1
-    }
-
-    local selected_dir
-    selected_dir="$(ebooks_select_dir "Choose a root directory to remove files from:")" || return 1
-
-    if [[ -z "$selected_dir" ]]; then
-        return 1
-    fi
-
-    ebooks_remove_files_in_path "$selected_dir" recursive
-}
-
 
 # Manage eBooks menu
 show_ebooks_menu() {
@@ -3873,8 +3838,7 @@ show_ebooks_menu() {
                     "4" "Remove Registered eBook" \
                     "5" "Remove eBooks From Checklist" \
                     "6" "Remove Files In Bulk" \
-		    "7" "Remove Files by Filepath" \
-		    "8" "Remove Files by Filepath Recursively" 3>&1 1>&2 2>&3)
+		    "7" "Remove Files by Filepath" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$FILE_OPTION" in
                     "1") add_files_in_bulk ;;
@@ -3884,7 +3848,6 @@ show_ebooks_menu() {
                     "5") remove_ebooks_from_checklist ;;
                     "6") remove_files_in_bulk ;;
 		    "7") remove_files_by_filepath ;;
-		    "8") remove_files_by_filepath_recursive ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
@@ -30792,8 +30755,7 @@ You can:
     Remove a single registered ebook.
     Remove ebooks in bulk using filename and optional tag filters.
     Remove selected ebooks from a checklist.
-    Remove every registered ebook within a specific file path.
-    Recursively remove all registered ebooks beneath a chosen file path, including every subdirectory.
+    Remove registered ebooks within a chosen file path, with an option to include its subdirectories.
 
 These options make it easy to maintain even very large ebook collections.
 
@@ -30822,7 +30784,7 @@ You can:
     Dissociate a tag from a single ebook.
     Dissociate a tag from multiple ebooks in bulk.
     Dissociate a tag from selected ebooks using a checklist.
-    Dissociate a tag from every registered ebook within a chosen file path.
+    Dissociate a tag from registered ebooks within a chosen file path, with an option to include its subdirectories.
 
 When a tag is no longer associated with any ebook, it can be safely removed from the global tag list, helping keep your tag collection clean and meaningful.
 
