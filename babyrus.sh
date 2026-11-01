@@ -976,16 +976,35 @@ Empty input removes the glob filter." 14 "$EB_WIDTH" "$EB_GLOB" 3>&1 1>&2 2>&3) 
 }
 
 ebooks_ask_tagfilter() {
+    # In substring mode, explicitly offer [NO TAG] alongside the existing
+    # substring-filter workflow. Exact-tag mode uses the tag picker below,
+    # which also offers [NO TAG].
     if (( EB_TAG_PICK == 1 )); then
         ebooks_pick_tag_filter
         return
     fi
-    local t
-    t=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
+
+    local choice t current_filter="${EB_TAGF}"
+    [[ "$current_filter" == "$EB_NO_TAG_VALUE" ]] && current_filter=""
+
+    choice=$(whiptail --title "__FILTER_BY_TAG__" --menu \
+        "Choose how to filter the files by tag:" 12 "$EB_WIDTH" 2 \
+        "[NO TAG]" "Only show files with no tag associated" \
+        "__TAG_SUBSTRING__" "Filter by a tag-name substring" \
+        3>&1 1>&2 2>&3) || return 1
+
+    case "$choice" in
+        "[NO TAG]")
+            EB_TAGF="$EB_NO_TAG_VALUE"
+            ;;
+        "__TAG_SUBSTRING__")
+            t=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
 "Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
 Only files having a tag that contains this text are listed.\n\
-Empty input removes the tag filter." 12 "$EB_WIDTH" "$EB_TAGF" 3>&1 1>&2 2>&3) || return 1
-    EB_TAGF="$t"
+Empty input removes the tag filter." 12 "$EB_WIDTH" "$current_filter" 3>&1 1>&2 2>&3) || return 1
+            EB_TAGF="$t"
+            ;;
+    esac
     EB_PAGE=0
 }
 
@@ -1021,23 +1040,9 @@ Empty input lists ALL tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
         END { for (x in seen) print x }' | sort
     )
 
-    if (( ${#matches[@]} == 0 )); then
-        # Without matching tags only the [NO TAG] item (if enabled) can be offered,
-        # and only when the user did not type a pattern.
-        if (( EB_NO_TAG_ITEM == 0 )) || [[ -n "$sub" ]]; then
-            if [[ -z "$sub" ]]; then
-                whiptail --title "No Tags" --msgbox "None of the listed files has a tag." 8 60
-            else
-                whiptail --title "No Matching Tags" --msgbox "No tag contains '$sub'." 8 60
-            fi
-            return 1
-        fi
-    fi
-
-    # [NO TAG]: only list the files that have no tags associated
-    if (( EB_NO_TAG_ITEM == 1 )); then
-        pairs+=("[NO TAG]" "Only show files with no tags")
-    fi
+    # Always offer [NO TAG], even when no tagged files match the entered
+    # substring. Selecting it filters the current source to untagged files only.
+    pairs+=("[NO TAG]" "Only show files with no tags")
     for tag in "${matches[@]}"; do
         pairs+=("$tag" "")
     done
@@ -1278,22 +1283,32 @@ ebooks_select_dir() {
     done
 }
 
-# Paginated (50 per page) tag picker. Args: title, then "tag" "desc" pairs.
+# Paginated tag picker. Args: title, then "tag" "desc" pairs.
+# When the first item is [NO TAG], pin it at the top of EVERY page so the
+# untagged-file filter remains available regardless of how many tags exist.
 # Prints the chosen tag (first column).
 eb_paginate_tags_menu() {
     local title="$1"
     shift
     local items=("$@")
     local total_items=$(( ${#items[@]} / 2 ))
-    local total_pages=$(( (total_items + EB_PAGE_SIZE - 1) / EB_PAGE_SIZE ))
+    local pinned_no_tag=0 data_offset=0 page_size="$EB_PAGE_SIZE" data_items
+    if (( total_items > 0 )) && [[ "${items[0]}" == "[NO TAG]" ]]; then
+        pinned_no_tag=1
+        data_offset=2
+        (( page_size > 1 )) && (( page_size-- ))
+    fi
+    data_items=$(( total_items - pinned_no_tag ))
+    local total_pages=$(( (data_items + page_size - 1) / page_size ))
     (( total_pages < 1 )) && total_pages=1
     local current_page=1 choice start_index end_index i h w lh
     local -a menu_items
 
     while true; do
-        start_index=$(( (current_page - 1) * EB_PAGE_SIZE * 2 ))
-        end_index=$(( start_index + EB_PAGE_SIZE * 2 ))
+        start_index=$(( data_offset + (current_page - 1) * page_size * 2 ))
+        end_index=$(( start_index + page_size * 2 ))
         menu_items=()
+        (( pinned_no_tag == 1 )) && menu_items+=("${items[0]}" "${items[1]}")
         (( current_page > 1 )) && menu_items+=("<< Prev" "")
         (( current_page < total_pages )) && menu_items+=(">> Next" "")
         for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
@@ -2913,9 +2928,9 @@ add_ebooks_from_checklist() {
         # Files are filtered by the glob (file path or file name); directories stay visible.
         mapfile -t files < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
 
-        # Put direct files first so they remain visible even when the directory
-        # contains many sub-directories; both kinds of entries are still paged.
-        items=("${files[@]}" "${dirs[@]}")
+        # Show directories first, followed by files, as requested. Both kinds
+        # of entries remain paginated and directly selectable.
+        items=("${dirs[@]}" "${files[@]}")
         local total=${#items[@]}
         local pages=$(( (total + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE ))
         (( pages < 1 )) && pages=1
