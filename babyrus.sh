@@ -6067,6 +6067,8 @@ NT_NO_TAG_LABEL="[NO TAG]"      # pseudo tag: notes that have no tag at all
 NT_CURRENT_TAG=""               # tag currently being filtered by (shown in statuses)
 NT_NOTE_GLOB=""                 # glob applied to lists of notes
 NT_PROJECT_GLOB=""              # glob applied to lists of projects
+NT_TAG_FILTER=""                # literal substring filter applied to lists of tags
+NT_PICKED_TAG=""                # result of nt_pick_tag
 NT_PICKED_LINE=""               # result of nt_pick_note_line (NOTES_DB style line)
 NT_PICKED_INDEX=-1              # result of nt_pick_note_line (index in the given lines)
 NT_CHECKED_PATHS=()             # result of nt_pick_notes_checklist (note paths)
@@ -6098,25 +6100,109 @@ nt_glob_match() {
 # nt_ask_glob notes|projects  -> asks for a glob and stores it in the right variable.
 nt_ask_glob() {
     local kind="$1" current what new
-    if [[ "$kind" == "projects" ]]; then
-        current="$NT_PROJECT_GLOB"
-        what="TITLE of the project"
-    else
-        current="$NT_NOTE_GLOB"
-        what="TITLE of the note"
-    fi
+    case "$kind" in
+        projects) current="$NT_PROJECT_GLOB"; what="TITLE of the project" ;;
+        *)        current="$NT_NOTE_GLOB";    what="TITLE of the note" ;;
+    esac
 
     new=$(whiptail --title "__APPLY_GLOB__" --inputbox \
 "Enter a glob to filter by the ${what} (case insensitive).\n\
-* matches any characters (also across directories), ? matches one character.\n\
-The whole title must match, e.g.  *python*  or  Chapter ?*\n\
+* matches any characters, ? matches one character.\n\
+The whole ${what#* of the } must match, e.g.  *python*  or  Chapter ?*\n\
 Empty input removes the glob filter." 16 90 "$current" 3>&1 1>&2 2>&3) || return 1
 
-    if [[ "$kind" == "projects" ]]; then
-        NT_PROJECT_GLOB="$new"
-    else
-        NT_NOTE_GLOB="$new"
+    case "$kind" in
+        projects) NT_PROJECT_GLOB="$new" ;;
+        *)        NT_NOTE_GLOB="$new" ;;
+    esac
+}
+
+# nt_ask_tag_filter -> asks for a text and stores it in NT_TAG_FILTER.
+# Tags are narrowed down by a literal (not glob) substring match, case-insensitive.
+nt_ask_tag_filter() {
+    local new
+    new=$(whiptail --title "__FILTER__" --inputbox \
+"Enter text to narrow down the tag list.\n\
+Tags that contain this text are shown (literal substring match, case insensitive; no wildcards).\n\
+Empty input removes the filter." 12 90 "$NT_TAG_FILTER" 3>&1 1>&2 2>&3) || return 1
+    NT_TAG_FILTER="$new"
+}
+
+# nt_pick_tag TITLE PROMPT INCLUDE_NO_TAG
+# Paginated menu of tags (from $NOTES_TAGS_DB) with __FILTER__ /
+# __RESET_FILTER__ (literal substring match) on top. INCLUDE_NO_TAG=1 always
+# shows [NO TAG] (never hidden by the filter). 50 tags per page, in a large box (clamped to the terminal height).
+# On success sets NT_PICKED_TAG and returns 0; returns 1 on Back/Esc.
+nt_pick_tag() {
+    local title="$1" prompt="$2" include_no_tag="${3:-0}"
+    local -a all_tags=() shown=() menu=()
+    local tag k per_page=50 page=0
+    NT_PICKED_TAG=""
+    NT_TAG_FILTER=""
+
+    if [[ -f "$NOTES_TAGS_DB" ]]; then
+        while IFS= read -r tag || [[ -n "$tag" ]]; do
+            [[ -n "$tag" ]] && all_tags+=("$tag")
+        done < "$NOTES_TAGS_DB"
     fi
+
+    while :; do
+        shown=()
+        for tag in "${all_tags[@]}"; do
+            if [[ -z "$NT_TAG_FILTER" || "${tag,,}" == *"${NT_TAG_FILTER,,}"* ]]; then
+                shown+=("$tag")
+            fi
+        done
+
+        local matched=${#shown[@]}
+        local pages=$(( (matched + per_page - 1) / per_page ))
+        (( pages < 1 )) && pages=1
+        (( page >= pages )) && page=$(( pages - 1 ))
+        (( page < 0 )) && page=0
+
+        menu=()
+        (( include_no_tag )) && menu+=("$NT_NO_TAG_LABEL" "Notes with no tag associated")
+        menu+=(
+            "__FILTER__" "Filter tags by text (literal substring)${NT_TAG_FILTER:+   [filter: $NT_TAG_FILTER]}"
+            "__RESET_FILTER__" "Reset tag filter"
+        )
+        (( page > 0 )) && menu+=("<< Previous Page" "")
+        (( page < pages - 1 )) && menu+=(">> Next Page" "")
+
+        local s=$(( page * per_page )) e=$(( page * per_page + per_page ))
+        (( e > matched )) && e=$matched
+        for ((k = s; k < e; k++)); do
+            menu+=("${shown[k]}" "")
+        done
+
+        local status="${prompt}\n\nFilter: ${NT_TAG_FILTER:-(none)}  |  ${matched}/${#all_tags[@]} tag(s)"
+        (( matched == 0 )) && status+="  |  No tags match the filter."
+
+        # Large box: 50 tags + [NO TAG] + filter items + 2 navigation items
+        # without scrolling (clamped when the terminal is smaller).
+        local box_h=64 menu_h=55 term_h
+        term_h=$(tput lines 2>/dev/null || echo "$box_h")
+        if (( term_h < box_h )); then
+            box_h=$term_h
+            menu_h=$(( box_h - 9 ))
+            (( menu_h < 5 )) && menu_h=5
+        fi
+
+        local choice
+        choice=$(whiptail --title "$title (Page $((page + 1))/${pages})" --cancel-button "Back" \
+            --menu "$status" "$box_h" 150 "$menu_h" "${menu[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            "__FILTER__")       nt_ask_tag_filter; page=0 ;;
+            "__RESET_FILTER__") NT_TAG_FILTER=""; page=0 ;;
+            "<< Previous Page") (( page-- )) ;;
+            ">> Next Page")     (( page++ )) ;;
+            *)
+                NT_PICKED_TAG="$choice"
+                return 0
+                ;;
+        esac
+    done
 }
 
 # nt_pick_note_line TITLE LINE...
@@ -6426,82 +6512,10 @@ nt_filter_notes_with_urls() {
 
 # FIX: Paginated.
 get_note_tag_from_global_list() {
-    # $1 (optional): prompt text of the menu.
-    # [NO TAG] is always offered (top of every page) to work with the notes
-    # that have no tag associated to them.
-    local prompt="${1:-Choose a tag}"
-    local tags_file="${NOTES_TAGS_DB}"
-
-    # Read all tags into array
-    local all_tags=() tag
-    if [[ -f "$tags_file" ]]; then
-        while IFS= read -r tag || [[ -n "$tag" ]]; do
-            [[ -n "$tag" ]] && all_tags+=("$tag")
-        done < "$tags_file"
-    fi
-
-    # Pagination variables
-    local current_page=0
-    local tags_per_page=50
-    local total_pages=$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page ))
-    (( total_pages < 1 )) && total_pages=1
-
-    while true; do
-        # Calculate start and end indices for current page
-        local start=$((current_page * tags_per_page))
-        local end=$((start + tags_per_page))
-
-        # [NO TAG] first, then the tags of the current page
-        local menu_items=("$NT_NO_TAG_LABEL" "Notes with no tag associated")
-        for ((i=start; i<end && i<${#all_tags[@]}; i++)); do
-            menu_items+=("${all_tags[i]}" "")
-        done
-
-        # Add navigation buttons if needed
-        if [[ $current_page -gt 0 ]]; then
-            menu_items+=("<< Previous Page" "")
-        fi
-        if [[ $current_page -lt $((total_pages - 1)) ]]; then
-            menu_items+=(">> Next Page" "")
-        fi
-
-        # Large box: 50 tags + [NO TAG] + 2 navigation items without scrolling
-        # (clamped to the terminal height when the terminal is smaller).
-        local box_h=61 menu_h=53 term_h
-        term_h=$(tput lines 2>/dev/null || echo "$box_h")
-        if (( term_h < box_h )); then
-            box_h=$term_h
-            menu_h=$(( box_h - 8 ))
-            (( menu_h < 5 )) && menu_h=5
-        fi
-
-        # Use whiptail to display menu
-        local selected_tag
-        selected_tag=$(whiptail --title "Do stuff by Tag (Page $((current_page + 1))/$total_pages)" \
-                               --menu "$prompt" "$box_h" 150 "$menu_h" "${menu_items[@]}" \
-                               3>&1 1>&2 2>&3 >/dev/tty)
-
-        # Check if selection was cancelled
-        if [[ $? -ne 0 ]]; then
-            return 1
-        fi
-
-        # Handle pagination navigation
-        case "$selected_tag" in
-            "<< Previous Page")
-                current_page=$((current_page - 1))
-                continue
-                ;;
-            ">> Next Page")
-                current_page=$((current_page + 1))
-                continue
-                ;;
-            *)
-                echo "$selected_tag"
-                return 0
-                ;;
-        esac
-    done
+    # $1 (optional): prompt text. Thin wrapper kept for compatibility; the
+    # tag list (with [NO TAG], __FILTER__ / __RESET_FILTER__) is nt_pick_tag.
+    nt_pick_tag "Do stuff by Tag" "${1:-Choose a tag}" 1 || return 1
+    echo "$NT_PICKED_TAG"
 }
 
 filter_notes_by_tag() {
@@ -7380,70 +7394,11 @@ Tag you have chosen will be added to the selected notes." 10 60
             return 1
         fi
 
-        paginate_tags_menu() {
-            local title="$1"
-            shift
-            local items=("$@")
-            local per_page=20
-            local total_items=$(( ${#items[@]} / 2 ))
-            local total_pages=$(( (total_items + per_page - 1) / per_page ))
-            local current_page=1
-            local choice start_index end_index menu_items tag desc
-
-            while true; do
-                # Calculate start and end indices for current page
-                start_index=$(( (current_page - 1) * per_page * 2 ))
-                end_index=$(( start_index + per_page * 2 ))
-                menu_items=()
-
-                # Add items for current page
-                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                    tag="${items[i]}"
-                    desc="${items[i+1]}"
-                    menu_items+=("$tag" "$desc")
-                done
-
-                # Add navigation options
-                if (( current_page > 1 )); then
-                    menu_items+=("<< Prev" "")
-                fi
-                if (( current_page < total_pages )); then
-                    menu_items+=(">> Next" "")
-                fi
-
-                # Show whiptail menu
-                choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 70 10 \
-                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                case "$choice" in
-                    ">> Next")
-                        (( current_page++ ))
-                        ;;
-                    "<< Prev")
-                        (( current_page-- ))
-                        ;;
-                    *)
-                        # Return selected tag
-                        printf '%s\n' "$choice"
-                        return 0
-                        ;;
-                esac
-            done
-        }
-
+        # Tag list with __FILTER__ / __RESET_FILTER__ (same large box as __CHANGE_TAG__).
+        # [NO TAG] is not offered: it is not a real tag that could be added to notes.
         local selected_tag
-        # selected_tag=$(
-        #     whiptail --title "Select tag" \
-        #         --menu "Choose the tag to add:" \
-        #         20 70 10 \
-        #         "${tag_menu[@]}" \
-        #         3>&1 1>&2 2>&3
-        # ) || return 1
-
-        selected_tag=$(paginate_tags_menu "Choose Tag" "${tag_menu[@]}") || return 1
+        nt_pick_tag "Choose Tag" "Choose the tag to add to the selected notes" 0 || return 1
+        selected_tag="$NT_PICKED_TAG"
 
         local -A selected_paths=()
         local p
@@ -7558,7 +7513,8 @@ In the filtered view, __CHANGE_TAG__ filters the notes by a different tag and __
 After creating a new note, you can choose to associate it to a project file. Afterwards, you can do stuff with it from Manage Goals section such as View Note or Open ebooks." 22 76
 
     local chosen_tag original_tag
-    chosen_tag=$(get_note_tag_from_global_list) || return 1
+    nt_pick_tag "Do stuff by Tag" "Choose a tag" 1 || return 1
+    chosen_tag="$NT_PICKED_TAG"
     original_tag="$chosen_tag"
 
     while :; do
@@ -7608,7 +7564,8 @@ After creating a new note, you can choose to associate it to a project file. Aft
         case "$choice" in
             "__CHANGE_TAG__")
                 local new_tag
-                new_tag=$(get_note_tag_from_global_list "Choose a different tag to filter the notes by (current: ${chosen_tag})") || continue
+                nt_pick_tag "Do stuff by Tag" "Choose a different tag to filter the notes by (current: ${chosen_tag})" 1 || continue
+                new_tag="$NT_PICKED_TAG"
                 chosen_tag="$new_tag"
                 ;;
             "__REVERT_TAG__")
