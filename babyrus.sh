@@ -86,7 +86,7 @@ enforce_touch_files
 #+++ CONFIGURATION +++#
 # Tweak this to set external apps.
 declare -A EXTENSION_COMMANDS=(
-    ["txt"]="gnome-text-editor"
+    ["txt"]="geany"
     ["pdf"]="zathura"
     ["epub"]="okular"
     ["mobi"]="okular"
@@ -95,7 +95,7 @@ declare -A EXTENSION_COMMANDS=(
 
 # Tweak these to set external apps for other sections.
 DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
+URL_BROWSER="firefox"
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -806,6 +806,27 @@ EB_RECURSIVE=0             # include sub-directories when EB_SCOPE_DIR is set
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
 # to the terminal height; whiptail scrolls inside the list when it is smaller.
 eb_menu_dims() {
+    local rows cols want h w
+
+    read -r rows cols < <(stty size </dev/tty 2>/dev/null)
+
+    [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols=0
+
+    want=$(( EB_PAGE_SIZE + 16 ))
+    h=$want
+    w=$EB_WIDTH
+
+    (( rows > 0 && h > rows )) && h=$rows
+    (( h < 14 )) && h=14
+
+    (( cols > 0 && w > cols )) && w=$cols
+    (( w < 40 )) && w=40
+
+    echo "$h $w $(( h - 10 ))"
+}
+
+eb_menu_dims_old() {
     local rows want h
     rows=$( { stty size </dev/tty; } 2>/dev/null | cut -d' ' -f1)
     [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
@@ -1560,7 +1581,7 @@ check_illegal_filenames() {
         local msg="Error: ${#illegal_files[@]} illegal filename(s) found:\n\n"
         msg+="$(ebooks_file_list_preview illegal_files raw)"
         msg+="\nConsider renaming the files and retry.\n"
-        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 170
+        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 155
         return 1
     fi
     return 0
@@ -1591,12 +1612,12 @@ register_ebook() {
         local illegal_msg="${#illegal_files[@]} illegal file name(s) skipped; they cannot be registered:\n\n"
         illegal_msg+="$(ebooks_file_list_preview illegal_files raw)"
         illegal_msg+="\nConsider renaming the files and retry."
-        whiptail --title "Error" --msgbox "$illegal_msg" 20 170
+        whiptail --title "Error" --msgbox "$illegal_msg" 20 155
     fi
 
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --title "No Matches Found" --msgbox "No files found in: $search_path" 8 170
+        whiptail --title "No Matches Found" --msgbox "No files found in: $search_path" 8 155
         return 1
     fi
 
@@ -1619,7 +1640,7 @@ register_ebook() {
     fi
 
     echo "$selected|" >> "$EBOOKS_DB"
-    whiptail --msgbox "Registered: $selected" 20 170
+    whiptail --msgbox "Registered: $selected" 20 155
 }
 
 # debug
@@ -1761,7 +1782,7 @@ associate_tag() {
             continue
         fi
 
-        whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 170 || continue
+        whiptail --title "Confirm" --yesno "Do you want me to go ahead and associate '${tag}' to '${ebook}'?" 20 155 || continue
 
         tmpfile=$(mktemp)
         EB_P="$ebook" EB_T="$tag" awk '
@@ -1773,7 +1794,7 @@ associate_tag() {
             { print }
         ' "$EBOOKS_DB" > "$tmpfile" && mv "$tmpfile" "$EBOOKS_DB"
 
-        whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 170
+        whiptail --msgbox "Tag '$tag' added to '$ebook'!" 20 155
     done
 }
 
@@ -1903,7 +1924,7 @@ dissociate_tag_from_registered_ebook() {
     local selected_tag
     selected_tag=$(eb_paginate_tags_menu "Remove Tag from eBook" "${tag_menu_items[@]}") || return 0
 
-    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 170 || return 0
+    whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 155 || return 0
 
     for tag in "${tags_array[@]}"; do
         [[ "$tag" != "$selected_tag" ]] && new_tags+=("$tag")
@@ -1924,7 +1945,7 @@ dissociate_tag_from_registered_ebook() {
     ' "$EBOOKS_DB" > "$temp_file"
 
     mv -f "$temp_file" "$EBOOKS_DB"
-    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 170
+    whiptail --msgbox "Tag '$selected_tag' removed from '$selected_ebook'!" 20 155
 }
 
 delete_tag_from_global_list() {
@@ -2030,7 +2051,7 @@ delete_tag_from_global_list() {
         local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
         message+="$(ebooks_file_list_preview used_in)"
         message+="\nDissociate tag first!"
-        whiptail --scrolltext --msgbox "$message" 20 170
+        whiptail --scrolltext --msgbox "$message" 20 155
         return 1
     fi
 
@@ -2060,7 +2081,7 @@ remove_registered_ebook() {
 
     local selected_path="${EB_SELECTED_LINE%%|*}"
 
-    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 170 \
+    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 155 \
         --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
 
     if [ $? -eq 0 ]; then
@@ -2070,7 +2091,7 @@ remove_registered_ebook() {
         EB_P="$selected_path" awk -F'|' '$1 != ENVIRON["EB_P"]' "$EBOOKS_DB" > "$temp_file"
         mv "$temp_file" "$EBOOKS_DB"
 
-        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 20 170
+        whiptail --title "Success" --msgbox "'${selected_path}' removed successfully!" 20 155
     fi
 }
 
@@ -2096,7 +2117,7 @@ open_file() {
     local file="$1"
     
     if [ ! -f "$file" ]; then
-        whiptail --msgbox "ERROR: File does not exist:\n$file" 20 170
+        whiptail --msgbox "ERROR: File does not exist:\n$file" 20 155
         return 1
     fi
     
@@ -2132,7 +2153,7 @@ open_file_by_search() {
 
     local selected="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
-    open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 170
+    open_file "$selected" || whiptail --msgbox "Error opening file: ${selected}." 20 155
 }
 
 illegal_pattern() {
@@ -2192,7 +2213,7 @@ It involves the following steps:\n\
 
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 170
+        whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 155
         return 0
     fi
 
@@ -2231,7 +2252,7 @@ It involves the following steps:\n\
         echo
         ebooks_file_list_preview to_add
     } > "$result_file"
-    whiptail --scrolltext --title "Results" --textbox "$result_file" 20 170
+    whiptail --scrolltext --title "Results" --textbox "$result_file" 20 155
     rm -f "$result_file"
 }
 
@@ -2449,7 +2470,7 @@ lookup_registered_files() {
     EB_NO_TAG_ITEM=1
 
     while ebooks_pick_file "Lookup Registered Files" "Select a file to see its details"; do
-        whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
+        whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 155
     done
 }
 
@@ -2805,10 +2826,10 @@ remove_broken_entries() {
   message+="$(ebooks_file_list_preview conflicting_entries tags)"
   
   # Inform the user about the conflicting lines.
-  whiptail --scrolltext --msgbox "$message" 20 170
+  whiptail --scrolltext --msgbox "$message" 20 155
 
   # Confirm deletion with the user.
-  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 170; then
+  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 155; then
     # Create a temporary file.
     local tmp_file
     tmp_file=$(mktemp) || { whiptail --msgbox "Failed to create temporary file." 8 78; return 1; }
@@ -2843,7 +2864,7 @@ lookup_by_filepath() {
     whiptail --title "Lookup By File Path" --msgbox \
 "This feature allows you to query files by first choosing a file path among registered files.\n\
 After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
-Use __RECURSIVE__ in the file list to include sub-directories." 20 170
+Use __RECURSIVE__ in the file list to include sub-directories." 20 155
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -2863,7 +2884,7 @@ Use __RECURSIVE__ in the file list to include sub-directories." 20 170
     EB_RECURSIVE=0
 
     while ebooks_pick_file "Matching files in ${choice}/" "Select a file to see its details"; do
-        whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 170
+        whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 155
     done
 
     ebooks_filter_reset
@@ -2877,7 +2898,7 @@ open_file_by_filepath() {
 "This feature allows you to open a registered file by first choosing a file path from registered files.\n\
 After choosing a path from the list, you can further narrow the search with __APPLY_GLOB__ (file path and file name) and __FILTER_BY_TAG__ (literal substring match) shown on top of the file list.\n\
 Use __RECURSIVE__ in the file list to include sub-directories.\n\
-Then, you can select to open a file item." 20 170
+Then, you can select to open a file item." 20 155
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -2899,7 +2920,7 @@ Then, you can select to open a file item." 20 170
     local file
     while ebooks_pick_file "Open file in ${choice}/" "Select a file to open"; do
         file="${EB_SELECTED_LINE%%|*}"
-        open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 170
+        open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 155
     done
 
     ebooks_filter_reset
@@ -3090,7 +3111,7 @@ add_ebooks_from_checklist() {
     local msg="These ${#to_add[@]} files will be added to $EBOOKS_DB (skipping duplicates):\n\n"
     msg+="$(ebooks_file_list_preview to_add)"
 
-    if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Addition"; then
+    if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Addition"; then
         for f in "${to_add[@]}"; do
             if ! grep -Fq "${f}|" "$EBOOKS_DB"; then
                 echo "${f}|" >> "$EBOOKS_DB"
@@ -3206,7 +3227,7 @@ and physically on drive. You can also revert the changes later." 15 80
         done
         ebooks_file_list_preview shown_changes raw > "$change_list"
 
-        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 170
+        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 155
         rm -f "$change_list"
 
         if ! whiptail --title "Confirmation" --yesno "Proceed with these changes?" 10 80; then
@@ -3243,7 +3264,7 @@ and physically on drive. You can also revert the changes later." 15 80
 
         if ! mv -- "$old" "$new"; then
             echo "Error: Failed to rename '$old' to '$new'" >&2
-            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 10 170
+            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 10 155
             rm -f "$TEMP_DB"
             return 1
         fi
@@ -3254,7 +3275,7 @@ and physically on drive. You can also revert the changes later." 15 80
     printf "%s\n" "${new_lines[@]}" > "$TEMP_DB"
     mv -- "$TEMP_DB" "$EBOOKS_DB" || return 1
 
-    whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 170
+    whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 155
 }
 
 revert_rename_illegal_ebook_filenames() {  
@@ -3356,7 +3377,7 @@ remove_ebooks_from_checklist() {
     local msg="The following ${#selected_paths[@]} entries will be removed:\n\n"
     msg+="$(ebooks_file_list_preview selected_paths)"
 
-    if whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Removal"; then
+    if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Removal"; then
         local tmp_db list
         tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temporary file." 8 40; return 1; }
         list=$(mktemp) || { rm -f "$tmp_db"; return 1; }
@@ -3480,7 +3501,7 @@ dissociate_tag_from_checklist() {
     local msg="The tag '$tag_to_remove' will be removed from ${#selected_paths[@]} file(s):\n\n"
     msg+="$(ebooks_file_list_preview selected_paths)"
 
-    if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Dissociation"; then
+    if ! whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Dissociation"; then
         whiptail --msgbox "Cancelled." 8 40
         return 1
     fi
@@ -3552,7 +3573,7 @@ associate_tag_from_checklist() {
     local msg="Tag '${selected_tag}' will be added to ${#to_update[@]} file(s) (excluding duplicates):\n\n"
     msg+="$(ebooks_file_list_preview to_update)"
 
-    if ! whiptail --scrolltext --yesno "$msg" 20 170 --title "Confirm Association"; then
+    if ! whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Association"; then
         whiptail --msgbox "Operation cancelled." 8 40
         return 1
     fi
@@ -3649,7 +3670,7 @@ The matching files are listed with their tags before anything is changed." 12 80
     (( scope_recursive == 1 )) && scope_txt="this directory and its sub-directories"
     whiptail --scrolltext --yesno --title "Confirm Association" \
         "Add tag to ALL files in directory?\n\nDirectory: $selected_dir ($scope_txt)\nTag: $selected_tag\nFiles: ${#matched[@]} (${to_update} without the tag yet)" \
-        14 170 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        14 155 --yes-button "Associate" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     local list
     list=$(mktemp) || return 1
@@ -3692,7 +3713,7 @@ The files carrying the tag are listed with their tags before anything is changed
     ebooks_lines_having_tag "$selected_tag" < "$EBOOKS_DB" > "$tmp"
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in the database." 10 170 >/dev/tty
+        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in the database." 10 155 >/dev/tty
         return 1
     fi
 
@@ -3728,7 +3749,7 @@ The files carrying the tag are listed with their tags before anything is changed
     (( scope_recursive == 1 )) && scope_txt="this directory and its sub-directories"
     whiptail --scrolltext --yesno --title "Confirm Removal" \
         "Remove tag from ALL listed files?\n\nDirectory: $selected_dir ($scope_txt)\nTag: $selected_tag\nFiles: ${#matched[@]}" \
-        14 170 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
+        14 155 --yes-button "Remove" --no-button "Cancel" </dev/tty >/dev/tty || return 1
 
     local list
     list=$(mktemp) || return 1
@@ -3789,7 +3810,7 @@ ebooks_remove_files_in_path() {
     (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
 
     local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
-    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 170; then
+    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 155; then
         return 1
     fi
 
@@ -3803,11 +3824,11 @@ ebooks_remove_files_in_path() {
     rm -f "$list"
 
     local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete)"
-    whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 170
+    whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 155
 
     if (( ${#tagged_files[@]} > 0 )); then
         local excluded_msg="The following matched files were not deleted because they have tag(s):\n\n$(ebooks_file_list_preview tagged_files)\nPlease dissociate tag(s) from these files first."
-        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 170
+        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 155
     fi
 
     return 0
@@ -4212,7 +4233,7 @@ paginate_n() {
 
         choice=$(whiptail --title "Paged Menu" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
-            20 170 10 \
+            20 155 10 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
@@ -4836,7 +4857,7 @@ paginate_n_checklist() {
         choices=$(whiptail --title "Ebook asset files to add" \
             --separate-output \
             --checklist "Select items (Page $((CURRENT_PAGE + 1))/$total_pages)" \
-            25 170 15 \
+            25 155 15 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3)
 
@@ -4953,7 +4974,7 @@ manage_ebooks() {
         TRUNC_MANAGE_EBOOKS_MENU+=("Back" "Return to previous menu")
 
         local selection_trunc
-        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" --menu "Manage ebook associations" 20 170 10 \
+        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" --menu "Manage ebook associations" 20 155 10 \
             "${TRUNC_MANAGE_EBOOKS_MENU[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [ $? -eq 0 ] || break
 
@@ -5038,7 +5059,7 @@ manage_ebooks() {
 
                 local to_remove to_remove_tr
                 to_remove_tr=$(whiptail --title "Remove Ebook" --menu "Select ebook to remove:" \
-                    20 170 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+                    20 155 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
                 [ $? -eq 0 ] || continue
 
                 local n m
@@ -5431,7 +5452,7 @@ paginate_get_notes() {
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "Choose an item (Page $((CURRENT_PAGE + 1))/$total_pages)" \
-            35 170 25 \
+            35 155 25 \
             "${menu_options[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
@@ -5652,7 +5673,7 @@ list_notes() {
         #    --title "Note Selection" \
         #    --cancel-button "Back" \
         #    --menu "Choose a note to edit" \
-        #    20 170 10 \
+        #    20 155 10 \
         #    "${menu_entries[@]}" \
         #    3>&1 1>&2 2>&3)
         #
@@ -5863,7 +5884,7 @@ get_ebooks() {
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 170 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 155 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
@@ -6254,7 +6275,7 @@ nt_pick_note_line() {
 
         local choice
         choice=$(whiptail --title "$title" --cancel-button "Back" \
-            --menu "$status" 35 170 25 "${menu[@]}" 3>&1 1>&2 2>&3) || return 1
+            --menu "$status" 35 155 25 "${menu[@]}" 3>&1 1>&2 2>&3) || return 1
 
         case "$choice" in
             "__APPLY_GLOB__") nt_ask_glob notes; page=0 ;;
@@ -6330,7 +6351,7 @@ nt_pick_notes_checklist() {
         local result
         result=$(whiptail --title "$title (Page $((page + 1))/${pages})" \
             --checklist "Tag: ${NT_CURRENT_TAG:-?}  |  Glob: ${NT_NOTE_GLOB:-(none)}  |  ${matched}/${total} note(s) shown  |  Selected: ${#selected[@]}" \
-            35 170 25 "${opts[@]}" 3>&1 1>&2 2>&3) || return 1
+            35 155 25 "${opts[@]}" 3>&1 1>&2 2>&3) || return 1
 
         result=${result//\"/}
         chosen=()
@@ -6952,7 +6973,7 @@ do_note_filter_by_tag() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && return 1
 
             case "$choice" in
@@ -7107,7 +7128,7 @@ do_note_filter_by_tag() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
                 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && continue
 
@@ -7125,7 +7146,7 @@ do_note_filter_by_tag() {
                     done
 
                     local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
                         "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                     [[ -z "$remove_index" ]] && continue
 
@@ -7239,7 +7260,7 @@ do_note_filter_by_tag() {
 
                 local choice
                 choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                    20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                    20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
                 [[ -z "$choice" ]] && break
 
                 if [[ "$choice" == "<< Back" ]]; then
@@ -7652,7 +7673,7 @@ open_ebook_note_from_global_list() {
 
             choice=$(whiptail --title "$title" \
                             --cancel-button "Back" \
-                            --menu "Page ${current_page}/${total_pages}" 20 170 12 \
+                            --menu "Page ${current_page}/${total_pages}" 20 155 12 \
                             "${menu_items[@]}" \
                             3>&1 1>&2 2>&3)
 
@@ -7722,7 +7743,7 @@ open_ebook_note_from_global_list() {
     # selected_idx=$(whiptail --title "Open eBook File From Global List" \
     #     --cancel-button "Back" \
     #     --menu "Choose an eBook to open:" \
-    #     20 170 10 \
+    #     20 155 10 \
     #     "${options[@]}" \
     #     3>&1 1>&2 2>&3) || return 1
 
@@ -7841,7 +7862,7 @@ delete_notes() {
 
         # Show the whiptail checklist.
         local result
-        result=$(whiptail --title "Delete Notes" --checklist "Select notes to delete (page $((current_page + 1))/$pages)" 20 170 10 "${choices[@]}" 3>&1 1>&2 2>&3)
+        result=$(whiptail --title "Delete Notes" --checklist "Select notes to delete (page $((current_page + 1))/$pages)" 20 155 10 "${choices[@]}" 3>&1 1>&2 2>&3)
         local exit_status=$?
         if [ $exit_status -ne 0 ]; then
             #whiptail --title "Cancelled" --msgbox "Deletion cancelled." 10 40
@@ -8297,7 +8318,7 @@ assoc_url_to_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && return 1
 
         case "$choice" in
@@ -8573,7 +8594,7 @@ dissoc_url_from_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && continue
 
@@ -8591,7 +8612,7 @@ dissoc_url_from_note() {
                 done
 
                 local remove_index
-                remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
                     "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                 [[ -z "$remove_index" ]] && continue
 
@@ -8807,7 +8828,7 @@ open_url_assoc_to_note() {
 
             local choice
             choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
             if [[ "$choice" == "<< Back" ]]; then
@@ -9315,7 +9336,7 @@ lookup_note_tags() {
                 whiptail \
                     --title "Lookup notes" \
                     --menu "Select a note (Page $((page + 1))/$total_pages)" \
-                    35 170 25 \
+                    35 155 25 \
                     "${menu_items[@]}" \
                     3>&1 1>&2 2>&3
             ) || return 1
@@ -9611,7 +9632,7 @@ dissociate_note_tag_from_checklist() {
             whiptail \
                 --title "Select Notes (Page $((page+1))/$total_pages)" \
                 --checklist "Select notes:" \
-                20 170 10 \
+                20 155 10 \
                 "${page_items[@]}" \
                 3>&1 1>&2 2>&3
         ) || return 1
@@ -11747,7 +11768,7 @@ add_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
+                "$([[ ${#label} -gt 155 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -14296,7 +14317,7 @@ edit_project() {
 
             TREE_OPTIONS+=(
                 "${item_id[child]}"
-                "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
+                "$([[ ${#label} -gt 155 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
             )
 
             # Only headings can have children.
@@ -15966,7 +15987,7 @@ do_stuff_with_project_file() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:${filter_summary}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:${filter_summary}" 35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -16026,7 +16047,7 @@ do_stuff_with_project_file() {
 
                     local choice
                     choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                        20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
+                        20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
                     [[ -z "$choice" ]] && return 1
 
                     if [[ "$choice" == "<< Back" ]]; then
@@ -16082,7 +16103,7 @@ do_stuff_with_project_file() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && return 1
 
             case "$choice" in
@@ -16228,7 +16249,7 @@ do_stuff_with_project_file() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
                 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && continue
 
@@ -16246,7 +16267,7 @@ do_stuff_with_project_file() {
                     done
 
                     local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
                         "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                     [[ -z "$remove_index" ]] && continue
 
@@ -16699,7 +16720,7 @@ do_stuff_with_project_file() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 35 170 25 \
+                    --checklist "$prompt" 35 155 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
@@ -17140,7 +17161,7 @@ do_stuff_with_project_file() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 35 170 25 \
+                    --checklist "$prompt" 35 155 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
@@ -19115,7 +19136,7 @@ do_stuff_with_project_file() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
+                    "$([[ ${#label} -gt 155 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
@@ -20255,7 +20276,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 choice_text=$(
                     whiptail --title "Select notes" \
                         --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
-                        35 170 25 \
+                        35 155 25 \
                         "${checklist[@]}" \
                         3>&1 1>&2 2>&3
                 ) || return 1
@@ -20815,7 +20836,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                             --title "Select URL" \
                             --cancel-button "Back" \
                             --menu "Choose a URL to open:" \
-                            20 170 10 \
+                            20 155 10 \
                             "${url_items[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
@@ -21375,7 +21396,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     --title "Select Notes - Page $((current_page + 1))/$total_pages" \
                     --checklist \
                     "Select notes to remove selected tag:" \
-                    35 170 25 \
+                    35 155 25 \
                     "${checklist_options[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
                 ); then
@@ -21996,7 +22017,7 @@ open_url_assoc_to_note_from_project() {
 
             local choice
             choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
+                20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
             if [[ "$choice" == "<< Back" ]]; then
@@ -22267,7 +22288,7 @@ add_to_shortlist() {
             --title "Shortlisted Projects" \
             --cancel-button "Back" \
             --menu "Page $((page+1)) of $((max_page+1))" \
-            20 170 10 \
+            20 155 10 \
             "${menu_items[@]}" \
             3>&1 1>&2 2>&3) || return 1
 
@@ -22334,7 +22355,7 @@ remove_from_shortlist() {
             --title "Shortlisted Projects" \
             --cancel-button "Back" \
             --menu "Select a project to remove (Page ${current_page}/${total_pages}):" \
-            20 170 10 \
+            20 155 10 \
             "${menu_items[@]}" \
             3>&1 1>&2 2>&3) || return 1
 
@@ -22473,7 +22494,7 @@ do_stuff_shortlisted() {
 
             # Display menu
             selected_note_tag=$(whiptail --title "Linked Notes for ${selected_project_title} (Page $((page+1))/$total_pages)" \
-                --menu "Select a linked note:${filter_summary}" 35 170 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+                --menu "Select a linked note:${filter_summary}" 35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
             # Handle navigation
             case "$selected_note_tag" in
@@ -22533,7 +22554,7 @@ do_stuff_shortlisted() {
 
                     local choice
                     choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                        20 170 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
+                        20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
                     [[ -z "$choice" ]] && return 1
 
                     if [[ "$choice" == "<< Back" ]]; then
@@ -22589,7 +22610,7 @@ do_stuff_shortlisted() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && return 1
 
             case "$choice" in
@@ -22734,7 +22755,7 @@ do_stuff_shortlisted() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 170 10 \
+            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
                 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && continue
 
@@ -22752,7 +22773,7 @@ do_stuff_shortlisted() {
                     done
 
                     local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 170 10 \
+                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
                         "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                     [[ -z "$remove_index" ]] && continue
 
@@ -23216,7 +23237,7 @@ do_stuff_shortlisted() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 35 170 25 \
+                    --checklist "$prompt" 35 155 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
@@ -23657,7 +23678,7 @@ do_stuff_shortlisted() {
                 local choice
                 choice=$(whiptail --title "$menu_title" \
                     --cancel-button "Back" \
-                    --checklist "$prompt" 35 170 25 \
+                    --checklist "$prompt" 35 155 25 \
                     "${checklist_args[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
                     SELECTED_ITEMS_PROJECT=()
@@ -25631,7 +25652,7 @@ do_stuff_shortlisted() {
 
                 TREE_OPTIONS+=(
                     "${item_id[child]}"
-                    "$([[ ${#label} -gt 160 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
+                    "$([[ ${#label} -gt 155 ]] && printf '%s...' "${label:0:157}" || printf '%s' "$label")"
                 )
 
                 # Only headings can have children.
@@ -26779,7 +26800,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 choice_text=$(
                     whiptail --title "Select notes" \
                         --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
-                        35 170 25 \
+                        35 155 25 \
                         "${checklist[@]}" \
                         3>&1 1>&2 2>&3
                 ) || return 1
@@ -27339,7 +27360,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                             --title "Select URL" \
                             --cancel-button "Back" \
                             --menu "Choose a URL to open:" \
-                            20 170 10 \
+                            20 155 10 \
                             "${url_items[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
@@ -28019,7 +28040,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     --title "Select Notes - Page $((current_page + 1))/$total_pages" \
                     --checklist \
                     "Select notes to remove selected tag:" \
-                    35 170 25 \
+                    35 155 25 \
                     "${checklist_options[@]}" \
                     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
                 ); then
@@ -28634,7 +28655,7 @@ babyrus_book_select_project_row() {
         (( page >= total_pages )) && page=$((total_pages - 1))
         read -r term_rows term_cols < <(stty size </dev/tty 2>/dev/null)
         [[ "$term_rows" =~ ^[0-9]+$ ]] || term_rows=$(tput lines 2>/dev/null || echo 40)
-        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 170)
+        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 155)
         box_w=170; (( box_w > term_cols - 2 )) && box_w=$((term_cols - 2)); (( box_w < 60 )) && box_w=60
         box_h=$((term_rows - 2)); (( box_h > 60 )) && box_h=60; (( box_h < 20 )) && box_h=20
         list_h=$((box_h - 8)); (( list_h < 5 )) && list_h=5
@@ -29030,12 +29051,12 @@ babyrus_book_pick_note() {
     local term_rows term_cols box_h box_w list_h
 
     while :; do
-        # Size the dialog for 50 notes per page: fixed width of 170 columns
+        # Size the dialog for 50 notes per page: fixed width of 155 columns
         # (clamped to the terminal), and as tall as the terminal allows.
         # The list area scrolls if the terminal cannot show all entries at once.
         read -r term_rows term_cols < <(stty size </dev/tty 2>/dev/null)
         [[ "$term_rows" =~ ^[0-9]+$ ]] || term_rows=$(tput lines 2>/dev/null || echo 40)
-        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 170)
+        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=$(tput cols 2>/dev/null || echo 155)
         box_w=170
         (( box_w > term_cols - 2 )) && box_w=$(( term_cols - 2 ))
         (( box_w < 60 )) && box_w=60
