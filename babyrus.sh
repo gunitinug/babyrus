@@ -782,7 +782,7 @@ ebooks_lines_in_scope() {
 ############################################################
 
 EB_PAGE_SIZE=50          # items per whiptail page
-EB_WIDTH=170             # width of every whiptail list
+EB_WIDTH=155             # width of every whiptail list
 EB_GLOB=""               # active glob filter (file path or file name)
 EB_TAGF=""               # active tag filter (literal substring of tags)
 EB_PAGE=0                # current page (0-based), kept between calls
