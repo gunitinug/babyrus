@@ -18,6 +18,333 @@
 BABYRUS_VERSION='v.0.99x18'
 BABYRUS_AUTHOR='Logan Lee'
 
+# Shared Whiptail (libnewt) colour theme.
+# Set BABYRUS_NEWT_COLORS before launching BABYRUS to supply a custom theme.
+# Colour pairs use the format foreground,background.
+# Default: light grey root, white dialogs, and navy-blue accents/selections.
+BABYRUS_NEWT_COLORS="${BABYRUS_NEWT_COLORS:-${NEWT_COLORS:-}}"
+if [[ -z "$BABYRUS_NEWT_COLORS" ]]; then
+    BABYRUS_NEWT_COLORS='
+root=black,lightgray
+roottext=black,lightgray
+window=black,white
+border=blue,white
+shadow=gray,lightgray
+title=white,blue
+button=blue,lightgray
+actbutton=white,blue
+compactbutton=blue,white
+checkbox=black,white
+actcheckbox=white,blue
+entry=black,white
+disentry=gray,lightgray
+label=black,white
+listbox=black,white
+actlistbox=black,white
+sellistbox=white,blue
+actsellistbox=white,blue
+textbox=black,white
+acttextbox=black,white
+emptyscale=blue,lightgray
+fullscale=white,blue
+helpline=blue,lightgray'
+fi
+export NEWT_COLORS="$BABYRUS_NEWT_COLORS"
+
+# Shared colour theme for the ncurses-based `dialog` utility.  It mirrors the
+# Whiptail palette: white/light surfaces, dark text, and navy-blue accents.
+# Set BABYRUS_DIALOGRC before launching BABYRUS to supply a custom dialogrc.
+BABYRUS_DIALOGRC="${BABYRUS_DIALOGRC:-
+use_colors = ON
+use_shadow = OFF
+screen_color = (BLACK,WHITE,OFF)
+shadow_color = (BLACK,BLACK,OFF)
+dialog_color = (BLACK,WHITE,OFF)
+title_color = (WHITE,BLUE,OFF)
+border_color = (BLUE,WHITE,OFF)
+border2_color = (BLUE,WHITE,OFF)
+button_active_color = (WHITE,BLUE,OFF)
+button_inactive_color = (BLUE,WHITE,OFF)
+button_key_active_color = (WHITE,BLUE,OFF)
+button_key_inactive_color = (BLUE,WHITE,OFF)
+button_label_active_color = (WHITE,BLUE,OFF)
+button_label_inactive_color = (BLUE,WHITE,OFF)
+inputbox_color = (BLACK,WHITE,OFF)
+inputbox_border_color = (BLUE,WHITE,OFF)
+inputbox_border2_color = (BLUE,WHITE,OFF)
+searchbox_color = (BLACK,WHITE,OFF)
+searchbox_title_color = (WHITE,BLUE,OFF)
+searchbox_border_color = (BLUE,WHITE,OFF)
+searchbox_border2_color = (BLUE,WHITE,OFF)
+position_indicator_color = (BLUE,WHITE,OFF)
+menubox_color = (BLACK,WHITE,OFF)
+menubox_border_color = (BLUE,WHITE,OFF)
+menubox_border2_color = (BLUE,WHITE,OFF)
+item_color = (BLACK,WHITE,OFF)
+item_selected_color = (WHITE,BLUE,OFF)
+tag_color = (BLUE,WHITE,OFF)
+tag_selected_color = (WHITE,BLUE,OFF)
+tag_key_color = (BLUE,WHITE,OFF)
+tag_key_selected_color = (WHITE,BLUE,OFF)
+check_color = (BLACK,WHITE,OFF)
+check_selected_color = (WHITE,BLUE,OFF)
+uarrow_color = (BLUE,WHITE,OFF)
+darrow_color = (BLUE,WHITE,OFF)
+itemhelp_color = (BLACK,WHITE,OFF)
+form_active_text_color = (WHITE,BLUE,OFF)
+form_text_color = (BLACK,WHITE,OFF)
+form_item_readonly_color = (BLACK,WHITE,OFF)
+gauge_color = (WHITE,BLUE,OFF)
+}"
+
+# Shared sizing policy for every Whiptail menu and checklist.
+# Navigation menus use a compact default width, but automatically widen when
+# their title, prompt, or item labels need more room. Content pickers retain
+# the full terminal width.
+# Set BABYRUS_NAV_MENU_WIDTH before launching BABYRUS to customise the default.
+BABYRUS_NAV_MENU_WIDTH="${BABYRUS_NAV_MENU_WIDTH:-76}"
+
+# Return terminal rows and columns. Prefer the controlling terminal, then
+# fall back to standard input, and finally use conservative defaults.
+babyrus_terminal_size() {
+    local rows=24 cols=80
+    if ! read -r rows cols 2>/dev/null < <(stty size </dev/tty 2>/dev/null); then
+        read -r rows cols 2>/dev/null < <(stty size 2>/dev/null) || :
+    fi
+    [[ "$rows" =~ ^[0-9]+$ ]] || rows=24
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+    (( rows > 0 )) || rows=24
+    (( cols > 0 )) || cols=80
+    printf '%d %d\n' "$rows" "$cols"
+}
+
+# Whiptail interprets literal \\n sequences as line breaks. Count both those
+# and real newlines so the dialog height accounts for every prompt line.
+babyrus_text_line_count() {
+    local text="$1" count=1 rest
+    text="${text//\\n/$'\n'}"
+    while [[ "$text" == *$'\n'* ]]; do
+        ((count++))
+        text="${text#*$'\n'}"
+    done
+    printf '%d\n' "$count"
+}
+
+# Return the longest visible line in a Whiptail text string, interpreting its
+# \\n sequences as line breaks first.
+babyrus_text_max_line_length() {
+    local text="$1" line max=0
+    text="${text//\\n/$'\n'}"
+    while IFS= read -r line; do
+        ((${#line} > max)) && max=${#line}
+    done <<< "$text"
+    printf '%d\n' "$max"
+}
+
+# Wrap long prompt lines when a navigation menu is being displayed on a narrow
+# terminal. The returned value uses Whiptail's \\n newline notation.
+babyrus_wrap_whiptail_text() {
+    local text="$1" width="$2"
+    text="${text//\\n/$'\n'}"
+    printf '%s\n' "$text" | fold -s -w "$width" | awk '
+        NR > 1 { printf "\\n" }
+        { printf "%s", $0 }
+    '
+}
+
+# Prints "height width list-height". With no arguments this retains the
+# 50-item content-picker sizing used by the eBook / note / file browsers.
+# With PROMPT and ITEM_COUNT, it sizes a navigation menu to its actual number
+# of visible items plus the prompt and normal dialog chrome.
+babyrus_whiptail_dimensions() {
+    local prompt="${1-}" item_count="${2:-50}"
+    local rows cols height list_height prompt_lines
+    read -r rows cols < <(babyrus_terminal_size)
+
+    if (( $# >= 2 )); then
+        [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=1
+        list_height=$item_count
+        (( list_height < 1 )) && list_height=1
+        (( list_height > 50 )) && list_height=50
+        prompt_lines=$(babyrus_text_line_count "$prompt")
+        height=$(( prompt_lines + list_height + 8 ))
+
+        # Preserve all prompt lines and show as many menu rows as the terminal
+        # can accommodate. On a very short terminal, keep at least one row.
+        if (( height > rows )); then
+            list_height=$(( rows - prompt_lines - 8 ))
+            (( list_height < 1 )) && list_height=1
+            height=$(( prompt_lines + list_height + 8 ))
+            (( height > rows )) && height=$rows
+        fi
+    else
+        height=60
+        list_height=50
+        if (( height > rows )); then
+            height=$rows
+            list_height=$(( rows - 10 ))
+            (( list_height < 1 )) && list_height=1
+        fi
+    fi
+
+    printf '%d %d %d\n' "$height" "$cols" "$list_height"
+}
+
+# Intercept every Whiptail menu/checklist so hard-coded dimensions cannot
+# cause oversized dialogs. Navigation menus are compact and content-aware;
+# content pickers retain their full terminal width and 50-row list capacity.
+whiptail() {
+    local -a args=("$@")
+    local i widget_index=-1 title="" prompt="" is_navigation=0
+    local item_start item_args_count item_arity item_count=0 j list_capacity
+    local rows cols height width list_height nav_width ignored_width max_text=0 line_len
+    local required_width wrap_width item_text
+
+    read -r rows cols < <(babyrus_terminal_size)
+
+    # Find the title and menu/checklist prompt.
+    for (( i = 0; i < ${#args[@]}; i++ )); do
+        case "${args[i]}" in
+            --title)
+                (( i + 1 < ${#args[@]} )) && title="${args[i+1]}"
+                ;;
+            --menu|--checklist)
+                widget_index=$i
+                (( i + 1 < ${#args[@]} )) && prompt="${args[i+1]}"
+                break
+                ;;
+        esac
+    done
+
+    # Only menu/checklist widgets are resized here. Other Whiptail dialogs
+    # keep their existing dimensions and theme.
+    (( widget_index >= 0 )) || { command whiptail "${args[@]}"; return $?; }
+
+    # Identify navigation/action menus rather than content pickers.
+    case "$title" in
+        "BABYRUS "*" Main Menu"|"Babyrus Help Menu") is_navigation=1 ;;
+        "Manage eBooks"|"Manage Ebooks"|"File Management"|\
+        "Tag Management"|"Search & Lookup"|"Open & Read"|"Maintenance"|\
+        "Manage Notes"|"Goals Management"|"Chapter Management"|\
+        "Heading Operations"|"Project Configuration"|"Manage Tags"|\
+        "Note Action"|"Actions"|"Book Builder"|"Book Management"|\
+        "URL Management"|"Configure"|"Help"|"Manage URL"|\
+        "Manage URLs for "*|"Project: "*|"Chapter: "*|\
+        "Current project: "*|"Selected section: "*)
+            is_navigation=1
+            ;;
+    esac
+    case "$prompt" in
+        "Choose an option:"|"Select a help topic:"|"Project Configuration"|"Heading Operations"|\
+        "Note Action"|"Choose an action:"|"What would you like to do?"|\
+        "Manage ebook associations"|"Manage URL"|"Manage URLs for "*|\
+        "Project: "*|"Chapter: "*|"Selected section: "*)
+            is_navigation=1
+            ;;
+    esac
+
+    # Each menu entry is a tag/description pair. Checklist entries add a
+    # third status field. Skip an optional end-of-options marker if present.
+    item_arity=2
+    [[ "${args[widget_index]}" == "--checklist" ]] && item_arity=3
+    item_start=$(( widget_index + 5 ))
+    [[ "${args[item_start]:-}" == "--" ]] && ((item_start++))
+    item_args_count=$(( ${#args[@]} - item_start ))
+    (( item_args_count < 0 )) && item_args_count=0
+    item_count=$(( item_args_count / item_arity ))
+
+    # Work out the longest text line across the title, prompt, and menu labels.
+    line_len=$(babyrus_text_max_line_length "$title")
+    (( line_len > max_text )) && max_text=$line_len
+    line_len=$(babyrus_text_max_line_length "$prompt")
+    (( line_len > max_text )) && max_text=$line_len
+    for (( j=item_start; j + item_arity - 1 < ${#args[@]}; j+=item_arity )); do
+        item_text="${args[j]}  ${args[j+1]}"
+        line_len=$(babyrus_text_max_line_length "$item_text")
+        (( line_len > max_text )) && max_text=$line_len
+    done
+
+    if (( is_navigation )); then
+        [[ "$BABYRUS_NAV_MENU_WIDTH" =~ ^[0-9]+$ ]] || BABYRUS_NAV_MENU_WIDTH=76
+        nav_width=$BABYRUS_NAV_MENU_WIDTH
+        (( nav_width < 40 )) && nav_width=40
+
+        # Widen a navigation menu only when its text needs more room; never
+        # exceed the terminal width. This keeps ordinary menus compact while
+        # preventing titles, prompts, and menu labels from being clipped.
+        required_width=$(( max_text + 8 ))
+        (( required_width > nav_width )) && nav_width=$required_width
+        (( nav_width > cols )) && nav_width=$cols
+        (( nav_width < 1 )) && nav_width=cols
+
+        width=$nav_width
+        list_capacity=$item_count
+    else
+        width=$cols
+        # Content pickers keep capacity for 50 displayed rows; only navigation
+        # menus shrink their list area to the number of actual menu entries.
+        list_capacity=50
+    fi
+
+    # Wrap long prompts when necessary so explanatory text (including the
+    # main-menu verse) remains visible even on narrower terminals.
+    wrap_width=$(( width - 8 ))
+    (( wrap_width < 20 )) && wrap_width=20
+    line_len=$(babyrus_text_max_line_length "$prompt")
+    if (( line_len > wrap_width )); then
+        args[widget_index+1]="$(babyrus_wrap_whiptail_text "$prompt" "$wrap_width")"
+        prompt="${args[widget_index+1]}"
+    fi
+
+    # Size the dialog for the full prompt and the appropriate list capacity.
+    # Navigation menus use their exact item count; content pickers retain 50.
+    read -r height ignored_width list_height < <(babyrus_whiptail_dimensions "$prompt" "$list_capacity")
+
+    # Replace only the three dimension arguments belonging to this widget.
+    args[widget_index+2]="$height"
+    args[widget_index+3]="$width"
+    args[widget_index+4]="$list_height"
+
+    command whiptail "${args[@]}"
+}
+
+# Intercept every `dialog` invocation so it uses the same palette and terminal
+# sizing policy as Whiptail.  Textboxes use the full dialog height/width;
+# menu/checklist widgets additionally receive the 50-row list height.
+dialog() {
+    local -a args=("$@")
+    local height width list_height i
+
+    read -r height width list_height < <(babyrus_whiptail_dimensions)
+
+    for (( i = 0; i < ${#args[@]}; i++ )); do
+        case "${args[i]}" in
+            --menu|--checklist|--radiolist|--buildlist)
+                # Syntax: widget text height width list-height
+                if (( i + 4 < ${#args[@]} )); then
+                    args[i + 2]="$height"
+                    args[i + 3]="$width"
+                    args[i + 4]="$list_height"
+                fi
+                break
+                ;;
+            --textbox|--tailbox|--tailboxbg|--programbox|--editbox|\
+            --msgbox|--yesno|--infobox|--inputbox|--passwordbox)
+                # Syntax: widget text/file height width
+                if (( i + 3 < ${#args[@]} )); then
+                    args[i + 2]="$height"
+                    args[i + 3]="$width"
+                fi
+                break
+                ;;
+        esac
+    done
+
+    # A process-substitution file keeps the theme self-contained; no user
+    # ~/.dialogrc or system /etc/dialogrc needs to be changed.
+    DIALOGRC=<(printf '%s\n' "$BABYRUS_DIALOGRC") command dialog "${args[@]}"
+}
+
 BABYRUS_PATH="$(pwd)"
 NOTES_PATH="${BABYRUS_PATH}/notes"
 NOTES_METADATA_PATH="${NOTES_PATH}/metadata"
@@ -806,26 +1133,8 @@ EB_RECURSIVE=0             # include sub-directories when EB_SCOPE_DIR is set
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
 # to the terminal height; whiptail scrolls inside the list when it is smaller.
 eb_menu_dims() {
-    local rows cols want h w
-
-    read -r rows cols < <(stty size </dev/tty 2>/dev/null)
-
-    [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
-    [[ "$cols" =~ ^[0-9]+$ ]] || cols=0
-
-    want=$(( EB_PAGE_SIZE + 16 ))
-    h=$want
-    w=$EB_WIDTH
-
-    (( rows > 0 && h > rows )) && h=$rows
-    (( h < 14 )) && h=14
-
-    (( cols > 0 && w > cols )) && w=$cols
-    (( w < 40 )) && w=40
-
-    echo "$h $w $(( h - 10 ))"
+    babyrus_whiptail_dimensions
 }
-
 eb_menu_dims_old() {
     local rows want h
     rows=$( { stty size </dev/tty; } 2>/dev/null | cut -d' ' -f1)
@@ -8199,19 +8508,13 @@ print_notes() {
 
         case "$action" in
             "View Note")
-                DIALOG_CONFIG="use_colors = ON
-                screen_color = (BLACK,MAGENTA,OFF)
-                dialog_color = (BLACK,WHITE,OFF)
-                title_color = (RED,WHITE,OFF)
-                border_color = (WHITE,WHITE,OFF)
-                button_active_color = (WHITE,RED,OFF)"                                    
 
                 local tmpfile
                 tmpfile=$(mktemp)
                 fold -s -w 145 "$selected_path" > "$tmpfile"
                 # NOTE: NOTE_TITLE IS NOT EXTRACTED YET! -- FIXED?
                 local note_title="$(get_note_title_from_note_path_ "$selected_path")"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
+                dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -21118,18 +21421,12 @@ Leave the pattern non-empty; use * to match all titles." \
                 
                 # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
                 # Specifically, \n \t etc gets translated.
-                # Match the colors with whiptail as best as possible.
-                DIALOG_CONFIG="use_colors = ON
-                screen_color = (BLACK,MAGENTA,OFF)
-                dialog_color = (BLACK,WHITE,OFF)
-                title_color = (RED,WHITE,OFF)
-                border_color = (WHITE,WHITE,OFF)
-                button_active_color = (WHITE,RED,OFF)"                                    
-                #DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
+                # The shared dialog() wrapper applies the same palette as Whiptail.
+                #dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
                 # Word wrap width 145
                 local tmpfile=$(mktemp)
                 fold -s -w 145 "$note_path" > "$tmpfile"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
+                dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -21467,19 +21764,13 @@ print_project_to_printer_from_main() {
 
         case "$action" in
             "View Project")
-                DIALOG_CONFIG="use_colors = ON
-                screen_color = (BLACK,MAGENTA,OFF)
-                dialog_color = (BLACK,WHITE,OFF)
-                title_color = (RED,WHITE,OFF)
-                border_color = (WHITE,WHITE,OFF)
-                button_active_color = (WHITE,RED,OFF)"                                    
 
                 local tmpfile
                 tmpfile=$(mktemp)
                 fold -s -w 145 "$path_" > "$tmpfile"
                 # NOTE: PROJECT_TITLE IS NOT EXTRACTED YET! -- FIXED?
                 local project_title="$(get_project_title_from_project_path "$path_")"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$project_title" --textbox "$tmpfile" 35 150                
+                dialog --no-mouse --exit-label "Back" --title "$project_title" --textbox "$tmpfile" 35 150                
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -27771,18 +28062,12 @@ Tag you have chosen will be added to the selected notes." 10 60
                 
                 # FIX: USE DIALOG INSTEAD BECAUSE WHIPTAIL FAILS HERE.
                 # Specifically, \n \t etc gets translated.
-                # Match the colors with whiptail as best as possible.
-                DIALOG_CONFIG="use_colors = ON
-                screen_color = (BLACK,MAGENTA,OFF)
-                dialog_color = (BLACK,WHITE,OFF)
-                title_color = (RED,WHITE,OFF)
-                border_color = (WHITE,WHITE,OFF)
-                button_active_color = (WHITE,RED,OFF)"                                    
-                #DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
+                # The shared dialog() wrapper applies the same palette as Whiptail.
+                #dialog --exit-label "Back" --title "$note_title" --textbox "$note_path" 35 150
                 # Word wrap width 145
                 local tmpfile=$(mktemp)
                 fold -s -w 145 "$note_path" > "$tmpfile"
-                DIALOGRC=<(echo -e "$DIALOG_CONFIG") dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
+                dialog --no-mouse --exit-label "Back" --title "$note_title" --textbox "$tmpfile" 35 150
                 rm -f "$tmpfile"
                 clear
                 ;;
@@ -29671,9 +29956,185 @@ restore_db() {
 # HELP
 ################################
 
-# Help in sections.
+# Help text is maintained separately from the menu so every topic can be
+# revised without changing the navigation logic.
+babyrus_help_message() {
+    local title="$1"
+    local content="$2"
+    whiptail --scrolltext --title "$title" --cancel-button "Back" \
+        --msgbox "$content" 40 120
+}
+
+babyrus_help_ebooks() {
+    cat <<'BABYRUS_HELP_EBOOKS'
+MANAGE eBOOKS — REGISTER, ORGANISE, FIND AND READ
+
+BABYRUS builds a searchable index of ebook files that are already stored on your computer. Registering a file records its path and tags in the BABYRUS database; it does not move the ebook into a BABYRUS folder. You can keep your own directory structure.
+
+1. Build your library
+
+Use File Management to register one ebook, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character.
+
+The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original ebook files from your drive.
+
+2. Organise with tags
+
+Tags let one ebook belong to several subjects without duplicating the file. Register tags in Tag Management, then associate or dissociate them from individual ebooks, checklist selections, bulk results, or files under a selected path. Remove a tag from the global list when it is no longer needed.
+
+3. Find and open books
+
+Search & Lookup lets you inspect registered files, look within a directory, and view the tags in your library. Open & Read lets you find a book by search or by file path, then launches the application configured for that file type.
+
+Use the glob and tag filters together to narrow a large collection. A tag search is especially useful when you remember the subject but not the filename.
+
+4. Keep the library healthy
+
+Maintenance can find database entries whose files are no longer present. It also provides tools to rename and re-register filenames that cause problems, and to revert those renames when needed. Renaming changes the actual filename on disk, so review the selected files and confirmation prompts carefully.
+
+A useful first workflow is to register a small group of ebooks, assign a few meaningful tags, then practise finding and opening them from Search & Lookup and Open & Read.
+BABYRUS_HELP_EBOOKS
+}
+
+babyrus_help_notes() {
+    cat <<'BABYRUS_HELP_NOTES'
+MANAGE NOTES — BUILD A CONNECTED KNOWLEDGE COLLECTION
+
+Notes are ordinary text files managed through BABYRUS. Each note has a title and file path, and can be associated with tags, ebooks and their saved reading locations, URLs, and project files. Use Manage Notes for individual note tasks; use the tag and project workspaces when you want to work with a group of related notes.
+
+1. Everyday note management
+
+Add Note creates a note. Edit Note lets you choose an existing note to update. You can print a note, open an ebook associated with it, add or look up note tags, manage URL associations, open an ebook from the global list, and delete notes or remove unused tags from the global tag list.
+
+A note can have more than one tag. When choosing a tag, NO TAG refers to notes without a tag, while ANY TAG includes notes regardless of whether they have one. Use these choices when you need to work with untagged notes as well as categorised notes.
+
+2. Recommended feature: Do Stuff by Tag
+
+This is one of the most useful BABYRUS workflows. Instead of starting with a particular file or project, start with a subject. Choose a tag and BABYRUS opens a workspace containing the notes associated with it. You can change to another tag and return to the original tag without leaving the workflow. The note list can also be narrowed with a filename glob.
+
+From that workspace you can look up note details, create a note that inherits the current tag, copy note content to the clipboard, edit a note, open its associated ebook, associate or dissociate URLs, open a linked URL, print a note, associate notes with projects, and add another tag to the filtered notes. When you start with NO TAG, the create-note and add-tag actions are adjusted for untagged notes.
+
+Try this workflow when researching a subject or returning to a collection of related information. One tag becomes a practical workspace rather than just a label.
+
+3. Connect notes to reference material
+
+Associate an ebook with a note when the note depends on a book or document. Where bookmark information is available, BABYRUS can present the saved reading locations so you can return to the relevant part. Associate URLs to keep web references with the note they support; URLs can be opened, edited or dissociated later.
+
+4. Connect notes to projects
+
+A note can be linked to a project so it is available from that project's workspace. The same note can be useful in more than one project. BABYRUS prevents deletion of a note while it is still associated with a project; unlink it from the relevant project first if you intend to delete it.
+
+Suggested starting point: create a few notes, assign useful tags, associate an ebook or URL where relevant, and then explore Do Stuff by Tag. For goal-related work, continue with Do Stuff with Linked Notes in Project File under Goals Management.
+BABYRUS_HELP_NOTES
+}
+
+babyrus_help_goals() {
+    cat <<'BABYRUS_HELP_GOALS'
+MANAGE GOALS — PROJECT PLANS AND LINKED NOTES
+
+Goals Management brings project plans and the notes supporting those plans into one workflow. A project has a title, a project file and a collection of linked notes. You can create a project, edit an existing one, print its contents, associate or dissociate notes, open URLs from linked notes, and delete a project.
+
+1. Create a project plan
+
+Add New Project creates a project. Edit Existing Project opens its plan editor. Plans are organised as nested headings and tasks: headings group related work, and tasks sit under headings. You can add, edit, move and delete items, change their status and importance, and add comments. Statuses include Not started, In progress, Paused and Completed. Importance levels are Very important, Important, Normal and Not important.
+
+Use headings to break a large goal into areas of work, then add actionable tasks beneath them. Update status as work progresses so the plan reflects what is actually happening.
+
+2. Recommended feature: Do Stuff with Linked Notes in Project File
+
+This is a particularly useful way to work on a project. Select a project and BABYRUS gathers the notes linked to it into one workspace. You can create a new linked note, link an existing note, unlink a note, and manage the project's plan without leaving that workspace.
+
+The linked-note list can be filtered by tag or narrowed with a glob; reset either filter to return to the broader list. You can add a tag to, or remove a tag from, the linked notes that match the current filters. You can open an associated ebook or URL, and choose an individual linked note to view, copy, edit, print, manage its URL associations, open its ebooks, associate it with another project, or change its tags.
+
+This workflow is especially valuable for research, study and longer projects: keep the plan in the project file and keep supporting information in notes, then link the two. The note remains a note rather than becoming a duplicate embedded in each project.
+
+3. Shortlist active projects
+
+Do Stuff with Shortlisted Projects gives you a smaller working set when your project database grows. Add projects to the shortlist, work with a shortlisted project, remove projects when they are no longer active, and view the shortlist history. Removing a project from the shortlist does not delete the project itself.
+
+4. Build a book from linked notes
+
+Build Book from Linked Notes starts with a project's associated notes. Add notes as book sections, load notes from another project file, move sections and their subsection blocks, change indentation, remove sections, preview the numbered outline, and read sections. You can change the book title, save the book as a text file, inspect its save path, or convert it to PDF.
+
+A practical approach is to create the project plan first, collect useful material as notes, link the notes to the project, and then use the linked-note workspace or Build Book when you are ready to work with that material.
+BABYRUS_HELP_GOALS
+}
+
+babyrus_help_configure() {
+    cat <<'BABYRUS_HELP_CONFIGURE'
+CONFIGURE — CHOOSE THE APPLICATIONS BABYRUS USES
+
+BABYRUS can launch external applications to edit text files, view ebooks and PDFs, and open URLs. Configure lets you choose the default command for each supported file type, as well as the general text editor and web browser.
+
+To change a setting:
+
+1. Select the file extension, DEFAULT_EDITOR or URL_BROWSER.
+2. Choose an application from the list.
+3. Return to the settings menu and repeat for any other changes.
+4. Select Save and confirm when you are ready to write the changes.
+
+The available choices are common Linux applications. BABYRUS checks that the selected command is installed. If a command is missing, install it first and then return to Configure.
+
+The file-type settings are used when BABYRUS opens registered ebooks. DEFAULT_EDITOR is used for the default terminal-based editing workflow, and URL_BROWSER is used when opening associated web links.
+
+Saved settings are written into the configuration block in babyrus.sh. Restart BABYRUS after saving so the updated commands are used by the running session. Keep a backup of your script before manually editing its configuration block.
+BABYRUS_HELP_CONFIGURE
+}
+
+babyrus_help_help() {
+    cat <<'BABYRUS_HELP_HELP'
+USING BABYRUS HELP
+
+Choose a topic from this menu to read about the corresponding part of BABYRUS. The help screens are scrollable: use the navigation keys shown by Whiptail to move through the text, and choose Back or press Esc to return to the topic list.
+
+Where to start:
+
+• Manage eBooks explains registration, tags, searching, opening and library maintenance.
+• Manage Notes introduces note organisation and the connections between notes, ebooks, URLs and projects. Pay particular attention to Do Stuff by Tag: it provides a focused workspace for a subject.
+• Manage Goals explains project plans and linked notes. Do Stuff with Linked Notes in Project File is a useful workflow for keeping project tasks and their supporting information together.
+
+Configure explains how to select external applications. Backup and Restore explain how to protect and recover BABYRUS's local data.
+
+BABYRUS is designed to work with your local files. Take care when removing or renaming files, deleting notes, or restoring a backup, and read confirmation messages before accepting an operation.
+BABYRUS_HELP_HELP
+}
+
+babyrus_help_backup() {
+    cat <<'BABYRUS_HELP_BACKUP'
+BACKUP — MAKE A RECOVERY ARCHIVE
+
+Backup creates a compressed .tar.gz archive of BABYRUS's local data. The archive includes the databases and metadata, note text files, project files, the URL database, and the ebook registration and tag databases. The default filename includes a timestamp, for example:
+
+backup_YYYYMMDD_HHMMSS.tar.gz
+
+The archive is created in the current working directory. Keep a copy somewhere separate from the computer or directory that holds your BABYRUS data, so it remains available if the original files are lost or damaged.
+
+Important: the backup contains BABYRUS's records and its note and project text files. It does not copy the external ebook files that are merely registered by path. Make sure your original ebook collection is backed up by your normal file-backup process as well.
+
+Run Backup regularly, especially after adding or editing many notes, projects, tags or associations. Before starting, check that the current working directory is the BABYRUS data directory you intend to back up and that there is enough free disk space for the archive.
+BABYRUS_HELP_BACKUP
+}
+
+babyrus_help_restore() {
+    cat <<'BABYRUS_HELP_RESTORE'
+RESTORE — RECOVER FROM A BACKUP ARCHIVE
+
+Restore extracts a previously created BABYRUS backup archive into the current working directory. Choose the archive from the list, check that it is the correct backup, and confirm the operation when prompted.
+
+Restoring replaces files at matching paths with the copies stored in the archive. Any newer database, note or project changes in those files can therefore be overwritten. Make a backup of the current data before restoring if there is anything you may need to keep.
+
+Run BABYRUS from the data directory that should receive the restored files. The archive preserves relative paths, so restoring from a different directory may place the recovered files somewhere other than the directory you expect.
+
+Restore does not recreate external ebook files; it restores BABYRUS's registration records and the note and project files included in the archive. The ebook files themselves must still be available at their registered paths.
+
+After restoring, review your notes, projects and registered ebook paths. If you have any doubt about which archive to use, cancel and inspect the backup files before proceeding.
+BABYRUS_HELP_RESTORE
+}
+
+# Help in sections. The Notes and Goals topics deliberately signpost two of
+# BABYRUS's most useful workflows: Do Stuff by Tag and linked project notes.
 show_help() {
     while true; do
+        local CHOICE
         CHOICE=$(whiptail --title "Babyrus Help Menu" --cancel-button "Back" \
             --menu "Select a help topic:" 20 60 10 \
             "1" "Help: Manage eBooks" \
@@ -29682,253 +30143,16 @@ show_help() {
             "4" "Help: Configure" \
             "5" "Help: Help" \
             "6" "Help: Backup" \
-            "7" "Help: Restore" 3>&1 1>&2 2>&3)
-
-        exitstatus=$?
-        if [ $exitstatus != 0 ]; then
-            break
-        fi
-
-        case $CHOICE in
-            1)
-                whiptail --scrolltext --title "Manage eBooks" --cancel-button "Back" --msgbox "\
-Manage eBooks — Build a Searchable Personal Library
-
-BABYRUS transforms an ordinary collection of ebook files into a powerful, searchable personal library without forcing you to move or reorganise your files. Your books remain exactly where they are on your local file system while BABYRUS maintains a lightweight database that makes them easy to organise, search, and open whenever you need them.
-
-Whether your collection contains a few dozen books or many thousands spread across multiple drives and folders, BABYRUS gives you fast access without relying on cloud services or proprietary library formats.
-
-
-Register Your Existing Collection
-
-Building your library is quick and flexible. Rather than forcing a single workflow, BABYRUS provides several ways to register ebook files depending on how you prefer to work.
-
-You can:
-
-    Register a single file when you only need to add one ebook.
-    Register files in bulk by selecting a directory and using a glob pattern to import every matching file.
-    Register multiple files from a checklist, allowing you to manually choose exactly which ebooks to add from a directory.
-
-Because BABYRUS registers the location of each ebook instead of relocating it, your existing folder structure remains completely unchanged.
-
-
-Remove Registered eBooks
-
-Keeping your library tidy is just as convenient. Whether you're cleaning up a few entries or reorganising an entire collection, BABYRUS offers several removal methods.
-
-You can:
-
-    Remove a single registered ebook.
-    Remove ebooks in bulk using filename and optional tag filters.
-    Remove selected ebooks from a checklist.
-    Remove registered ebooks within a chosen file path, with an option to include its subdirectories.
-
-These options make it easy to maintain even very large ebook collections.
-
-
-Organise Your Library with Tags
-
-Folders are useful, but they often aren't enough. A programming book might belong to Linux, Networking, and Reference, while a novel could fit several genres. BABYRUS allows every registered ebook to have one or more tags, giving you complete freedom to organise your collection in ways that make sense to you.
-
-Once you've created your tag library, BABYRUS provides several ways to associate tags with ebooks.
-
-You can:
-
-    Associate a tag with a single ebook.
-    Associate a tag with multiple ebooks in bulk using filename and optional tag filters.
-    Associate a tag with selected ebooks from a checklist.
-
-These flexible tagging methods allow you to organise thousands of ebooks quickly while still giving you precise control whenever you need it.
-
-
-Remove Tags from eBooks
-
-As your library evolves, your tagging system will naturally evolve with it. BABYRUS makes it just as easy to remove tags as it is to assign them.
-
-You can:
-
-    Dissociate a tag from a single ebook.
-    Dissociate a tag from multiple ebooks in bulk.
-    Dissociate a tag from selected ebooks using a checklist.
-    Dissociate a tag from registered ebooks within a chosen file path, with an option to include its subdirectories.
-
-When a tag is no longer associated with any ebook, it can be safely removed from the global tag list, helping keep your tag collection clean and meaningful.
-
-
-Powerful Search & Lookup
-
-Once your library has been registered and organised with tags, finding the right book becomes effortless.
-
-BABYRUS lets you search in several different ways:
-
-    Search by filename using glob patterns.
-    Search by tag to view every ebook associated with a particular subject.
-    Search within a specific directory, combining filename and tag filters to narrow the results even further.
-    Browse every registered ebook in the database.
-    Browse every registered tag in your library.
-
-Selecting any ebook displays useful information including its filename, directory path, associated tags, MIME type, and file size, making it easy to verify you've found exactly what you're looking for.
-
-
-Open & Read
-
-Finding a book is only half the job. BABYRUS lets you open it immediately in your preferred external ebook reader or document viewer.
-
-You can launch books by:
-
-    Searching by filename (glob) and/or tag, including a [NO TAG] filter for untagged files.
-    Searching within a selected file path.
-
-Instead of navigating folders or trying to remember where a particular title is stored, simply search, select, and begin reading.
-
-
-Built-in Maintenance Tools
-
-As your ebook collection changes over time, BABYRUS helps keep your database accurate and reliable.
-
-The maintenance tools can:
-
-    Remove broken database entries whose files no longer exist.
-    Rename and reregister ebooks with illegal or problematic filenames, updating both the filesystem and the database together.
-    Revert renamed filenames whenever you need to restore the original names.
-
-These tools help ensure your library remains consistent even after years of use.
-
-Your Library, Organised Your Way
-
-BABYRUS is designed around a simple philosophy: your ebooks should remain on your local file system, organised however you choose. Rather than replacing your folder structure, BABYRUS enhances it with powerful indexing, flexible tagging, fast searching, and reliable maintenance.
-
-Whether you're managing a few hundred books or an extensive digital library containing thousands of titles, BABYRUS gives you multiple ways to organise, maintain, search, and open your ebooks—all while leaving your files exactly where they belong.
-" 40 120
-                ;;
-            2)
-                whiptail --scrolltext --title "Manage Notes" --cancel-button "Back" --msgbox "\
-Do Stuff by Tag — Where BABYRUS Becomes Your Productivity Hub
-
-The Do Stuff by Tag feature is one of the most powerful parts of BABYRUS. Instead of forcing you to remember where information is stored, BABYRUS lets you think in terms of topics. Select a tag, and everything related to that subject is instantly available from one unified workspace.
-
-Whether you're researching a programming language, managing a project, collecting ideas, or organising study notes, you no longer waste time jumping between different menus. Once you've filtered by a tag, virtually every action you need is available in one place.
-
-For example, suppose you're working on JavaScript. Select the javascript tag, and BABYRUS presents every note you've created on that topic, together with a comprehensive set of actions.
-
-You can immediately create a new note that automatically inherits the selected tag. This keeps related information organised without requiring you to repeatedly assign the same tag. As your collection grows, your notes naturally remain grouped by subject.
-
-Need to reuse information? Simply copy any note directly to the clipboard and paste it into your editor, email, documentation, or chat application without opening extra windows.
-
-As your knowledge evolves, editing is effortless. Browse all notes under the selected tag, choose the one you want, and update its contents. While editing, you can also add or remove tags, attach ebooks, or remove existing ebook associations, allowing your knowledge base to stay accurate and well organised.
-
-BABYRUS doesn't stop at plain text notes. If a note is linked to an ebook, you can open that ebook directly from the same interface. Your notes and reference material stay connected, so supporting documentation is always only a few keystrokes away.
-
-The same applies to web resources. Associate URLs with notes, open them instantly, or update and remove them whenever needed. This transforms each note into a central hub that can connect your own knowledge with valuable online references.
-
-Need a hard copy? Print any note directly from BABYRUS without first exporting or copying its contents elsewhere.
-
-Projects become much easier to manage as well. Using a simple checklist interface, you can associate multiple notes with a project file. A project acts like a digital filing cabinet, bringing together all the notes relevant to a particular task, assignment, or long-term goal. Instead of searching through hundreds of notes later, everything related to that project is already grouped together.
-
-Knowledge rarely belongs to only one category, which is why BABYRUS makes retagging effortless. While viewing notes under one tag, you can select multiple notes and assign an additional tag in a single operation. For example, notes tagged javascript can also be tagged bind, closures, or async, creating multiple paths to the same information without duplicating anything.
-
-The real strength of Do Stuff by Tag is that it transforms tags from simple labels into active workspaces. Rather than merely finding notes, you can create, edit, organise, connect, print, and manage every aspect of your knowledge without leaving the current context. This dramatically reduces menu navigation, keeps you focused on your work, and makes BABYRUS feel less like a note-taking program and more like a personal knowledge management system.
-" 40 120
-                ;;
-            3)
-                whiptail --scrolltext --title "Manage Goals" --cancel-button "Back" --msgbox "\
-Do Stuff with Linked Notes in Project File — Where BABYRUS Turns Projects into Powerful Workspaces
-
-Projects rarely exist in isolation. As your work grows, you'll accumulate research notes, ideas, references, web pages, and ebooks that all contribute to the same project. BABYRUS brings these resources together by allowing every project to become a central hub for everything related to it.
-
-Unlike notes or ebooks, projects are identified by their filenames rather than tags, so BABYRUS begins by asking you to filter projects using a glob pattern. A glob pattern allows you to quickly narrow down a large collection of project files by matching parts of their filenames, making it easy to locate exactly the project you need. Once you've selected the project, you're immediately presented with every note linked to it. From this single screen you can create new notes, link existing ones, remove notes that are no longer relevant, or explore any linked note in greater detail. Instead of manually searching through folders and files, everything connected to your project is available from one convenient location.
-
-Creating a new note automatically associates it with the current project, making it effortless to capture ideas, observations, and information while working. If you already have notes elsewhere in your collection, BABYRUS makes it simple to bring them into your project. You can filter notes by a registered tag, filter by notes with no associated tags, or apply no filter and list all notes regardless of tagging. From there, you can select multiple notes at once and link them to your project. Likewise, if a note is no longer relevant to the project, you can unlink it without deleting the note itself. This keeps your information organised while allowing the same note to be reused in different contexts.
-
-The real power of this feature becomes apparent when you begin working with the notes themselves. Selecting any linked note opens a comprehensive set of actions, many of which are also available through Do Stuff by Tag. Rather than opening different applications or navigating through multiple menus, BABYRUS allows you to manage and interact with your information directly from the project that it belongs to.
-
-Need to quickly review a note? You can open it in read-only mode without making accidental changes. Want to reuse its contents somewhere else? BABYRUS can copy the entire note to your clipboard instantly, allowing you to paste the information wherever it is needed. These simple actions remove unnecessary steps and help maintain a smooth workflow.
-
-If your note is connected to ebooks, BABYRUS can display all ebook files associated with that note and open your chosen ebook in an external viewer. If you have registered bookmarks, you can even open the ebook directly at a specific page. This is especially useful when working on research projects where notes and source material need to stay closely connected. Instead of remembering where information came from, BABYRUS keeps the relationship between your notes and references intact.
-
-Your projects can also connect directly to online resources. Notes can store associated URLs, allowing you to access websites and online references without searching through browser history or separate bookmark systems. BABYRUS lets you open any linked URL in your browser, add new URLs, edit existing ones, or remove links that are no longer useful. By keeping web resources attached to the notes that depend on them, your knowledge remains organised and easy to retrieve.
-
-Another powerful capability is the ability to associate a note with multiple projects. In real-world workflows, the same information often belongs to more than one area. A research article, technical reference, meeting summary, or important idea may be useful across several projects. Instead of creating duplicate copies of the same note, BABYRUS allows you to link the existing note to another project. The note remains a single source of information while being accessible from every project where it is relevant. This reduces duplication and ensures that updates are reflected everywhere.
-
-Once you are working with a linked note, BABYRUS also allows you to continue managing that note without leaving the project workflow. You can edit the note directly when information needs to be updated, ensuring your project stays current as your work progresses. When you need to share information outside of BABYRUS or create a physical record, you can also print the selected note directly using your printer.
-
-Combined with Do Stuff by Tag, this feature provides a complete and powerful productivity workflow. Tags allow you to manage information across your entire collection, while projects bring together everything needed for a specific goal. Together, they create a flexible system where notes, ebooks, bookmarks, URLs, and projects are connected rather than scattered across separate locations.
-
-BABYRUS turns project management from a simple file organisation task into an integrated knowledge management system. Instead of spending time searching for information, reorganising files, or maintaining duplicate copies, you can focus on using the information that matters. This is what makes the Do Stuff with Linked Notes in Project File feature not only convenient, but a genuinely powerful tool for productivity.
-
-
-Do Stuff with Shortlisted Projects — Focus on What Matters Most
-
-As your project database grows, it can become difficult to quickly find the projects that are currently important to you. BABYRUS solves this problem with the Do Stuff with Shortlisted Projects feature, giving you a simple way to create a focused workspace from your larger collection of projects.
-
-Instead of searching through every project whenever you need to continue your work, you can simply shortlist the projects you are actively working on. This keeps your attention on the tasks that matter right now while allowing you to keep your complete project history safely stored in BABYRUS.
-
-Adding a project to your shortlist is quick and effortless. Choose Add to shortlist, then enter a glob pattern to quickly filter your projects by name. Once you find the project you want, simply select it and confirm. The project is immediately added to your focused list, ready whenever you need it.
-
-Once you have shortlisted projects, BABYRUS provides the same powerful project management capabilities available through Do Stuff with Linked Notes in Project File. You can select a shortlisted project and access the same comprehensive set of features, from creating and managing linked notes to working with individual notes using the full range of available actions. This includes viewing and editing notes, printing them with your printer, copying their contents to the clipboard, associating them with other project files, accessing related ebooks and URLs, and many other productivity features—all within the same convenient workflow.
-
-This creates a streamlined workflow where your active projects and their related information are always just a few selections away. Instead of manually navigating through folders or searching through large databases, BABYRUS brings your current priorities together into one convenient workspace.
-
-Your shortlist remains completely under your control. When a project is no longer active, you can use Remove from shortlist to take it out of your focused list without deleting the project itself. This allows your shortlist to continuously adapt as your priorities change.
-
-For added transparency, BABYRUS also includes a View history feature. It keeps a record of projects that have previously been added to or removed from your shortlist, helping you remember past focus areas and track how your project priorities have evolved over time.
-
-With Shortlisted Projects, BABYRUS transforms a large collection of projects into an organized, flexible, and productivity-focused workspace — helping you spend less time searching and more time getting things done.
-" 40 120
-                ;;
-            4)
-                whiptail --scrolltext --title "Configure" --cancel-button "Back" --msgbox "\
-CONFIGURE — Set Default Applications
-
-Use this function to configure the default applications that BABYRUS uses to open different file types. BABYRUS uses these settings to determine which application should be launched for each file extension.
-
-When you open the Set Default Apps menu, BABYRUS displays a list of file extensions on the left and their currently assigned default applications on the right.
-
-To change a default application:
-
-1. Select the file extension you want to modify.
-2. BABYRUS will display a list of supported applications available for that file type.
-3. Choose your preferred application from the list.
-
-After making all required changes, select Save to apply and store your new default application settings.
-
-You will need to restart BABYRUS for the changes to take effect.
-
-" 40 120
-                ;;
-            5)
-                whiptail --scrolltext --title "Help" --cancel-button "Back" --msgbox "\
-HELP
-
-Use this function to access the BABYRUS help documentation.
-
-It provides detailed guidance on using the system, including explanations of the major features and available functions.
-" 40 120
-                ;;
-            6)
-                whiptail --scrolltext --title "Backup" --cancel-button "Back" --msgbox "\
-BACKUP
-
-Use this function to create a backup of all BABYRUS database files, including the ebooks, notes, and projects databases.
-
-After selecting this option, confirm that you want to continue. BABYRUS will create a compressed backup archive with the following naming format:
-
-backup_<timestamp>.tar.gz
-
-The backup file contains all essential BABYRUS data and can be used to restore your system if your database files are lost, damaged, or need to be recovered.
-" 40 120
-                ;;
-            7)
-                whiptail --scrolltext --title "Restore" --cancel-button "Back" --msgbox "\
-RESTORE
-
-Use this function to restore BABYRUS data from a previously created backup archive.
-
-Select the backup file you want to restore from the list of available backups. During the restoration process, Babyrus will replace the current database files with the contents of the selected backup.
-
-Warning: Any existing BABYRUS database data will be overwritten during restoration. Make sure you select the correct backup file before proceeding.
-" 40 120
-                ;;
+            "7" "Help: Restore" 3>&1 1>&2 2>&3) || return 0
+
+        case "$CHOICE" in
+            1) babyrus_help_message "Manage eBooks" "$(babyrus_help_ebooks)" ;;
+            2) babyrus_help_message "Manage Notes" "$(babyrus_help_notes)" ;;
+            3) babyrus_help_message "Manage Goals" "$(babyrus_help_goals)" ;;
+            4) babyrus_help_message "Configure" "$(babyrus_help_configure)" ;;
+            5) babyrus_help_message "Help" "$(babyrus_help_help)" ;;
+            6) babyrus_help_message "Backup" "$(babyrus_help_backup)" ;;
+            7) babyrus_help_message "Restore" "$(babyrus_help_restore)" ;;
         esac
     done
 }
@@ -29936,18 +30160,28 @@ Warning: Any existing BABYRUS database data will be overwritten during restorati
 ################################
 # Main Menu
 ################################
+# Centre each verse line within the usable width of the compact main menu.
+# The wrapper will widen the menu only when the terminal or text requires it.
+babyrus_center_main_verse_line() {
+    local line="$1" rows cols target_width padding
+    read -r rows cols < <(babyrus_terminal_size)
+    target_width=$(( BABYRUS_NAV_MENU_WIDTH - 8 ))
+    (( target_width > cols - 8 )) && target_width=$(( cols - 8 ))
+    (( target_width < 1 )) && target_width=1
+    (( ${#line} > target_width )) && target_width=${#line}
+    padding=$(( (target_width - ${#line}) / 2 ))
+    (( padding < 0 )) && padding=0
+    printf '%*s%s' "$padding" "" "$line"
+}
+
 msg1="'But the Helper, the Holy Spirit, whom the Father will"
 msg2="send in My name, He will teach you all things, and bring"
 msg3="to your remembrance all things that I said to you.'"
 msg4="†John 14:26"
-padding1=$(( (53 - ${#msg1}) / 2 ))
-padded_msg1="$(printf "%*s%s" $padding1 "" "$msg1")"
-padding2=$(( (55 - ${#msg2}) / 2 ))
-padded_msg2="$(printf "%*s%s" $padding2 "" "$msg2")"
-padding3=$(( (53 - ${#msg3}) / 2 ))
-padded_msg3="$(printf "%*s%s" $padding3 "" "$msg3")"
-padding4=$(( (53 - ${#msg4}) / 2 ))
-padded_msg4="$(printf "%*s%s" $padding4 "" "$msg4")"
+padded_msg1="$(babyrus_center_main_verse_line "$msg1")"
+padded_msg2="$(babyrus_center_main_verse_line "$msg2")"
+padded_msg3="$(babyrus_center_main_verse_line "$msg3")"
+padded_msg4="$(babyrus_center_main_verse_line "$msg4")"
 padded_msg="${padded_msg1}\n${padded_msg2}\n${padded_msg3}\n${padded_msg4}"
 MAIN_MENU_STR="
 ${padded_msg}
@@ -29971,7 +30205,7 @@ since I have told you everything the Father told me.
 # Main menu function
 show_main_menu() {
     while true; do
-        choice=$(NEWT_COLORS='root=,magenta textbox=red,' whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
+        choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
             "eBooks" "Manage eBooks" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
