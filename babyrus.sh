@@ -199,6 +199,7 @@ whiptail() {
     local item_start item_args_count item_arity item_count=0 j list_capacity
     local rows cols height width list_height nav_width ignored_width max_text=0 line_len
     local required_width wrap_width item_text
+    local has_add_h=0 has_add_t=0
 
     read -r rows cols < <(babyrus_terminal_size)
 
@@ -252,6 +253,20 @@ whiptail() {
     item_args_count=$(( ${#args[@]} - item_start ))
     (( item_args_count < 0 )) && item_args_count=0
     item_count=$(( item_args_count / item_arity ))
+
+    # Goal-tree action menus contain these stable action tags. Treat every
+    # such menu as a full-width content menu, even if its title is a heading
+    # name rather than exactly "Manage Goals". This keeps all goal-tree
+    # screens consistent across the different Goals Management workflows.
+    for (( j=item_start; j + item_arity - 1 < ${#args[@]}; j+=item_arity )); do
+        case "${args[j]}" in
+            ADD_H) has_add_h=1 ;;
+            ADD_T) has_add_t=1 ;;
+        esac
+    done
+    if (( has_add_h == 1 && has_add_t == 1 )); then
+        is_navigation=0
+    fi
 
     # Work out the longest text line across the title, prompt, and menu labels.
     line_len=$(babyrus_text_max_line_length "$title")
@@ -9628,6 +9643,497 @@ paginate_get_projects() {
     return 1
 }
 
+##############################################################
+# Goals Management: shared pickers and helpers
+##############################################################
+
+# State shared between the Goals Management pickers. The calling workflow
+# resets the glob/filter variables when it starts, so the user's glob and
+# filter survive while they keep working inside the same workflow.
+GOALS_PROJECT_GLOB=""
+GOALS_NOTE_GLOB=""
+GOALS_NOTE_TAGFILTER=""
+GOALS_SELECTED_PROJECT_LINENO=""
+GOALS_SELECTED_PROJECT_TITLE=""
+GOALS_SELECTED_PROJECT_PATH=""
+GOALS_SELECTED_PROJECT_NOTES=""
+GOALS_SELECTED_PROJECT_LINE=""
+GOALS_SELECTED_NOTE_TAG=""
+GOALS_PICKED_NOTE_INDEX=""
+GOALS_PICKED_NOTE_PATH=""
+GOALS_MENU_CHOICE=""
+
+# Pick a project from PROJECTS_DB.
+#
+# Every row shows the full project path. __APPLY_GLOB__ matches the project
+# FILE NAME (the last component of the path), case-insensitively, and
+# __RESET_GLOB__ clears the glob. The current glob is kept in
+# GOALS_PROJECT_GLOB.
+#
+# On success (return 0) these are set:
+#   GOALS_SELECTED_PROJECT_LINENO  1-based line number in PROJECTS_DB
+#   GOALS_SELECTED_PROJECT_TITLE / _PATH / _NOTES / _LINE
+# Returns 1 when the user goes Back.
+goals_select_project() {
+    local menu_title="${1:-Select Project}"
+    local -a rows_lineno=() rows_title=() rows_path=() rows_notes=() rows_line=()
+    local -a order=() menu_items=()
+    local row lineno=0 t p n base choice new_glob
+    local page=1 page_size=50 total total_pages start end k i prompt
+
+    GOALS_SELECTED_PROJECT_LINENO=""
+    GOALS_SELECTED_PROJECT_TITLE=""
+    GOALS_SELECTED_PROJECT_PATH=""
+    GOALS_SELECTED_PROJECT_NOTES=""
+    GOALS_SELECTED_PROJECT_LINE=""
+
+    if [[ ! -s "$PROJECTS_DB" ]]; then
+        whiptail --title "$menu_title" --msgbox \
+            "No projects found. Add at least one project and try again." 8 60
+        return 1
+    fi
+
+    while :; do
+        rows_lineno=(); rows_title=(); rows_path=(); rows_notes=(); rows_line=()
+        lineno=0
+        while IFS= read -r row || [[ -n "$row" ]]; do
+            lineno=$((lineno + 1))
+            [[ -n "$row" ]] || continue
+            IFS='|' read -r t p n <<< "$row"
+            [[ -n "$p" ]] || continue
+            if [[ -n "$GOALS_PROJECT_GLOB" ]]; then
+                base="${p##*/}"
+                [[ "${base,,}" == ${GOALS_PROJECT_GLOB,,} ]] || continue
+            fi
+            rows_lineno+=("$lineno"); rows_title+=("$t"); rows_path+=("$p")
+            rows_notes+=("$n"); rows_line+=("$row")
+        done < "$PROJECTS_DB"
+
+        # Sort by full project path, case-insensitively.
+        order=()
+        if (( ${#rows_path[@]} > 0 )); then
+            mapfile -t order < <(
+                for i in "${!rows_path[@]}"; do
+                    printf '%s\t%s\n' "${rows_path[i],,}" "$i"
+                done | LC_ALL=C sort -t $'\t' -k1,1 | cut -f2
+            )
+        fi
+
+        total=${#order[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+
+        menu_items=(
+            "__APPLY_GLOB__" "Apply glob (matches project file name)"
+            "__RESET_GLOB__" "Reset glob"
+        )
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k = start; k < end; k++ )); do
+            i=${order[k]}
+            menu_items+=("$((k + 1))" "${rows_path[i]}")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        prompt="Choose a project (page $page/$total_pages, $total shown)\nFile name glob: ${GOALS_PROJECT_GLOB:-none (showing all projects)}"
+        (( total == 0 )) && prompt+="\nNo project file names match the current glob."
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "$prompt" 35 175 25 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            __APPLY_GLOB__)
+                if new_glob=$(whiptail --title "Apply Project File Name Glob" --inputbox \
+                    "Enter a case-insensitive glob to match project file names (for example: *javascript*). Leave empty to show all projects." \
+                    11 90 "$GOALS_PROJECT_GLOB" 3>&1 1>&2 2>&3); then
+                    GOALS_PROJECT_GLOB="$new_glob"
+                    page=1
+                fi
+                ;;
+            __RESET_GLOB__)
+                GOALS_PROJECT_GLOB=""
+                page=1
+                ;;
+            *)
+                [[ "$choice" =~ ^[0-9]+$ ]] || continue
+                k=$((choice - 1))
+                (( k >= start && k < end )) || continue
+                i=${order[k]}
+                GOALS_SELECTED_PROJECT_LINENO="${rows_lineno[i]}"
+                GOALS_SELECTED_PROJECT_TITLE="${rows_title[i]}"
+                GOALS_SELECTED_PROJECT_PATH="${rows_path[i]}"
+                GOALS_SELECTED_PROJECT_NOTES="${rows_notes[i]}"
+                GOALS_SELECTED_PROJECT_LINE="${rows_line[i]}"
+                return 0
+                ;;
+        esac
+    done
+}
+
+# "[a,b,c +2]" style summary of a comma-separated tag list.
+goals_truncate_note_tags() {
+    local tags="$1"
+    local -a arr=()
+    if [[ -z "$tags" ]]; then
+        printf '[]'
+        return
+    fi
+    IFS=',' read -r -a arr <<< "$tags"
+    if (( ${#arr[@]} <= 3 )); then
+        printf '[%s]' "$tags"
+    else
+        printf '[%s,%s,%s +%d]' "${arr[0]}" "${arr[1]}" "${arr[2]}" $(( ${#arr[@]} - 3 ))
+    fi
+}
+
+# goals_note_has_tag "tag1,tag2" "wanted"  (case-insensitive exact tag match)
+goals_note_has_tag() {
+    local -a arr=()
+    local t
+    IFS=',' read -r -a arr <<< "$1"
+    for t in "${arr[@]}"; do
+        [[ "${t,,}" == "${2,,}" ]] && return 0
+    done
+    return 1
+}
+
+# Simple paginated menu of tag/description pairs.
+# Usage: goals_paged_menu "Title" "Prompt" tag1 desc1 tag2 desc2 ...
+# Sets GOALS_MENU_CHOICE; returns 1 on Back.
+goals_paged_menu() {
+    local menu_title="$1" prompt="$2"
+    shift 2
+    local -a items=("$@") menu_items=()
+    local page=1 page_size=30 total total_pages start end k choice
+
+    GOALS_MENU_CHOICE=""
+    total=$(( ${#items[@]} / 2 ))
+    total_pages=$(( (total + page_size - 1) / page_size ))
+    (( total_pages < 1 )) && total_pages=1
+
+    while :; do
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+        menu_items=()
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k = start; k < end; k++ )); do
+            menu_items+=("${items[2*k]}" "${items[2*k+1]}")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "$prompt (page $page/$total_pages)" 30 100 20 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            *) GOALS_MENU_CHOICE="$choice"; return 0 ;;
+        esac
+    done
+}
+
+# Select the note tag used to pre-filter notes (Associate Note with Project).
+#
+# Special choices: [NO TAG] and [ANY TAG].
+# __FILTER__ narrows the list of tags by a literal (case-insensitive)
+# substring; __RESET_FILTER__ clears it. Result in GOALS_SELECTED_NOTE_TAG.
+goals_select_note_tag_filter() {
+    local menu_title="Select Note Tag to Filter Notes"
+    local tag_pattern="" pat_lc tag choice new_pat prompt status
+    local page=1 page_size=30 total total_pages start end k
+    local -a all_tags=() shown=() menu_items=()
+
+    GOALS_SELECTED_NOTE_TAG=""
+
+    # With "--tags t1 t2 ..." the menu lists just those tags (used by the note
+    # picker's __FILTER_BY_TAG__); otherwise it lists every tag in NOTES_TAGS_DB.
+    if [[ "${1:-}" == "--tags" ]]; then
+        shift
+        menu_title="Filter Notes by Tag"
+        all_tags=("$@")
+    elif [[ -r "$NOTES_TAGS_DB" ]]; then
+        while IFS= read -r tag; do
+            [[ -n "$tag" ]] && all_tags+=("$tag")
+        done < <(sort -f -- "$NOTES_TAGS_DB")
+    fi
+
+    while :; do
+        shown=()
+        pat_lc="${tag_pattern,,}"
+        for tag in "${all_tags[@]}"; do
+            if [[ -z "$tag_pattern" || "${tag,,}" == *"$pat_lc"* ]]; then
+                shown+=("$tag")
+            fi
+        done
+
+        total=${#shown[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+
+        menu_items=(
+            "[NO TAG]" "Notes that have no tag"
+            "[ANY TAG]" "All notes, with or without tags"
+            "__FILTER__" "Filter the tag list (literal substring)"
+            "__RESET_FILTER__" "Reset the tag list filter"
+        )
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k = start; k < end; k++ )); do
+            menu_items+=("${shown[k]}" "")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        if [[ -n "$tag_pattern" ]]; then
+            status="Tag list filter: '$tag_pattern' (literal substring, case-insensitive) - ${total} of ${#all_tags[@]} tags shown"
+            (( total == 0 )) && status+=$'\nNo tags contain that text.'
+        else
+            status="Tag list filter: none - ${#all_tags[@]} tags"
+        fi
+        prompt="Choose a tag to filter notes by (page $page/$total_pages)\n$status"
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "$prompt" 30 100 20 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            __FILTER__)
+                if new_pat=$(whiptail --title "Filter Tags" --inputbox \
+                    "Enter text to look for in tag names. It is matched literally (no wildcards) and ignoring case. Leave empty to show all tags." \
+                    11 80 "$tag_pattern" 3>&1 1>&2 2>&3); then
+                    tag_pattern="$new_pat"
+                    page=1
+                fi
+                ;;
+            __RESET_FILTER__)
+                tag_pattern=""
+                page=1
+                ;;
+            *)
+                GOALS_SELECTED_NOTE_TAG="$choice"
+                return 0
+                ;;
+        esac
+    done
+}
+
+# Pick one note from a list of note paths.
+#
+# Usage: goals_pick_note "Menu title" "Prompt text" path1 path2 ...
+#
+# Each row shows the full note path followed by the note's tags.
+#   __APPLY_GLOB__      case-insensitive glob matched against the note FILE NAME
+#   __RESET_GLOB__      clears the glob
+#   __FILTER_BY_TAG__   choose a tag (or [NO TAG]) to filter by
+#   __RESET_FILTER__    clears the tag filter
+# The glob and tag filter live in GOALS_NOTE_GLOB / GOALS_NOTE_TAGFILTER;
+# the caller resets them when its workflow starts.
+#
+# Sets GOALS_PICKED_NOTE_INDEX (0-based position among the paths passed in)
+# and GOALS_PICKED_NOTE_PATH. Returns 1 when the user goes Back.
+goals_pick_note() {
+    local menu_title="$1" purpose="$2"
+    shift 2
+    local -a cand_paths=("$@") cand_tags=() vis=() menu_items=() tag_items=()
+    local -A db_tags=() seen_tags=()
+    local row_title row_path row_tags p i k t base choice new_glob
+    local page=1 page_size=50 total total_pages start end prompt tag_label
+    local has_untagged=0
+    local -a split=()
+
+    GOALS_PICKED_NOTE_INDEX=""
+    GOALS_PICKED_NOTE_PATH=""
+
+    if (( ${#cand_paths[@]} == 0 )); then
+        whiptail --title "$menu_title" --msgbox "There are no notes to choose from." 8 50
+        return 1
+    fi
+
+    if [[ -r "$NOTES_DB" ]]; then
+        while IFS='|' read -r row_title row_path row_tags _; do
+            [[ -n "$row_path" ]] && db_tags["$row_path"]="$row_tags"
+        done < "$NOTES_DB"
+    fi
+    for p in "${cand_paths[@]}"; do
+        cand_tags+=("${db_tags[$p]:-}")
+    done
+
+    while :; do
+        vis=()
+        for i in "${!cand_paths[@]}"; do
+            if [[ -n "$GOALS_NOTE_GLOB" ]]; then
+                base="${cand_paths[i]##*/}"
+                [[ "${base,,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
+            fi
+            if [[ -n "$GOALS_NOTE_TAGFILTER" && "$GOALS_NOTE_TAGFILTER" != "[ANY TAG]" ]]; then
+                if [[ "$GOALS_NOTE_TAGFILTER" == "[NO TAG]" ]]; then
+                    [[ -z "${cand_tags[i]}" ]] || continue
+                else
+                    goals_note_has_tag "${cand_tags[i]}" "$GOALS_NOTE_TAGFILTER" || continue
+                fi
+            fi
+            vis+=("$i")
+        done
+
+        total=${#vis[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+
+        menu_items=(
+            "__APPLY_GLOB__" "Apply glob (matches note file name)"
+            "__RESET_GLOB__" "Reset glob"
+            "__FILTER_BY_TAG__" "Filter by tag"
+            "__RESET_FILTER__" "Reset tag filter"
+        )
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k = start; k < end; k++ )); do
+            i=${vis[k]}
+            menu_items+=("$i" "${cand_paths[i]}  $(goals_truncate_note_tags "${cand_tags[i]}")")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        tag_label="${GOALS_NOTE_TAGFILTER:-none}"
+        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\nFile name glob: ${GOALS_NOTE_GLOB:-none}\nTag filter: $tag_label"
+        (( total == 0 )) && prompt+="\nNo notes match the current glob and tag filter."
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "$prompt" 35 175 25 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            __APPLY_GLOB__)
+                if new_glob=$(whiptail --title "Apply Note File Name Glob" --inputbox \
+                    "Enter a case-insensitive glob to match note file names (for example: *python*). Leave empty to show all notes." \
+                    11 90 "$GOALS_NOTE_GLOB" 3>&1 1>&2 2>&3); then
+                    GOALS_NOTE_GLOB="$new_glob"
+                    page=1
+                fi
+                ;;
+            __RESET_GLOB__)
+                GOALS_NOTE_GLOB=""
+                page=1
+                ;;
+            __RESET_FILTER__)
+                GOALS_NOTE_TAGFILTER=""
+                page=1
+                ;;
+            __FILTER_BY_TAG__)
+                # Offer the tags found on notes that match the current glob,
+                # so changing the tag filter never requires resetting it first.
+                seen_tags=()
+                has_untagged=0
+                for i in "${!cand_paths[@]}"; do
+                    if [[ -n "$GOALS_NOTE_GLOB" ]]; then
+                        base="${cand_paths[i]##*/}"
+                        [[ "${base,,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
+                    fi
+                    if [[ -z "${cand_tags[i]}" ]]; then
+                        has_untagged=1
+                        continue
+                    fi
+                    IFS=',' read -r -a split <<< "${cand_tags[i]}"
+                    for t in "${split[@]}"; do
+                        [[ -n "$t" ]] && seen_tags["${t,,}"]="$t"
+                    done
+                done
+                if [[ -n "${GOALS_NOTE_TAGMENU_FULL:-}" ]]; then
+                    # Full tag menu: [NO TAG], [ANY TAG], __FILTER__ (literal
+                    # substring) and __RESET_FILTER__, then the tags.
+                    local -a menu_tags=()
+                    if (( ${#seen_tags[@]} > 0 )); then
+                        while IFS= read -r t; do
+                            [[ -n "$t" ]] && menu_tags+=("$t")
+                        done < <(printf '%s\n' "${seen_tags[@]}" | sort -f)
+                    fi
+                    if goals_select_note_tag_filter --tags "${menu_tags[@]}"; then
+                        GOALS_NOTE_TAGFILTER="$GOALS_SELECTED_NOTE_TAG"
+                        page=1
+                    fi
+                    continue
+                fi
+                tag_items=()
+                (( has_untagged )) && tag_items+=("[NO TAG]" "Notes without tags")
+                if (( ${#seen_tags[@]} > 0 )); then
+                    while IFS= read -r t; do
+                        [[ -n "$t" ]] && tag_items+=("$t" "")
+                    done < <(printf '%s\n' "${seen_tags[@]}" | sort -f)
+                fi
+                if (( ${#tag_items[@]} == 0 )); then
+                    whiptail --title "Filter by Tag" --msgbox \
+                        "No tags are available among the notes matching the current glob." 8 70
+                elif goals_paged_menu "Filter Notes by Tag" "Choose a tag" "${tag_items[@]}"; then
+                    GOALS_NOTE_TAGFILTER="$GOALS_MENU_CHOICE"
+                    page=1
+                fi
+                ;;
+            *)
+                [[ "$choice" =~ ^[0-9]+$ ]] || continue
+                (( choice < ${#cand_paths[@]} )) || continue
+                GOALS_PICKED_NOTE_INDEX="$choice"
+                GOALS_PICKED_NOTE_PATH="${cand_paths[choice]}"
+                return 0
+                ;;
+        esac
+    done
+}
+
+# Unsaved-changes support for the "Manage Goals" project tree menus.
+# These read the tree arrays of the calling project editor (Bash dynamic
+# scoping), so they work for every copy of that editor.
+project_state_sig() {
+    local i
+    for i in "${!item_id[@]}"; do
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${item_type[i]}" "${item_id[i]}" "${parent_id[i]}" \
+            "${item_position[i]}" "${effective_status[i]:-}" \
+            "${item_importance[i]}" "${item_content[i]}" "${item_comment[i]}"
+    done
+}
+
+# Returns 0 when it is fine to leave the editor (nothing unsaved, or the
+# user saved / chose to discard) and 1 when the user wants to stay.
+project_confirm_leave() {
+    [[ "$(project_state_sig)" == "$PROJECT_SAVED_SIG" ]] && return 0
+
+    local answer
+    answer=$(whiptail --title "Project: Unsaved Changes" --cancel-button "Stay" \
+        --menu "You have unsaved changes in this project. Save them before going back?" \
+        14 70 3 \
+        "SAVE" "Save changes and go back" \
+        "DISCARD" "Discard changes and go back" \
+        "STAY" "Stay and keep editing" 3>&1 1>&2 2>&3) || return 1
+
+    case "$answer" in
+        SAVE)
+            if save_project; then
+                PROJECT_SAVED_SIG="$(project_state_sig)"
+                return 0
+            fi
+            return 1
+            ;;
+        DISCARD) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 add_project() {
     local project_title=""
     local project_path=""
@@ -11853,6 +12359,12 @@ add_project() {
         local tree_page=0
         local tree_page_size=25   # tree items per page
 
+        # Remember the saved state so Back can detect unsaved changes.
+        local PROJECT_SAVED_SIG
+        sort_children "0"
+        calculate_all_statuses
+        PROJECT_SAVED_SIG="$(project_state_sig)"
+
         while :; do
 
             sort_children "0"
@@ -11899,7 +12411,7 @@ add_project() {
                     -- \
                     "${menu_items[@]}" \
                     3>&1 1>&2 2>&3
-            )" || break
+            )" || { project_confirm_leave && break; continue; }
 
             case "$choice" in
                 SYMBOLS)
@@ -11946,6 +12458,7 @@ add_project() {
 
                 SAVE)
                     if save_project; then
+                        PROJECT_SAVED_SIG="$(project_state_sig)"
                         whiptail \
                             --title "Saved" \
                             --msgbox "Project saved successfully." \
@@ -11961,6 +12474,9 @@ add_project() {
                         10 70; then
 
                         if load_project "$PROJECT_FILE"; then
+                            sort_children "0"
+                            calculate_all_statuses
+                            PROJECT_SAVED_SIG="$(project_state_sig)"
                             whiptail \
                                 --title "Reverted" \
                                 --msgbox "Unsaved changes discarded; project reloaded." \
@@ -12189,42 +12705,13 @@ edit_project() {
         return 1
     }
 
-    # FIX: ADD FILTERING
-    # Read all projects into array
-    local lines=()
-    #mapfile -t lines < "$PROJECTS_DB"
-    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
+    # Pick a project by full path. __APPLY_GLOB__ matches the project file
+    # name and __RESET_GLOB__ clears the glob.
+    GOALS_PROJECT_GLOB=""
+    goals_select_project "Edit Project" || return 1
 
-    # CRITICAL ERROR!!!
-    # Instead of $index store matching index from $PROJECTS_DB file.
-    # Create selection menu
-    #local menu_options=()
-    #for index in "${!lines[@]}"; do
-    #    IFS='|' read -r title _ _ <<< "${lines[$index]}"
-    #    menu_options+=("$index" "$title")
-    #done
-
-    local menu_options=()
-    local title line lineno
-    for line in "${lines[@]}"; do
-        IFS='|' read -r title _ _ <<< "$line"
-        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-	# Store matching index from PROJECTS_DB file.
-        [[ -n "$lineno" ]] && menu_options+=($((lineno-1)) "$title")
-    done
-    # END FIX.
-
-    # Paginate menu options
-    paginate_get_projects "Edit Project" "${menu_options[@]}"
-    local selected_index
-    selected_index="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_index" ]] && return 1
-
-    # Let user select project
-    #local selected_index
-    #selected_index=$(whiptail --menu "Select a project to edit:" 20 150 10 \
-    #    "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    local -a lines=()
+    local selected_index=$(( GOALS_SELECTED_PROJECT_LINENO - 1 ))
 
     # DIRTY FIX: OVERWRITE LINES TO CONTAIN ALL LINES FROM PROJECTS_DB.
     mapfile -t lines < "$PROJECTS_DB"
@@ -14403,6 +14890,12 @@ edit_project() {
         local tree_page=0
         local tree_page_size=25   # tree items per page        
 
+        # Remember the saved state so Back can detect unsaved changes.
+        local PROJECT_SAVED_SIG
+        sort_children "0"
+        calculate_all_statuses
+        PROJECT_SAVED_SIG="$(project_state_sig)"
+
         while :; do
 
             sort_children "0"
@@ -14449,7 +14942,7 @@ edit_project() {
                     -- \
                     "${menu_items[@]}" \
                     3>&1 1>&2 2>&3
-            )" || break
+            )" || { project_confirm_leave && break; continue; }
 
             case "$choice" in
                 SYMBOLS)
@@ -14496,6 +14989,7 @@ edit_project() {
 
                 SAVE)
                     if save_project; then
+                        PROJECT_SAVED_SIG="$(project_state_sig)"
                         whiptail \
                             --title "Saved" \
                             --msgbox "Project saved successfully." \
@@ -14511,6 +15005,9 @@ edit_project() {
                         10 70; then
 
                         if load_project "$PROJECT_FILE"; then
+                            sort_children "0"
+                            calculate_all_statuses
+                            PROJECT_SAVED_SIG="$(project_state_sig)"
                             whiptail \
                                 --title "Reverted" \
                                 --msgbox "Unsaved changes discarded; project reloaded." \
@@ -14818,50 +15315,15 @@ print_project() {
         return 1
     fi
 
-    # FIX: ADD FILTER BY GLOBBING
-    local line title path
+    # Pick a project by full path. __APPLY_GLOB__ matches the project file
+    # name and __RESET_GLOB__ clears the glob.
+    GOALS_PROJECT_GLOB=""
+    local line_
 
-    # Parse project entries
-    local lineno
-    while IFS= read -r -d '' line; do
-        #((line_num++))
-	lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1) || echo "No exact match for '$match' found." >&2 # use this instead!
-
-        [ -z "$line" ] && continue
-
-        IFS='|' read -r title path _ <<< "$line"
-        if [ -z "$title" ] || [ -z "$path" ]; then
-            whiptail --msgbox "Skipping invalid entry (line $line_num): Missing field(s)" 10 50 >/dev/tty
-            continue
-        fi
-        options+=("$lineno" "$title")
-    done < <(filter_projects_by_name)
-    # END FIX.
-
-    # if [ ${#options[@]} -eq 0 ]; then
-    #     whiptail --msgbox "Error: No valid projects found in database." 10 50 >/dev/tty
-    #     return 1
-    # fi
-
-    # Continuous selection loop added here
+    # Continuous selection loop
     while true; do
-    	# Paginate options
-        paginate_get_projects "View Project Content" "${options[@]}"
-        local selected_line
-        selected_line="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_line" || "$selected_line" == "<< Back" ]] && return 1
-
-        # Show project selection menu
-        #local selected_line
-        #selected_line=$(whiptail --cancel-button "Back" --menu "Choose project to view content:" 20 150 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-        #[ $? -ne 0 ] && return 1  # Exit loop on cancel
-        
-        # Rest of the original processing logic
-        local line_=$(sed -n "${selected_line}p" "$PROJECTS_DB")
-        if [ -z "$line_" ]; then
-            whiptail --msgbox "Error: Selected project no longer exists." 10 50 >/dev/tty
-            return 1
-        fi
+        goals_select_project "View Project Content" || return 1
+        line_="$GOALS_SELECTED_PROJECT_LINE"
 
         local title_ path_
         IFS='|' read -r title_ path_ _ <<< "$line_"
@@ -14895,86 +15357,21 @@ delete_project() {
         return 1
     fi
 
-    # FIX: FILTER BY PROJECT FILE NAME.
-#    # Read all project entries into an array
-#    local lines=()
-#    while IFS= read -r line; do
-#        lines+=("$line")
-#    done < "$PROJECTS_DB"
-
-    local lines=()
-    mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
-
-    # # Check for empty database
-    # if [[ ${#lines[@]} -eq 0 ]]; then
-    #     whiptail --title "Error" --msgbox "No projects found in database." 8 50
-    #     return 1
-    # fi
-
-#    # Extract project paths and build menu options
-#    local paths=()
-#    local options=()
-#    for i in "${!lines[@]}"; do
-#        IFS='|' read -ra parts <<< "${lines[i]}"
-#        if [[ ${#parts[@]} -ge 2 ]]; then
-#            paths+=("${parts[1]}")
-#            options+=("$((i+1))" "${parts[1]}")
-#        else
-#            paths+=("Invalid entry")
-#            options+=("$((i+1))" "Invalid project entry")
-#        fi
-#    done
+    # __APPLY_GLOB__ matches the project file name; __RESET_GLOB__ clears it.
+    GOALS_PROJECT_GLOB=""
 
     while :; do
-        local paths=()
-        local options=("<< Back" "")
-        local line i
-        for line in "${lines[@]}"; do
-            IFS='|' read -ra parts <<< "$line"
-            i=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
+        goals_select_project "Delete Project" || return 1
 
-            if [[ ${#parts[@]} -ge 2 ]]; then
-                paths+=("${parts[1]}")
-                options+=("$i" "${parts[1]}")
-            else
-                paths+=("Invalid entry")
-                options+=("$i" "Invalid project entry")
-            fi
-        done
-
-        mapfile -t lines < "$PROJECTS_DB"	# DIRTY FIX.
-        # FIX END.
-
-        # Paginate options then get item to delete
-        paginate_get_projects "Delete Project" "${options[@]}"
-        local selected
-        selected="$SELECTED_ITEM_PROJECT"
-
-        # Show selection menu
-        #local selected
-        #selected=$(whiptail --title "Delete Project" --menu "Choose a project to delete:" \
-        #    20 150 10 "${options[@]}" 3>&1 1>&2 2>&3) || return 1
-        
-        [[ -z "$selected" || "$selected" == "<< Back" ]] && return 1  # User canceled
-
-        # Validate selection
-        local index=$((selected - 1))
-        if [[ $index -lt 0 || $index -ge ${#lines[@]} ]]; then
-            whiptail --title "Error" --msgbox "Invalid selection." 8 50
-            return 1
-        fi
-
-        # Get project details
-        local line_to_delete="${lines[index]}"
-        IFS='|' read -ra parts_ <<< "$line_to_delete"
-        local project_path="${parts_[1]}"
+        local line_to_delete="$GOALS_SELECTED_PROJECT_LINE"
+        local project_path="$GOALS_SELECTED_PROJECT_PATH"
 
         # Confirmation dialog
         whiptail --title "Confirm Deletion" --yesno "Permanently delete project:\n$project_path" \
             --yes-button "Delete" --no-button "Cancel" 10 60 || return 1
 
-        # Verify the project is within the allowed directory
-        local project_real    
+        # Verify the project path is valid
+        local project_real
         project_real=$(realpath "$project_path") || {
             whiptail --title "Error" --msgbox "Invalid project path:\n$project_path" 8 60
             return 1
@@ -14988,87 +15385,24 @@ delete_project() {
 
         # Delete entry from database
         local tempfile
-        tempfile=$(mktemp)
+        tempfile=$(mktemp) || return 1
 
         # build tempfile by removing line to be deleted from projects db and save to it
-        grep -vFx "$line_to_delete" "$PROJECTS_DB" > "$tempfile"
-        # save grep status
-        grep_status=$?
+        grep -vFx -- "$line_to_delete" "$PROJECTS_DB" > "$tempfile"
+        local grep_status=$?
 
         if (( grep_status <= 1 )) && mv "$tempfile" "$PROJECTS_DB"; then
-            # if projects db is changed update lines for next iteration
-            unset 'lines[index]'
-            lines=("${lines[@]}")
+            :   # the picker re-reads PROJECTS_DB on the next iteration
         else
+            rm -f "$tempfile"
             whiptail --title "Error" --msgbox "Project couldn't be deleted." 8 50
             return 1
         fi
-        #whiptail --title "Success" --msgbox "Project deleted successfully." 8 50
     done
 }
 
 associate_note_to_project() {
-    paginate_tags_menu() {
-        local title="$1"
-        shift
-        local items=("$@")
-        local per_page=20
-        local total_items=$(( ${#items[@]} / 2 ))
-        local total_pages=$(( (total_items + per_page - 1) / per_page ))
-        local current_page=1
-        local choice start_index end_index menu_items tag desc
-
-        while true; do
-            # Calculate start and end indices for current page
-            start_index=$(( (current_page - 1) * per_page * 2 ))
-            end_index=$(( start_index + per_page * 2 ))
-            menu_items=()
-
-            # Add items for current page
-            for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                tag="${items[i]}"
-                desc="${items[i+1]}"
-                menu_items+=("$tag" "$desc")
-            done
-
-            # Add navigation options
-            if (( current_page > 1 )); then
-                menu_items+=("<< Prev" "")
-            fi
-            if (( current_page < total_pages )); then
-                menu_items+=(">> Next" "")
-            fi
-
-            # Show whiptail menu
-            choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-            [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-            case "$choice" in
-                ">> Next")
-                    (( current_page++ ))
-                    ;;
-                "<< Prev")
-                    (( current_page-- ))
-                    ;;
-                *)
-                    # Return selected tag
-                    printf '%s\n' "$choice"
-                    return 0
-                    ;;
-            esac
-        done
-    }
-
-    #local PROJECTS_DB="$PROJECTS_DB"
-    #local NOTES_DB="$NOTES_DB"
-    local temp_file line_updated duplicate_detected project_found
-    temp_file=$(mktemp) || return 1
-    line_updated=0
-    duplicate_detected=0
-    project_found=0
+    local temp_file
 
     # Check if databases exist
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
@@ -15080,217 +15414,105 @@ associate_note_to_project() {
         return 1
     fi
 
-#    # Read projects into menu
-#    local project_menu_options=()
-#    while IFS='|' read -r title path rest; do
-#        project_menu_options+=("$path" "")
-#    done < "$PROJECTS_DB"
-#    if [[ "${#project_menu_options[@]}" -eq 0 ]]; then
-#        whiptail --msgbox "No projects available in the database." 20 50
-#        return 1
-#    fi
+    # Select Project: __APPLY_GLOB__ matches the project file name,
+    # __RESET_GLOB__ clears the glob.
+    GOALS_PROJECT_GLOB=""
+    goals_select_project "Select Project" || return 1
+    local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
 
-    # FIX: ALLOW FILTERING BY GLOB.
-    # Get pattern from user using whiptail
-    local pattern
-    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-    : "${pattern:=*}"	# default to * if unset.
+    # Select Note Tag to Filter Notes: [NO TAG], [ANY TAG] or a tag.
+    # __FILTER__ narrows the tag list by a literal substring.
+    # If the chosen filter matches no notes, tell the user and show the tag
+    # menu again so a different filter can be chosen.
+    local selected_note_tag note_title note_path note_tags rest
+    local -a note_candidates=() all_note_paths=()
+    while :; do
+        goals_select_note_tag_filter || return 1
+        selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
-    # Enable case-insensitive glob matching
-    shopt -s nocasematch
-    
-    local project_menu_options=()
-    local filename title path rest
-    while IFS='|' read -r title path rest; do
-        # Extract filename from path
-        filename=$(basename "$path")
-        
-        # Check if filename matches the pattern (now case-insensitive)
-        if [[ "$filename" == $pattern ]]; then
-            project_menu_options+=("$path" "")
-        fi
-    done < "$PROJECTS_DB"
-    
-    # Restore default case sensitivity
-    shopt -u nocasematch
+        # Collect the notes that satisfy the chosen tag filter.
+        note_candidates=()
+        all_note_paths=()
+        while IFS='|' read -r note_title note_path note_tags rest; do
+            [[ -n "$note_path" ]] || continue
+            all_note_paths+=("$note_path")
+            case "$selected_note_tag" in
+                "[ANY TAG]")
+                    note_candidates+=("$note_path")
+                    ;;
+                "[NO TAG]")
+                    [[ -z "$note_tags" ]] && note_candidates+=("$note_path")
+                    ;;
+                *)
+                    goals_note_has_tag "$note_tags" "$selected_note_tag" && note_candidates+=("$note_path")
+                    ;;
+            esac
+        done < "$NOTES_DB"
 
-    # If no matches found, show message and exit
-    if [ ${#project_menu_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
-        return 1
-    fi
-    # END FIX.
+        (( ${#note_candidates[@]} > 0 )) && break
 
-    # Project selection
-    paginate_get_projects "Select Project" "${project_menu_options[@]}"
-    local selected_project_path
-    selected_project_path="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project_path" ]] && return 1
+        case "$selected_note_tag" in
+            "[ANY TAG]")
+                whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
+                ;;
+            "[NO TAG]")
+                whiptail --msgbox "There are no notes with no associated tag found." 8 60
+                ;;
+            *)
+                whiptail --msgbox "Tag '${selected_note_tag}' has no associated notes yet." 8 60
+                ;;
+        esac
+    done
 
-    #local selected_project_path
-    #selected_project_path=$(whiptail --title "Select Project" \
-    #    --menu "Choose project to associate note:" \
-    #    25 150 15 "${project_menu_options[@]}" 3>&1 1>&2 2>&3)
-    #[[ -z "$selected_project_path" ]] && return 1  # User canceled
-
-    # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-    local note_tag_options=("NO TAG" "" "ANY TAG" "")    
-
-    while IFS= read -r tag; do
-        [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
-    done < "$NOTES_TAGS_DB"
-
-    local selected_note_tag
-    selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
-
-    truncate_note_tags_by_tag() {
-        local tags="$1"
-        local inner
-        local -a tag_array
-        local count
-        local extra
-
-        # Remove surrounding [ ]
-        inner="${tags#[}"
-        inner="${inner%]}"
-
-        # Empty list
-        if [[ -z "$inner" ]]; then
-            printf '[]\n'
-            return
-        fi
-
-        # Split on commas
-        IFS=',' read -r -a tag_array <<< "$inner"
-
-        count=${#tag_array[@]}
-
-        if (( count <= 3 )); then
-            printf '[%s]\n' "$inner"
-            return
-        fi
-
-        extra=$((count - 3))
-
-        printf '[%s,%s,%s +%d]\n' \
-            "${tag_array[0]}" \
-            "${tag_array[1]}" \
-            "${tag_array[2]}" \
-            "$extra"
-    }
-
-    # Read notes into menu
-    local note_menu_options=()
-    local note_tags_arr
-    while IFS='|' read -r note_title note_path note_tags rest; do
-        local note_tags_old="$note_tags"
-        note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
-
-        # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
-        if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-            note_menu_options+=("$note_path" "$note_tags")
-            continue
-        fi
-
-        if [[ "$selected_note_tag" == "NO TAG" ]]; then
-            [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
-            continue
-        fi
-
-        # FIX: FILTER BY NOTE TAG
-        IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
-
-        # only enters here if line already has a tag
-        for tag in "${note_tags_arr[@]}"; do
-            if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "$note_tags")
-                break
-            fi
-        done
-
-        #note_menu_options+=("$note_path" "[${note_tags}]")
-    done < "$NOTES_DB"
-    if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-        [[ "$selected_note_tag" == "ANY TAG" ]] && {
-            whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
-            return 1
-        }
-
-        [[ "$selected_note_tag" == "NO TAG" ]] && {
-            whiptail --msgbox "There are no notes with no associated tag found." 8 60
-            return 1
-        }    
-
-        whiptail --msgbox "Tag '${selected_note_tag}' has no associated notes yet." 8 60   # case where tag has no notes yet.
-        return 1
-    fi
+    # Choose Note to Associate: full note paths plus their tags.
+    # __APPLY_GLOB__ matches note file names; __FILTER_BY_TAG__ filters by tag.
+    # The tag chosen above is only the STARTING tag filter: the picker gets
+    # every note so the filter can be changed (e.g. to [ANY TAG]) from inside it.
+    local GOALS_NOTE_TAGMENU_FULL=1   # full tag menu inside __FILTER_BY_TAG__
+    GOALS_NOTE_GLOB=""
+    GOALS_NOTE_TAGFILTER="$selected_note_tag"   # shown as the starting tag filter
 
     while :; do
-        # Note selection
-        paginate_get_projects "Choose Note to Associate" "${note_menu_options[@]}"
-        local selected_note_path
-        selected_note_path="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_note_path" ]] && return 1
+        goals_pick_note "Choose Note to Associate" "Choose a note to associate with the project" \
+            "${all_note_paths[@]}" || return 1
+        local selected_note_path="$GOALS_PICKED_NOTE_PATH"
 
-        #local selected_note_path
-        #selected_note_path=$(whiptail --title "Select Note" \
-        #    --menu "Choose a note to associate:" \
-        #    25 150 15 "${note_menu_options[@]}" 3>&1 1>&2 2>&3)
-        #[[ -z "$selected_note_path" ]] && return 1  # User canceled
+        temp_file=$(mktemp) || return 1
+        local project_found=0 line_updated=0 duplicate_detected=0
+        local line title path notes new_notes new_line note
+        local -a notes_array=()
 
         # Process PROJECTS_DB
         while IFS= read -r line; do
-            if [[ -z "$line" ]]; then
-                #echo >> "$temp_file"
-                continue
-            fi
+            [[ -z "$line" ]] && continue
 
             IFS='|' read -r title path notes <<< "$line"
-            # If there is matched line...
             if [[ "$path" == "$selected_project_path" ]]; then
                 project_found=1
-                current_notes="$notes"
-                local notes_array=()
 
                 # Check for duplicates
-                IFS=',' read -ra notes_array <<< "$current_notes"
-                local duplicate=0	# Reset for each iteration.
-                # If duplicate found then break out of for loop here.
+                IFS=',' read -ra notes_array <<< "$notes"
+                local duplicate=0
                 for note in "${notes_array[@]}"; do
                     [[ "$note" == "$selected_note_path" ]] && duplicate=1 && break
                 done
 
                 if (( duplicate )); then
                     whiptail --msgbox "Note is already associated with the selected project. No changes made." 10 50
-
-                    # reset
-                    line_updated=0
-
                     duplicate_detected=1
-                    # Rebuild original line
-                    new_line="$title|$path|$current_notes"
-                    # There is no fourth field!!!!
-                    # [[ -n "$rest" ]] && new_line+="|$rest"
-                    echo "$new_line" >> "$temp_file"	# No change.
+                    printf '%s\n' "$title|$path|$notes" >> "$temp_file"
                 else
-                    # reset
-                    duplicate_detected=0
-
-                    # Update notes
-                    # If there is no previously associated note...
-                    if [[ -z "$current_notes" ]]; then
+                    if [[ -z "$notes" ]]; then
                         new_notes="$selected_note_path"
                     else
-                        new_notes="$current_notes,$selected_note_path"
+                        new_notes="$notes,$selected_note_path"
                     fi
                     new_line="$title|$path|$new_notes"
-                    #[[ -n "$rest" ]] && new_line+="|$rest"
-                    echo "$new_line" >> "$temp_file"	# Changes made.
+                    printf '%s\n' "$new_line" >> "$temp_file"
                     line_updated=1
                 fi
             else
-                # Just leave the line unchanged.
-                echo "$line" >> "$temp_file"
+                printf '%s\n' "$line" >> "$temp_file"
             fi
         done < "$PROJECTS_DB"
 
@@ -15300,16 +15522,15 @@ associate_note_to_project() {
                 mv "$temp_file" "$PROJECTS_DB"
                 whiptail --msgbox "Note successfully associated with the project." 10 50
             elif (( duplicate_detected )); then
-                rm "$temp_file"
-                #whiptail --msgbox "Duplicate found. No changes were made to the project entry." 10 50
+                rm -f "$temp_file"
                 continue
             else
-                rm "$temp_file"
+                rm -f "$temp_file"
                 whiptail --msgbox "No changes were made to the project entry." 10 50
                 continue
             fi
         else
-            rm "$temp_file"
+            rm -f "$temp_file"
             whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
             continue
         fi
@@ -15341,27 +15562,18 @@ dissociate_note_from_project() {
         return 1
     fi
 
-    # Read filtered projects (null-delimited)
-    local lines=()
-    mapfile -d '' -t lines < <(filter_projects_by_name)
-
-    local project_options=("<< Back" "")
-    local title path notes line lineno
-    for line in "${lines[@]}"; do
-        IFS='|' read -r title path notes <<< "$line"
-        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-        [[ -n "$lineno" ]] && project_options+=($((lineno-1)) "$path")
-    done
+    # Select Project: __APPLY_GLOB__ matches the project file name,
+    # __RESET_GLOB__ clears the glob.
+    GOALS_PROJECT_GLOB=""
+    goals_select_project "Select Project" || return 1
 
     # Load full DB lines for editing later
+    local lines=()
     mapfile -t lines < "$PROJECTS_DB"
 
-    # Show project selection menu
-    paginate_get_projects "Select Project" "${project_options[@]}"
-    local selected_project="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project" || "$selected_project" == "<< Back" ]] && return 1
-
-    local line="${lines[selected_project]}"
+    local selected_project=$(( GOALS_SELECTED_PROJECT_LINENO - 1 ))
+    local title path notes line
+    line="${lines[selected_project]}"
     IFS='|' read -r title path notes <<< "$line"
 
     truncate_note_tags_by_tag() {
@@ -15400,6 +15612,9 @@ dissociate_note_from_project() {
             "$extra"
     }
 
+    GOALS_NOTE_GLOB=""
+    GOALS_NOTE_TAGFILTER=""
+
     # Begin dissociation loop
     while true; do
         if [[ -z "$notes" ]]; then
@@ -15416,21 +15631,12 @@ dissociate_note_from_project() {
             return 1
         fi
 
-        # Build menu options (add << Back at top)
-        local -a note_options=("<< Back" "")
-        local note_index note_matching_tags
-        for note_index in "${!notes_arr[@]}"; do
-            note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-            note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
-        done
-
-        # Show note selection menu
-        paginate_get_projects "Choose Note to Dissociate" "${note_options[@]}"
-        local selected_note="$SELECTED_ITEM_PROJECT"
-
-        # If user chooses << Back, stop loop
-        [[ -z "$selected_note" || "$selected_note" == "<< Back" ]] && break
-
+        # Choose Note to Dissociate: full note paths plus their tags.
+        # __APPLY_GLOB__ matches note file names; __FILTER_BY_TAG__ filters by tag.
+        goals_pick_note "Choose Note to Dissociate" "Choose a note to dissociate from the project" \
+            "${notes_arr[@]}" || break
+        local selected_note="$GOALS_PICKED_NOTE_INDEX"
+        local note_index
         # Remove selected note from list
         local -a new_notes=()
         for note_index in "${!notes_arr[@]}"; do
@@ -19222,6 +19428,12 @@ do_stuff_with_project_file() {
             local tree_page=0
             local tree_page_size=25   # tree items per page            
 
+            # Remember the saved state so Back can detect unsaved changes.
+            local PROJECT_SAVED_SIG
+            sort_children "0"
+            calculate_all_statuses
+            PROJECT_SAVED_SIG="$(project_state_sig)"
+
             while :; do
 
                 sort_children "0"
@@ -19268,7 +19480,7 @@ do_stuff_with_project_file() {
                         -- \
                         "${menu_items[@]}" \
                         3>&1 1>&2 2>&3
-                )" || break
+                )" || { project_confirm_leave && break; continue; }
 
                 case "$choice" in
                     SYMBOLS)
@@ -19315,6 +19527,7 @@ do_stuff_with_project_file() {
 
                     SAVE)
                         if save_project; then
+                            PROJECT_SAVED_SIG="$(project_state_sig)"
                             whiptail \
                                 --title "Saved" \
                                 --msgbox "Project saved successfully." \
@@ -19330,6 +19543,9 @@ do_stuff_with_project_file() {
                             10 70; then
 
                             if load_project "$PROJECT_FILE"; then
+                                sort_children "0"
+                                calculate_all_statuses
+                                PROJECT_SAVED_SIG="$(project_state_sig)"
                                 whiptail \
                                     --title "Reverted" \
                                     --msgbox "Unsaved changes discarded; project reloaded." \
@@ -21475,11 +21691,10 @@ Leave the pattern non-empty; use * to match all titles." \
 
 open_url_assoc_to_note_from_project() {
     touch "$URLS_DB" "$PROJECTS_DB"
-	
-    #local URLS_DB="$URLS_DB"
+
     local GS=$'\x1D'  # separates note path and rest
     local US=$'\x1F'  # separates url and url title
-    local RS=$'\x1E'  # separates urls            
+    local RS=$'\x1E'  # separates urls
 
     # Check if Projects database exists
     if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
@@ -21493,103 +21708,42 @@ open_url_assoc_to_note_from_project() {
         return 1
     fi
 
-    # FIX: FILTER BY PROJECT NAME.
-    # Get pattern from user using whiptail
-    local pattern
-    pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-    : "${pattern:=*}"	# default to * if unset.
+    local -a note_paths_array=() urls=() titles=() entries=() url_menu_items=()
+    local chosen_project notes_field np selected_path line entry url title
+    local url_glob choice new_glob shown i
+
+    # __APPLY_GLOB__ matches the project file name; __RESET_GLOB__ clears it.
+    GOALS_PROJECT_GLOB=""
 
     while true; do
-		# FIX: FILTER CONTINUES HERE.
-        # Enable case-insensitive glob matching
-        shopt -s nocasematch
+        goals_select_project "Choose Project to Open URL from Associated Note" || return 1
+        chosen_project="$GOALS_SELECTED_PROJECT_PATH"
+        notes_field="$GOALS_SELECTED_PROJECT_NOTES"
 
-        local projects_menu_items=()
-        local filename title proj_path notes
-        while IFS='|' read -r title proj_path notes; do
-            # Extract filename from path
-            filename=$(basename "$proj_path")
+        # Notes linked to the chosen project
+        note_paths_array=()
+        while IFS= read -r np; do
+            [[ -n "$np" ]] && note_paths_array+=("$np")
+        done < <(tr ',' '\n' <<< "$notes_field")
 
-            # Check if filename matches the pattern (now case-insensitive)
-            if [[ "$filename" == $pattern ]]; then
-                projects_menu_items+=("$proj_path" "")
-            fi
-        done < "$PROJECTS_DB"
-
-        # Restore default case sensitivity
-        shopt -u nocasematch
-
-		# If $projects_menu_items is empty then inform user and return from function.
-		[[ ${#projects_menu_items} -eq 0 ]] && {
-			whiptail --title "Attention" --msgbox "There are no matches with pattern '${pattern}'." 10 70
-			return 1
-		}
-
-#		# Build menu for choosing project path from PROJECTS_DB
-#		local projects_menu_items=()
-#		while IFS='|' read -r title proj_path notes; do
-#			# skip blank lines or malformed ones
-#			[[ -z "$proj_path" ]] && continue
-#			projects_menu_items+=("$proj_path" "")
-#		done < "$PROJECTS_DB"		
-		# FIX END.
-		
-		# debug
-		#echo projects_menu_items:
-		#echo "${projects_menu_items[@]}"
-		
-		# Paginate instead!
-		! paginate_get_projects "Choose Project to Open URL from Associated Note" "${projects_menu_items[@]}" && return 1
-		local chosen_project
-		chosen_project="$SELECTED_ITEM_PROJECT"
-		[[ -z "$chosen_project" ]] && return 1
-
-		# Menu for choosing project path
-		#local chosen_project
-		#chosen_project=$(whiptail --title "Open URL from Note Associated to Project" --menu "Choose project" 20 150 10 \
-		#"${projects_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-    
-		# Matched line in PROJECTS_DB
-		local project_line="$(grep -F "|${chosen_project}|" "$PROJECTS_DB")"
-		[[ -z "$project_line" ]] && {
-			whiptail --msgbox "Error. No match found in projects db!" 8 50 >/dev/tty
-			return 1
-		}
-		
-		# debug
-		#echo project line:
-		#echo "$project_line"
-		
-		# Extract notes field from line
-		IFS='|' read -r _sel_title _sel_proj notes_field <<< "$project_line"
-		# Create array containing note entries
-		IFS=',' read -r -a note_paths_array <<< "$notes_field"
-
-		# debug
-		#echo notes_field:
-		#echo "$notes_field"
-
-        # Select note path
-        local menu_items=("<< Return" "")
-        for path in "${note_paths_array[@]}"; do
-            menu_items+=("$path" "")
-        done
-		
-        local selected_path
-        selected_path=$(whiptail --title "Select Note" --menu "Choose a note to open URLs:" \
-            20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
-        [[ -z "$selected_path" ]] && return 1
-        
-        # Handle return option
-        if [[ "$selected_path" == "<< Return" ]]; then
-            return 0
+        if (( ${#note_paths_array[@]} == 0 )); then
+            whiptail --msgbox "The selected project has no associated notes." 8 60 >/dev/tty
+            continue
         fi
 
+        # Select Note: full paths plus tags; glob matches note file names;
+        # __FILTER_BY_TAG__ filters by the notes' tags.
+        GOALS_NOTE_GLOB=""
+        GOALS_NOTE_TAGFILTER=""
+        goals_pick_note "Select Note" "Choose a note to open URLs" \
+            "${note_paths_array[@]}" || continue
+        selected_path="$GOALS_PICKED_NOTE_PATH"
+
         # Extract URLs for selected note
-        local urls=()
-        local titles=()
+        urls=()
+        titles=()
         while IFS= read -r line; do
-			# Only for the matched line...
+            # Only for the matched line...
             if [[ "$line" == "${selected_path}${GS}"* ]]; then
                 IFS="$RS" read -ra entries <<< "${line#*$GS}"
                 for entry in "${entries[@]}"; do
@@ -21606,24 +21760,44 @@ open_url_assoc_to_note_from_project() {
             continue
         fi
 
-        # URL selection loop
+        # URL selection loop. __APPLY_GLOB__ matches the URL or its title.
+        url_glob=""
         while true; do
-            local url_menu_items=("<< Back" "")
+            url_menu_items=("<< Back" "" "__APPLY_GLOB__" "Apply glob (matches URL or title)" "__RESET_GLOB__" "Reset glob")
+            shown=0
             for i in "${!urls[@]}"; do
+                if [[ -n "$url_glob" ]]; then
+                    [[ "${urls[i],,}" == ${url_glob,,} || "${titles[i],,}" == ${url_glob,,} ]] || continue
+                fi
                 url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
+                shown=$((shown + 1))
             done
 
-            local choice
-            choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+            choice=$(whiptail --title "URLs for $selected_path" --cancel-button "Back" \
+                --menu "Choose URL to open:\nGlob: ${url_glob:-none} ($shown of ${#urls[@]} URLs shown)" \
                 20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
-            if [[ "$choice" == "<< Back" ]]; then
-                break
-            elif [[ -n "${urls[$choice]}" ]]; then
-                #eval "$URL_BROWSER" "'${urls[$choice]}'" >/dev/null 2>&1 &
-                nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
-            fi
+            case "$choice" in
+                "<< Back")
+                    break
+                    ;;
+                __APPLY_GLOB__)
+                    if new_glob=$(whiptail --title "Apply URL Glob" --inputbox \
+                        "Enter a case-insensitive glob to match URLs or their titles (for example: *github*). Leave empty to show all URLs." \
+                        11 90 "$url_glob" 3>&1 1>&2 2>&3 </dev/tty); then
+                        url_glob="$new_glob"
+                    fi
+                    ;;
+                __RESET_GLOB__)
+                    url_glob=""
+                    ;;
+                *)
+                    if [[ "$choice" =~ ^[0-9]+$ && -n "${urls[$choice]}" ]]; then
+                        nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &   # to make sure browser stays open
+                    fi
+                    ;;
+            esac
         done
     done
 }
@@ -21695,8 +21869,10 @@ print_project_to_printer_from_main() {
         echo "$project_title"
     }
     
-    #local line_num=0		# can't use this any more.
-    local options=("<< Back" "")
+    # Pick a project by full path. __APPLY_GLOB__ matches the project file
+    # name and __RESET_GLOB__ clears the glob.
+    GOALS_PROJECT_GLOB=""
+    local line_
 
     # Check if database file exists and is valid
     if [ ! -f "$PROJECTS_DB" ]; then
@@ -21707,40 +21883,10 @@ print_project_to_printer_from_main() {
         return 1
     fi
 
-    # FIX: ADD FILTER BY GLOBBING
-    local line title path
-
-    # Parse project entries
-    local lineno
-    while IFS= read -r -d '' line; do
-        #((line_num++))
-	lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1) || echo "No exact match for '$match' found." >&2 # use this instead!
-
-        [ -z "$line" ] && continue
-
-        IFS='|' read -r title path _ <<< "$line"
-        if [ -z "$title" ] || [ -z "$path" ]; then
-            whiptail --msgbox "Skipping invalid entry (line $line_num): Missing field(s)" 10 50 >/dev/tty
-            continue
-        fi
-        options+=("$lineno" "$title")
-    done < <(filter_projects_by_name)
-    # END FIX.
-
-    # Continuous selection loop added here
+    # Continuous selection loop
     while true; do
-    	# Paginate options
-        paginate_get_projects "Print Project using Printer" "${options[@]}"
-        local selected_line
-        selected_line="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_line" || "$selected_line" == "<< Back" ]] && return 1
-        
-        # Rest of the original processing logic
-        local line_=$(sed -n "${selected_line}p" "$PROJECTS_DB")
-        if [ -z "$line_" ]; then
-            whiptail --msgbox "Error: Selected project no longer exists." 10 50 >/dev/tty
-            return 1
-        fi
+        goals_select_project "Print Project using Printer" || return 1
+        line_="$GOALS_SELECTED_PROJECT_LINE"
 
         local title_ path_
         IFS='|' read -r title_ path_ _ <<< "$line_"
@@ -25727,6 +25873,12 @@ do_stuff_shortlisted() {
             local tree_page=0
             local tree_page_size=25   # tree items per page
 
+            # Remember the saved state so Back can detect unsaved changes.
+            local PROJECT_SAVED_SIG
+            sort_children "0"
+            calculate_all_statuses
+            PROJECT_SAVED_SIG="$(project_state_sig)"
+
             while :; do
 
                 sort_children "0"
@@ -25773,7 +25925,7 @@ do_stuff_shortlisted() {
                         -- \
                         "${menu_items[@]}" \
                         3>&1 1>&2 2>&3
-                )" || break
+                )" || { project_confirm_leave && break; continue; }
 
                 case "$choice" in
                     SYMBOLS)
@@ -25820,6 +25972,7 @@ do_stuff_shortlisted() {
 
                     SAVE)
                         if save_project; then
+                            PROJECT_SAVED_SIG="$(project_state_sig)"
                             whiptail \
                                 --title "Saved" \
                                 --msgbox "Project saved successfully." \
@@ -25835,6 +25988,9 @@ do_stuff_shortlisted() {
                             10 70; then
 
                             if load_project "$PROJECT_FILE"; then
+                                sort_children "0"
+                                calculate_all_statuses
+                                PROJECT_SAVED_SIG="$(project_state_sig)"
                                 whiptail \
                                     --title "Reverted" \
                                     --msgbox "Unsaved changes discarded; project reloaded." \
@@ -28203,12 +28359,12 @@ EOF
 babyrus_book_select_project_row() {
     local menu_title="${1:-Select Project File}"
     local row project_title project_path choice page_size=50 page=0 total_pages start end i selected_index
-    local term_rows term_cols box_h box_w list_h glob_pattern lower_title
+    local term_rows term_cols box_h box_w list_h glob_pattern lower_title no_match_note
     local -a all_rows=() all_paths=() all_titles=() project_rows=() project_paths=() menu_items=()
 
     if [[ ! -r "$PROJECTS_DB" ]]; then
         whiptail --title "$menu_title" --msgbox \
-            "The projects database cannot be read:\n$PROJECTS_DB" 10 75
+            "The projects database cannot be read:\n$PROJECTS_DB" 10 75 </dev/tty >/dev/tty
         return 1
     fi
     while IFS= read -r row || [[ -n "$row" ]]; do
@@ -28218,7 +28374,7 @@ babyrus_book_select_project_row() {
         all_rows+=("$row"); all_paths+=("$project_path"); all_titles+=("$project_title")
     done < "$PROJECTS_DB"
     ((${#all_rows[@]})) || {
-        whiptail --title "$menu_title" --msgbox "There are no project files to choose from." 8 60
+        whiptail --title "$menu_title" --msgbox "There are no project files to choose from." 8 60 </dev/tty >/dev/tty
         return 1
     }
 
@@ -28226,16 +28382,18 @@ babyrus_book_select_project_row() {
     while :; do
         project_rows=(); project_paths=()
         for i in "${!all_rows[@]}"; do
-            lower_title="${all_titles[$i],,}"
+            lower_title="${all_paths[$i]##*/}"   # project FILE NAME
+            lower_title="${lower_title,,}"
             if [[ -z "$glob_pattern" || "$lower_title" == ${glob_pattern,,} ]]; then
                 project_rows+=("${all_rows[$i]}")
                 project_paths+=("${all_paths[$i]}")
             fi
         done
-        ((${#project_rows[@]})) || {
-            whiptail --title "$menu_title" --msgbox \
-                "No project titles match the current glob. Choose Apply glob to change it, or Reset glob to show all projects." 10 80
-        }
+        # No message box here: this function runs inside $(...), where a
+        # message box cannot be displayed (it would wait for a key press that
+        # the user cannot see). The notice is shown in the menu prompt instead.
+        no_match_note=""
+        ((${#project_rows[@]})) || no_match_note="\nNo project file names match the current glob. Choose Apply glob to change it, or Reset glob to show all projects."
         total_pages=$(( (${#project_rows[@]} + page_size - 1) / page_size ))
         (( total_pages > 0 )) || total_pages=1
         (( page >= total_pages )) && page=$((total_pages - 1))
@@ -28255,14 +28413,14 @@ babyrus_book_select_project_row() {
         (( page + 1 < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
-            --menu "Choose a project file; glob: ${glob_pattern:- (none)} (page $((page + 1)) of $total_pages; ${#project_rows[@]} matches)." \
+            --menu "Choose a project file; glob: ${glob_pattern:- (none)} (page $((page + 1)) of $total_pages; ${#project_rows[@]} matches).${no_match_note}" \
             "$box_h" "$box_w" "$list_h" "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         case "$choice" in
             __PREVIOUS_PAGE__) ((page--)); continue ;;
             __NEXT_PAGE__) ((page++)); continue ;;
             __APPLY_GLOB__)
-                glob_pattern=$(whiptail --title "Apply Project Title Glob" --inputbox \
-                    "Enter a case-insensitive glob pattern to match project titles (for example: *javascript*)." \
+                glob_pattern=$(whiptail --title "Apply Project File Name Glob" --inputbox \
+                    "Enter a case-insensitive glob pattern to match project file names (for example: *javascript*)." \
                     10 90 "$glob_pattern" 3>&1 1>&2 2>&3) || continue
                 page=0; continue ;;
             __RESET_GLOB__) glob_pattern=""; page=0; continue ;;
