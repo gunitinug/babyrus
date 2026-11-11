@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99x17'
+BABYRUS_VERSION='v.0.99x18'
 BABYRUS_AUTHOR='Logan Lee'
 
 BABYRUS_PATH="$(pwd)"
@@ -7600,21 +7600,45 @@ delete_global_tag_of_notes() {
     # Read all tags into an array
     mapfile -t all_tags < "$NOTES_TAGS_DB"
     local current_page=0
-    local tags_per_page=25
+    local tags_per_page=50
+    local tag_filter=""     # literal substring filter set with __FILTER__
 
     while true; do
         # after deletion in the menu, reload from list from database file.
         mapfile -t all_tags < "$NOTES_TAGS_DB"
 
+        if [[ ${#all_tags[@]} -eq 0 ]]; then
+            whiptail --msgbox "There are no registered tags." 10 50 >/dev/tty
+            return 1
+        fi
+
+        # Keep only the tags that contain the filter text (literal substring,
+        # case insensitive).
+        local shown_tags=() tg
+        for tg in "${all_tags[@]}"; do
+            [[ -z "$tg" ]] && continue
+            if [[ -z "$tag_filter" || "${tg,,}" == *"${tag_filter,,}"* ]]; then
+                shown_tags+=("$tg")
+            fi
+        done
+
+        local total_pages=$(( (${#shown_tags[@]} + tags_per_page - 1) / tags_per_page ))
+        (( total_pages < 1 )) && total_pages=1
+        (( current_page >= total_pages )) && current_page=$(( total_pages - 1 ))
+        (( current_page < 0 )) && current_page=0
+
         # Calculate start and end indices for current page
         local start=$((current_page * tags_per_page))
         local end=$((start + tags_per_page - 1))
-        
+
         # Get tags for current page
-        local page_tags=("${all_tags[@]:$start:$tags_per_page}")
+        local page_tags=("${shown_tags[@]:$start:$tags_per_page}")
 
         # Prepare whiptail menu options
-        local menu_options=()
+        local menu_options=(
+            "__FILTER__" "Filter tags by text (literal substring)${tag_filter:+   [filter: $tag_filter]}"
+            "__RESET_FILTER__" "Reset tag filter"
+        )
         for tag in "${page_tags[@]}"; do
             menu_options+=("$tag" "")
         done
@@ -7623,19 +7647,40 @@ delete_global_tag_of_notes() {
         if [[ $start -gt 0 ]]; then
             menu_options+=("< Previous Page" "")
         fi
-        if [[ $end -lt $((${#all_tags[@]} - 1)) ]]; then
+        if [[ $end -lt $((${#shown_tags[@]} - 1)) ]]; then
             menu_options+=("> Next Page" "")
         fi
 
+        # Box big enough for 50 tags + filter / navigation items (capped to the terminal height).
+        local dlg_h dlg_l rows cols
+        read -r rows cols < <(stty size </dev/tty 2>/dev/null)
+        [[ "$rows" =~ ^[0-9]+$ ]] || rows=0
+        dlg_l=$(( tags_per_page + 4 ))
+        dlg_h=$(( dlg_l + 11 ))
+        (( rows > 0 && dlg_h > rows )) && dlg_h=$rows
+        (( dlg_h < 14 )) && dlg_h=14
+        dlg_l=$(( dlg_h - 11 ))
+
         # Show tag selection menu
         local selected_tag
-        selected_tag=$(whiptail --menu "Choose a tag to delete (Page $((current_page + 1))/$(( (${#all_tags[@]} + tags_per_page - 1) / tags_per_page )))" \
-            25 100 15 "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
-        
+        selected_tag=$(whiptail --menu "Choose a tag to delete (Page $((current_page + 1))/${total_pages})\n\nFilter: ${tag_filter:-(none)}  |  ${#shown_tags[@]}/${#all_tags[@]} tag(s)" \
+            "$dlg_h" 100 "$dlg_l" "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+
         [[ $? -ne 0 ]] && return 1  # User canceled
 
-        # Handle navigation
-        if [[ "$selected_tag" == "< Previous Page" ]]; then
+        # Handle filter and navigation
+        if [[ "$selected_tag" == "__FILTER__" ]]; then
+            local new_filter
+            new_filter=$(whiptail --title "__FILTER__" --inputbox \
+"Enter text to narrow down the tag list.\nTags that contain this text are shown (literal substring match, case insensitive; no wildcards).\nEmpty input removes the filter." \
+                12 80 "$tag_filter" 3>&1 1>&2 2>&3 >/dev/tty) && tag_filter="$new_filter"
+            current_page=0
+            continue
+        elif [[ "$selected_tag" == "__RESET_FILTER__" ]]; then
+            tag_filter=""
+            current_page=0
+            continue
+        elif [[ "$selected_tag" == "< Previous Page" ]]; then
             ((current_page--))
             continue
         elif [[ "$selected_tag" == "> Next Page" ]]; then
@@ -8063,6 +8108,72 @@ open_url_assoc_to_note() {
 
 # allows print note files from main manage notes menu.
 print_notes() {
+    print_file_from_print_notes() {
+        # Check if file argument is provided
+        if [ -z "$1" ]; then
+            return 1
+        fi
+
+        local file_to_print="$1"
+
+        # Check if file exists
+        if [ ! -f "$file_to_print" ]; then
+            echo "Error: File '$file_to_print' does not exist." >&2
+            return 1
+        fi
+
+        # Get list of printers
+        local printers
+        printers=$(lpstat -p | awk '/^printer/ && /enabled/ {print $2}')
+
+        # Edge case: no printers found.
+        [[ -z "$printers" ]] && { whiptail --title "Attention" --msgbox "No printers found." 8 40; return 1; }
+
+        # Convert printer list into whiptail menu format
+        local menu_items=()
+        for p in $printers; do
+            menu_items+=("$p" "")
+        done
+
+        # Show whiptail menu to select printer
+        local selected_printer
+        selected_printer=$(whiptail --title "Select Printer" \
+            --menu "Choose a printer:" 20 60 10 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+        # Check if user cancelled
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+
+        # Print the file
+        if whiptail --title "Print Note" --yesno "Send '$file_to_print' to printer '$selected_printer'?" 12 80; then
+            lpr -P "$selected_printer" "$file_to_print"
+            if [ $? -eq 0 ]; then
+                whiptail --title "Success" --msgbox "File '$file_to_print' sent to printer '$selected_printer'." 12 80
+            else
+                whiptail --title "Error" --msgbox "Failed to print '$file_to_print'." 12 80
+                return 1
+            fi            
+        else
+            :  # do nothing if No or Cancel
+        fi
+    }
+
+    get_note_title_from_note_path_() {
+        local note_path="$1"
+        local note_title
+
+        note_title=$(awk -F'|' -v path="$note_path" '
+            $2 == path {
+                print $1
+                exit
+            }
+        ' "$NOTES_DB")
+
+        echo "$note_title"
+    }
+
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
         whiptail --msgbox "No notes found. Add at least one note and try again." 8 40 </dev/tty >/dev/tty
         return 1
@@ -8466,6 +8577,9 @@ NP_NO_TAG_FILTER=0         # 1 = hide only the tag filter items (keep the glob i
 NP_NO_TAG_ITEM=1           # 1 = the tag picker of __FILTER_BY_TAG__ offers [NO TAG]
 NP_CHANGE_TAG=0            # 1 = show a __CHANGE_TAG__ item (np_pick_note returns 3 for it)
 NP_TAG_LABEL=""            # tag shown in the status line (fixed-tag lists)
+NP_REVERT_TAG=0            # 1 = show a __REVERT_TAG__ item (np_pick_note returns 4 for it)
+NP_ORIG_TAG=""             # tag chosen at the start (target of __REVERT_TAG__)
+NP_GLOB_BY_FILE=0          # 1 = the glob matches the note FILE NAME instead of the title
 NP_PROCEED=""              # name of the extra action item of a checklist (e.g. __submit__)
 NP_PROCEED_DESC=""         # its description (@N@ = number of listed notes)
 NP_START_TAG=""            # result of np_choose_start_tag()
@@ -8485,6 +8599,9 @@ np_reset() {
     NP_NO_TAG_ITEM=1
     NP_CHANGE_TAG=0
     NP_TAG_LABEL=""
+    NP_REVERT_TAG=0
+    NP_ORIG_TAG=""
+    NP_GLOB_BY_FILE=0
     NP_PROCEED=""
     NP_PROCEED_DESC=""
 }
@@ -8517,16 +8634,22 @@ np_filter_apply() {
     NP_FILTERED=()
     [[ -f "$NP_SRC_FILE" ]] || return 0
     mapfile -t NP_FILTERED < <(
-        NP_GLOB="$NP_GLOB" NP_TAGF="$NP_TAGF" NP_NOVAL="$NP_NO_TAG_VALUE" \
+        NP_GLOB="$NP_GLOB" NP_TAGF="$NP_TAGF" NP_NOVAL="$NP_NO_TAG_VALUE" NP_BYFILE="$NP_GLOB_BY_FILE" \
         awk -F'|' "$EB_AWK_GLOB"'
         BEGIN {
             g = tolower(ENVIRON["NP_GLOB"])
             t = ENVIRON["NP_TAGF"]
             nov = ENVIRON["NP_NOVAL"]
+            byfile = ENVIRON["NP_BYFILE"]
             if (g != "") re = glob2re(g)
         }
         NF >= 2 {
-            if (g != "" && tolower($1) !~ re) next
+            subject = $1
+            if (byfile == "1") {
+                n = split($2, pp, "/")
+                subject = pp[n]
+            }
+            if (g != "" && tolower(subject) !~ re) next
             if (t != "") {
                 if (t == nov) {
                     x = $3
@@ -8548,12 +8671,28 @@ np_filter_apply() {
     )
 }
 
+# What the glob is matched against (for labels and prompts).
+np_glob_what() {
+    if (( NP_GLOB_BY_FILE == 1 )); then
+        printf 'note file name'
+    else
+        printf 'note title'
+    fi
+}
+
 np_ask_glob() {
-    local g
+    local g example whole
+    if (( NP_GLOB_BY_FILE == 1 )); then
+        whole="file name"
+        example='*python*  or  chapter?.txt'
+    else
+        whole="title"
+        example='*python*  or  Chapter ?*'
+    fi
     g=$(whiptail --title "__APPLY_GLOB__" --inputbox \
-"Enter a glob to filter the notes by NOTE TITLE (case insensitive).\n\
+"Enter a glob to filter the notes by $(np_glob_what | tr a-z A-Z) (case insensitive).\n\
 * matches any characters, ? matches one character.\n\
-The whole title must match, e.g.  *python*  or  Chapter ?*\n\
+The whole ${whole} must match, e.g.  ${example}\n\
 Empty input removes the glob filter." 14 "$NP_WIDTH" "$NP_GLOB" 3>&1 1>&2 2>&3) || return 1
     NP_GLOB="$g"
     NP_PAGE=0
@@ -8647,18 +8786,14 @@ Empty input removes the filter." 12 "$w" "$filter" 3>&1 1>&2 2>&3) && filter="$f
     done
 }
 
-# __FILTER_BY_TAG__ of the note lists: asks for a literal substring, lists the
-# tags (of the notes currently listed, glob applied) that contain it and lets
-# the user pick ONE of them. [ANY TAG] (and [NO TAG] unless NP_NO_TAG_ITEM=0)
-# are always offered. The list is then filtered by that exact tag.
+# __FILTER_BY_TAG__ of the note lists: shows the tags (of the notes currently
+# listed, glob applied) with __FILTER__ / __RESET_FILTER__ items that narrow
+# them down by a literal substring, and lets the user pick ONE of them.
+# [ANY TAG] (and [NO TAG] unless NP_NO_TAG_ITEM=0) are always offered. The
+# list is then filtered by that exact tag.
 np_pick_tag_filter() {
-    local sub saved tag
-    local -a matches=() pinned=() 
-
-    sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
-"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
-The matching tags are listed next and you can pick one of them.\n\
-Empty input lists ALL tags." 12 "$NP_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
+    local saved
+    local -a matches=() pinned=()
 
     # tags carried by the notes that pass the glob filter
     saved="$NP_TAGF"
@@ -8667,14 +8802,13 @@ Empty input lists ALL tags." 12 "$NP_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
     NP_TAGF="$saved"
     if (( ${#NP_FILTERED[@]} > 0 )); then
         mapfile -t matches < <(
-            printf '%s\n' "${NP_FILTERED[@]}" | NP_SUB="$sub" awk -F'|' '
-            BEGIN { s = tolower(ENVIRON["NP_SUB"]) }
+            printf '%s\n' "${NP_FILTERED[@]}" | awk -F'|' '
             {
                 n = split($3, a, ",")
                 for (i = 1; i <= n; i++) {
                     x = a[i]
                     gsub(/^[ \t]+|[ \t]+$/, "", x)
-                    if (x != "" && (s == "" || index(tolower(x), s))) seen[x] = 1
+                    if (x != "") seen[x] = 1
                 }
             }
             END { for (x in seen) print x }' | sort -f
@@ -8684,7 +8818,8 @@ Empty input lists ALL tags." 12 "$NP_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
     (( NP_NO_TAG_ITEM == 1 )) && pinned+=("[NO TAG]" "Only show notes with no tag associated")
     pinned+=("[ANY TAG]" "Show notes with any tag (remove the tag filter)")
 
-    np_tag_menu "Select a Tag to Filter By" "Choose a tag to filter the notes by" "$NP_WIDTH" pinned matches 0 || return 1
+    # __FILTER__ / __RESET_FILTER__ narrow the tag list by a literal substring.
+    np_tag_menu "Select a Tag to Filter By" "Choose a tag to filter the notes by" "$NP_WIDTH" pinned matches 1 || return 1
     case "$NP_PICKED_TAG" in
         "[NO TAG]")  NP_TAGF="$NP_NO_TAG_VALUE" ;;
         "[ANY TAG]") NP_TAGF="" ;;
@@ -8705,8 +8840,11 @@ np_action_items() {
     if (( NP_CHANGE_TAG == 1 )); then
         NP_ACTION_ITEMS+=("__CHANGE_TAG__" "Choose a different tag (current: ${NP_TAG_LABEL})" "${extra[@]}")
     fi
+    if (( NP_REVERT_TAG == 1 )); then
+        NP_ACTION_ITEMS+=("__REVERT_TAG__" "Back to the original tag (${NP_ORIG_TAG})" "${extra[@]}")
+    fi
     if (( NP_NO_FILTERS == 0 )); then
-        NP_ACTION_ITEMS+=("__APPLY_GLOB__" "Filter by glob (note title)${NP_GLOB:+   [glob: $NP_GLOB]}" "${extra[@]}")
+        NP_ACTION_ITEMS+=("__APPLY_GLOB__" "Filter by glob ($(np_glob_what))${NP_GLOB:+   [glob: $NP_GLOB]}" "${extra[@]}")
         NP_ACTION_ITEMS+=("__RESET_GLOB__" "Reset glob filter" "${extra[@]}")
         if (( NP_NO_TAG_FILTER == 0 )); then
             local tf="${NP_TAGF/$NP_NO_TAG_VALUE/[NO TAG]}"
@@ -8739,7 +8877,7 @@ np_status() {
     local s="Page ${page}/${pages}  |  ${total} note(s)"
     [[ -n "$NP_TAG_LABEL" ]] && s+="  |  tag: ${NP_TAG_LABEL}"
     if (( NP_NO_FILTERS == 0 )); then
-        s+="  |  glob (title): ${NP_GLOB:-(none)}"
+        s+="  |  glob ($(np_glob_what)): ${NP_GLOB:-(none)}"
         if (( NP_NO_TAG_FILTER == 0 )); then
             local tf
             if [[ -z "$NP_TAGF" ]]; then
@@ -8769,7 +8907,7 @@ np_item_label() {
 # filter items on top. Filters and the page are kept between calls; call
 # np_reset first for a fresh list.
 # Returns 0 with NP_SELECTED_LINE set (NOTES_DB line), 1 on Back / Esc and
-# 3 when __CHANGE_TAG__ was chosen.
+# 3 when __CHANGE_TAG__ was chosen and 4 when __REVERT_TAG__ was chosen.
 np_pick_note() {
     local title="$1" prompt="${2:-Select a note}"
     local total pages start end i choice h w lh
@@ -8797,12 +8935,15 @@ np_pick_note() {
             return 1
         fi
 
+        local hint=""
+        (( total == 0 )) && hint="\nNo notes match the current filters."
         read -r h w lh <<< "$(np_dims "$NP_WIDTH")"
         choice=$(whiptail --title "$title" --cancel-button "Back" \
-            --menu "${prompt}\n$(np_status "$((NP_PAGE + 1))" "$pages" "$total")" \
+            --menu "${prompt}\n$(np_status "$((NP_PAGE + 1))" "$pages" "$total")${hint}" \
             "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 1
 
         [[ "$choice" == "__CHANGE_TAG__" ]] && return 3
+        [[ "$choice" == "__REVERT_TAG__" ]] && return 4
         if np_do_action "$choice"; then
             continue
         fi
@@ -8927,7 +9068,7 @@ np_choose_start_tag() {
             [[ -n "$t" ]] && all_tags+=("$t")
         done < "$NOTES_TAGS_DB"
     fi
-    NP_START_TAG=""
+    # NP_START_TAG keeps its value when the user goes Back.
     np_tag_menu "Select Tag" "Choose a tag to find notes" 150 pinned all_tags 1 || return 1
     NP_START_TAG="$NP_PICKED_TAG"
 }
@@ -8935,11 +9076,17 @@ np_choose_start_tag() {
 # np_pick_note_for_tag TITLE PROMPT NEED_URLS TAG
 # Lists the notes of $NOTES_DB that carry TAG ([NO TAG] / [ANY TAG] allowed)
 # and, when NEED_URLS=1, have at least one URL in $URLS_DB. Paths + shortened
-# tags, 155 wide, 50 per page. Call np_reset once before; the page is kept
-# between calls. Same return codes as np_pick_note (NP_SELECTED_LINE).
+# tags, 155 wide, 50 per page. The list has __CHANGE_TAG__, __REVERT_TAG__
+# (back to the tag chosen at the start), __APPLY_GLOB__ (matches the note FILE
+# NAME) and __RESET_GLOB__ items. Call np_reset once before; the glob, the tag
+# and the page are kept between calls. NP_START_TAG holds the current tag.
+# Same return codes as np_pick_note (NP_SELECTED_LINE).
 np_pick_note_for_tag() {
     local title="$1" prompt="$2" need_urls="$3" tag="$4"
     local src rc GS=$'\x1D'
+
+    NP_START_TAG="$tag"
+    [[ -z "$NP_ORIG_TAG" ]] && NP_ORIG_TAG="$tag"
 
     src=$(mktemp) || return 1
     if [[ "$need_urls" == "1" ]]; then
@@ -8956,31 +9103,40 @@ np_pick_note_for_tag() {
     fi
 
     NP_SRC_FILE="$src"
-    NP_NO_FILTERS=1
+    NP_NO_FILTERS=0
+    NP_NO_TAG_FILTER=1          # the tag is changed with __CHANGE_TAG__ / __REVERT_TAG__
+    NP_CHANGE_TAG=1
+    NP_REVERT_TAG=1
+    NP_GLOB_BY_FILE=1           # the glob matches the note file name
     NP_SHOW_PATH=1
     NP_PATH_MAX=110
-    NP_TAG_LABEL="$tag"
-    case "$tag" in
-        "[NO TAG]")  NP_TAGF="$NP_NO_TAG_VALUE" ;;
-        "[ANY TAG]") NP_TAGF="" ;;
-        *)           NP_TAGF="$tag" ;;
-    esac
 
-    np_filter_apply
-    if (( ${#NP_FILTERED[@]} == 0 )); then
-        local what="notes"
-        [[ "$need_urls" == "1" ]] && what="notes with URLs"
-        case "$tag" in
-            "[ANY TAG]") whiptail --title "Attention" --msgbox "No ${what} found." 8 60 ;;
-            "[NO TAG]")  whiptail --title "Attention" --msgbox "There are no ${what} that have no associated tag." 8 60 ;;
-            *)           whiptail --title "Attention" --msgbox "No matching ${what} for tag '${tag}'." 8 60 ;;
+    while true; do
+        NP_TAG_LABEL="$NP_START_TAG"
+        case "$NP_START_TAG" in
+            "[NO TAG]")  NP_TAGF="$NP_NO_TAG_VALUE" ;;
+            "[ANY TAG]") NP_TAGF="" ;;
+            *)           NP_TAGF="$NP_START_TAG" ;;
         esac
-        rm -f "$src"
-        return 1
-    fi
 
-    np_pick_note "$title" "$prompt"
-    rc=$?
+        np_pick_note "$title" "$prompt"
+        rc=$?
+        case $rc in
+            3)  # __CHANGE_TAG__ (Back keeps the current tag)
+                np_choose_start_tag && NP_PAGE=0
+                ;;
+            4)  # __REVERT_TAG__
+                if [[ "$NP_START_TAG" == "$NP_ORIG_TAG" ]]; then
+                    whiptail --title "Attention" --msgbox "Already filtering by the original tag: ${NP_ORIG_TAG}" 8 60
+                else
+                    NP_START_TAG="$NP_ORIG_TAG"
+                    NP_PAGE=0
+                fi
+                ;;
+            *)  break ;;
+        esac
+    done
+
     rm -f "$src"
     return $rc
 }
