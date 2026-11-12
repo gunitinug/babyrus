@@ -15932,47 +15932,439 @@ dissociate_note_from_project() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Goal Management: individual linked-note URL, ebook and tag actions.
+# These helpers are shared by the project-file and shortlisted-project flows.
+# ---------------------------------------------------------------------------
+
+goals_glob_matches() {
+    local value="${1,,}" pattern="${2,,}"
+    [[ "$value" == $pattern ]]
+}
+
+goals_load_note_urls() {
+    local selected_path="$1" urls_name="$2" titles_name="$3"
+    local -n out_urls="$urls_name" out_titles="$titles_name"
+    local GS=$'\x1D' US=$'\x1F' RS=$'\x1E'
+    local line payload entry url title
+    local -a entries=()
+
+    out_urls=()
+    out_titles=()
+    [[ -r "$URLS_DB" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == "${selected_path}${GS}"* ]] || continue
+        payload="${line#*"$GS"}"
+        IFS="$RS" read -r -a entries <<< "$payload"
+        for entry in "${entries[@]}"; do
+            [[ -n "$entry" ]] || continue
+            IFS="$US" read -r url title <<< "$entry"
+            out_urls+=("$url")
+            out_titles+=("$title")
+        done
+        break
+    done < "$URLS_DB"
+}
+
+goals_save_note_urls() {
+    local selected_path="$1" urls_name="$2" titles_name="$3"
+    local -n saved_urls="$urls_name" saved_titles="$titles_name"
+    local GS=$'\x1D' US=$'\x1F' RS=$'\x1E'
+    local new_entry="${selected_path}${GS}" line i tmp_file
+
+    for i in "${!saved_urls[@]}"; do
+        new_entry+="${saved_urls[i]}${US}${saved_titles[i]}${RS}"
+    done
+    new_entry="${new_entry%$RS}"
+
+    tmp_file=$(mktemp) || return 1
+    {
+        if [[ -r "$URLS_DB" ]]; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                [[ "$line" == "${selected_path}${GS}"* ]] || printf '%s\n' "$line"
+            done < "$URLS_DB"
+        fi
+        ((${#saved_urls[@]} == 0)) || printf '%s\n' "$new_entry"
+    } > "$tmp_file" || { rm -f -- "$tmp_file"; return 1; }
+
+    mv -- "$tmp_file" "$URLS_DB"
+}
+
+# Set GOALS_URL_PICKED_INDEX to the selected array index. Globs match either
+# the complete URL or its title, case-insensitively.
+goals_pick_url_index() {
+    local menu_title="$1" menu_prompt="$2" urls_name="$3" titles_name="$4"
+    local -n pick_urls="$urls_name" pick_titles="$titles_name"
+    local url_glob="" new_glob choice url title i
+    local page=1 page_size=50 total total_pages start end k
+    local -a visible=() menu_items=()
+
+    GOALS_URL_PICKED_INDEX=""
+    while :; do
+        visible=()
+        for i in "${!pick_urls[@]}"; do
+            if [[ -z "$url_glob" ]] || \
+               goals_glob_matches "${pick_urls[i]}" "$url_glob" || \
+               goals_glob_matches "${pick_titles[i]}" "$url_glob"; then
+                visible+=("$i")
+            fi
+        done
+
+        total=${#visible[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+
+        menu_items=(
+            "__APPLY_GLOB__" "Apply glob (matches URL or title)"
+            "__RESET_GLOB__" "Reset glob"
+        )
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k=start; k<end; k++ )); do
+            i=${visible[k]}
+            menu_items+=("$i" "${pick_urls[i]} - ${pick_titles[i]}")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
+
+        local status="URL glob: ${url_glob:-none}  |  ${total} URL(s) shown"
+        (( total == 0 )) && status+=$'\nNo URLs match the current glob.'
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --menu "$menu_prompt (page $page/$total_pages)\n$status" \
+            35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __APPLY_GLOB__)
+                if new_glob=$(whiptail --title "Apply URL Glob" --inputbox \
+                    "Enter a case-insensitive glob to match the URL or URL title. Use * and ? as wildcards; leave empty to show all URLs." \
+                    11 90 "$url_glob" 3>&1 1>&2 2>&3); then
+                    url_glob="$new_glob"
+                    page=1
+                fi
+                ;;
+            __RESET_GLOB__) url_glob=""; page=1 ;;
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            *)
+                [[ "$choice" =~ ^[0-9]+$ ]] || continue
+                (( choice >= 0 && choice < ${#pick_urls[@]} )) || continue
+                GOALS_URL_PICKED_INDEX="$choice"
+                return 0
+                ;;
+        esac
+    done
+}
+
+goals_open_url_for_note() {
+    local selected_path="$1" selected_index
+    local -a urls=() titles=()
+    [[ -n "$selected_path" ]] || return 1
+    goals_load_note_urls "$selected_path" urls titles
+    if ((${#urls[@]} == 0)); then
+        whiptail --title "Choose URL to open" --msgbox \
+            "No URLs are associated with this note." 8 60
+        return 1
+    fi
+
+    goals_pick_url_index "Choose URL to open" "Choose URL to open:" urls titles || return 1
+    selected_index="$GOALS_URL_PICKED_INDEX"
+    nohup "$URL_BROWSER" "${urls[selected_index]}" >/dev/null 2>&1 &
+}
+
+goals_manage_urls_for_note() {
+    local selected_path="$1" choice index sub_choice
+    local new_url new_title current_url current_title
+    local url_glob="" new_glob prompt
+    local url_regex='^(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.)+[A-Za-z]{2,}(:[0-9]+)?(\/\S*)?$'
+    local -a urls=() titles=() menu_items=() visible_indexes=()
+    [[ -n "$selected_path" ]] || return 1
+    touch "$URLS_DB"
+    goals_load_note_urls "$selected_path" urls titles
+
+    while :; do
+        # Keep the action items visible while filtering only the existing URL
+        # associations. The glob is case-insensitive and matches either the
+        # complete URL or its title.
+        visible_indexes=()
+        menu_items=(
+            "__APPLY_GLOB__" "Apply glob (matches URL or title)"
+            "__RESET_GLOB__" "Reset glob"
+            "Register URL" "Register a new URL"
+            "Save and return" "Save URL associations"
+        )
+        for index in "${!urls[@]}"; do
+            if [[ -z "$url_glob" ]] || \
+               goals_glob_matches "${urls[index]}" "$url_glob" || \
+               goals_glob_matches "${titles[index]}" "$url_glob"; then
+                visible_indexes+=("$index")
+                menu_items+=("$index" "${urls[index]} - ${titles[index]}")
+            fi
+        done
+
+        prompt="Manage URLs for: $selected_path\nURL glob: ${url_glob:-none} | ${#visible_indexes[@]} of ${#urls[@]} association(s) shown"
+        ((${#visible_indexes[@]} > 0)) || prompt+=$'\nNo URL associations match the current glob.'
+
+        # This is a full-width content menu with a 50-row list capacity.
+        # The colon prevents the shared wrapper from classifying it as a
+        # compact navigation menu.
+        choice=$(whiptail --title "URL Associations" --cancel-button "Back" \
+            --menu "$prompt" 35 155 25 \
+            "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            __APPLY_GLOB__)
+                if new_glob=$(whiptail --title "Apply URL Glob" --inputbox \
+                    "Enter a case-insensitive glob to match the complete URL or its title. Use * for any characters and ? for one character. Leave empty to show all associations." \
+                    11 90 "$url_glob" 3>&1 1>&2 2>&3); then
+                    url_glob="$new_glob"
+                fi
+                ;;
+            __RESET_GLOB__)
+                url_glob=""
+                ;;
+            "Register URL")
+                new_url=$(whiptail --title "Register URL" --inputbox "Enter URL:" 8 70 3>&1 1>&2 2>&3) || continue
+                if [[ ! "$new_url" =~ $url_regex ]]; then
+                    whiptail --msgbox "Invalid URL format. Please enter a valid URL." 8 60
+                    continue
+                fi
+                new_title=$(whiptail --title "Register URL" --inputbox "Enter URL title:" 8 70 3>&1 1>&2 2>&3) || continue
+                if [[ -z "$new_url" || -z "$new_title" ]]; then
+                    whiptail --msgbox "URL and title cannot be empty." 8 50
+                    continue
+                fi
+                urls+=("$new_url")
+                titles+=("$new_title")
+                ;;
+            "Save and return")
+                goals_save_note_urls "$selected_path" urls titles || return 1
+                whiptail --msgbox "URL associations saved successfully." 8 60
+                return 0
+                ;;
+            *)
+                [[ "$choice" =~ ^[0-9]+$ ]] || continue
+                index="$choice"
+                (( index >= 0 && index < ${#urls[@]} )) || continue
+                # Ignore stale / filtered-out numeric choices.
+                local is_visible=0 visible_index
+                for visible_index in "${visible_indexes[@]}"; do
+                    [[ "$visible_index" == "$index" ]] && { is_visible=1; break; }
+                done
+                (( is_visible )) || continue
+                sub_choice=$(whiptail --title "Manage URL" --menu "Choose an action:" 12 60 2 \
+                    "Change values" "Edit URL and title" \
+                    "Delete URL" "Delete this association" 3>&1 1>&2 2>&3) || continue
+                case "$sub_choice" in
+                    "Change values")
+                        current_url="${urls[index]}"
+                        current_title="${titles[index]}"
+                        new_url=$(whiptail --title "Edit URL" --inputbox "Edit URL:" 8 70 "$current_url" 3>&1 1>&2 2>&3) || continue
+                        if [[ ! "$new_url" =~ $url_regex ]]; then
+                            whiptail --msgbox "Invalid URL format. Please enter a valid URL." 8 60
+                            continue
+                        fi
+                        new_title=$(whiptail --title "Edit URL" --inputbox "Edit URL title:" 8 70 "$current_title" 3>&1 1>&2 2>&3) || continue
+                        [[ -n "$new_url" && -n "$new_title" ]] || {
+                            whiptail --msgbox "URL and title cannot be empty." 8 50
+                            continue
+                        }
+                        urls[index]="$new_url"
+                        titles[index]="$new_title"
+                        ;;
+                    "Delete URL")
+                        unset 'urls[index]' 'titles[index]'
+                        urls=("${urls[@]}")
+                        titles=("${titles[@]}")
+                        ;;
+                esac
+                ;;
+        esac
+    done
+}
+
+goals_dissociate_urls_from_note() {
+    local selected_path="$1" choice selected_index
+    local -a urls=() titles=() menu_items=()
+    [[ -n "$selected_path" ]] || return 1
+    touch "$URLS_DB"
+    goals_load_note_urls "$selected_path" urls titles
+    if ((${#urls[@]} == 0)); then
+        whiptail --title "Dissociate URL from note" --msgbox \
+            "No URLs are associated with this note. Associate a URL and try again." 9 70
+        return 1
+    fi
+
+    while :; do
+        menu_items=("Remove URL" "Choose a URL to remove" "Save and return" "Save URL changes")
+        # Blank prompt avoids compact-navigation sizing: full terminal width and
+        # the shared 50-row content-list capacity are used.
+        choice=$(whiptail --title "Dissociate URL from note" --cancel-button "Back" \
+            --menu "" 35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+        case "$choice" in
+            "Remove URL")
+                goals_pick_url_index "Select URL to remove" "Select a URL to remove:" urls titles || continue
+                selected_index="$GOALS_URL_PICKED_INDEX"
+                unset 'urls[selected_index]' 'titles[selected_index]'
+                urls=("${urls[@]}")
+                titles=("${titles[@]}")
+                if ((${#urls[@]} == 0)); then
+                    whiptail --title "No URLs" --msgbox \
+                        "All URL associations have been selected for removal. Choose Save and return to apply the change." 10 75
+                fi
+                ;;
+            "Save and return")
+                goals_save_note_urls "$selected_path" urls titles || return 1
+                whiptail --msgbox "URL associations updated." 8 50
+                return 0
+                ;;
+        esac
+    done
+}
+
+goals_write_note_tag_line() {
+    local note_title="$1" note_path="$2" new_tags="$3" rest="$4"
+    local new_line="$note_title|$note_path|$new_tags|$rest" tmp_file
+    tmp_file=$(mktemp) || return 1
+    awk -F'|' -v path="$note_path" -v replacement="$new_line" '
+        $2 == path { print replacement; found=1; next }
+        { print }
+        END { if (!found) exit 1 }
+    ' "$NOTES_DB" > "$tmp_file" || { rm -f -- "$tmp_file"; return 1; }
+    mv -- "$tmp_file" "$NOTES_DB"
+}
+
+goals_add_tag_to_note() {
+    local selected_note_line="$1"
+    local note_title note_path note_tags rest tag selected_tag
+    local -a candidates=()
+    IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
+    [[ -r "$NOTES_TAGS_DB" ]] || return 1
+
+    while IFS= read -r tag || [[ -n "$tag" ]]; do
+        [[ -n "$tag" ]] || continue
+        goals_note_has_tag "$note_tags" "$tag" && continue
+        candidates+=("$tag")
+    done < "$NOTES_TAGS_DB"
+    if ((${#candidates[@]} == 0)); then
+        whiptail --msgbox "There are no tags available to add." 8 50
+        return 1
+    fi
+
+    goals_select_note_tag_filter --title "Add tag" --prompt "Select a tag to add" \
+        --pins "" --tags "${candidates[@]}" || return 1
+    selected_tag="$GOALS_SELECTED_NOTE_TAG"
+    if [[ -n "$note_tags" ]]; then note_tags+=",$selected_tag"; else note_tags="$selected_tag"; fi
+    goals_write_note_tag_line "$note_title" "$note_path" "$note_tags" "$rest"
+}
+
+goals_remove_tag_from_note() {
+    local selected_note_line="$1"
+    local note_title note_path note_tags rest tag selected_tag updated_tags=""
+    local -a note_tag_array=() new_tags=()
+    IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
+    if [[ -z "$note_tags" ]]; then
+        whiptail --msgbox "This note has no tags to remove." 8 50
+        return 1
+    fi
+
+    IFS=',' read -r -a note_tag_array <<< "$note_tags"
+    goals_select_note_tag_filter --title "Remove tag" --prompt "Select a tag to remove" \
+        --pins "" --tags "${note_tag_array[@]}" || return 1
+    selected_tag="$GOALS_SELECTED_NOTE_TAG"
+
+    for tag in "${note_tag_array[@]}"; do
+        [[ "$tag" == "$selected_tag" ]] && continue
+        [[ -n "$tag" ]] && new_tags+=("$tag")
+    done
+    ((${#new_tags[@]} > 0)) && updated_tags=$(IFS=,; printf '%s' "${new_tags[*]}")
+    goals_write_note_tag_line "$note_title" "$note_path" "$updated_tags" "$rest"
+}
+
 open_note_ebook_page_from_project() {
-    local selected_line="$1"
+    local selected_line="$1" ebooks_part selected_ebook chapters_part
+    local ebook_path glob="" new_glob choice page_value
+    local page=1 page_size=50 total total_pages start end i k
+    local -a ebooks=() visible=() menu_items=()
 
-    #echo "selected_line: ${selected_line}"  # pass
-    #exit
+    [[ -n "$selected_line" ]] || return 1
+    ebooks_part="$(cut -d'|' -f4 <<< "$selected_line")"
+    if [[ -z "$ebooks_part" ]]; then
+        whiptail --title "Select an ebook" --msgbox \
+            "No ebooks are associated with this note." 8 60
+        return 1
+    fi
+    IFS=';' read -r -a ebooks <<< "$ebooks_part"
 
-    [[ -z "$selected_line" ]] && return 1
+    while :; do
+        visible=()
+        for i in "${!ebooks[@]}"; do
+            ebook_path="${ebooks[i]%%#*}"
+            if [[ -z "$glob" ]] || goals_glob_matches "$ebook_path" "$glob" || \
+               goals_glob_matches "${ebook_path##*/}" "$glob"; then
+                visible+=("$i")
+            fi
+        done
 
-    local selected_ebook=$(get_ebooks "$selected_line")
+        total=${#visible[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
 
-    #echo "selected_ebook: ${selected_ebook}"    # pass
-    #exit
+        menu_items=(
+            "__APPLY_GLOB__" "Apply glob (matches ebook file path or file name)"
+            "__RESET_GLOB__" "Reset glob"
+        )
+        (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
+        for (( k=start; k<end; k++ )); do
+            i=${visible[k]}
+            menu_items+=("$i" "${ebooks[i]%%#*}")
+        done
+        (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
-    [[ -z "$selected_ebook" ]] && return 1
+        choice=$(whiptail --title "Select an ebook" --cancel-button "Back" \
+            --menu "Choose an ebook (page $page/$total_pages)\nFile path/name glob: ${glob:-none}  |  ${total} ebook(s) shown" \
+            35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
+        case "$choice" in
+            __APPLY_GLOB__)
+                if new_glob=$(whiptail --title "Apply eBook Glob" --inputbox \
+                    "Enter a case-insensitive glob to match the full ebook file path or file name. Use * and ? as wildcards; leave empty to show all ebooks." \
+                    11 90 "$glob" 3>&1 1>&2 2>&3); then
+                    glob="$new_glob"
+                    page=1
+                fi
+                ;;
+            __RESET_GLOB__) glob=""; page=1 ;;
+            __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
+            __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
+            *)
+                [[ "$choice" =~ ^[0-9]+$ ]] || continue
+                (( choice >= 0 && choice < ${#ebooks[@]} )) || continue
+                selected_ebook="${ebooks[choice]}"
+                break
+                ;;
+        esac
+    done
 
-    # Extract the chapters part from the selected_ebook
-    local chapters_part=$(cut -d'#' -f2 <<< "$selected_ebook")
-
-    #echo "chapters_part: ${chapters_part}"  #pass
-    #exit
-
-    if [[ -n "$chapters_part" ]]; then
-        # Chapters are present, prompt user to select one
-        local selected_chapter=$(get_chapters "$selected_ebook")
-
+    [[ -n "$selected_ebook" ]] || return 1
+    chapters_part="${selected_ebook#*#}"
+    if [[ "$selected_ebook" == *#* && -n "$chapters_part" ]]; then
+        local selected_chapter
+        selected_chapter=$(get_chapters "$selected_ebook") || return 1
         if [[ "$selected_chapter" == ">> Just open" ]]; then
             handle_no_chapters "$selected_ebook"
             return
         fi
-
-        if [ -n "$selected_chapter" ]; then
-            local page=$(extract_page "$selected_chapter")
-            [[ -z "$page" ]] && return 1
-            open_evince "$selected_ebook" "$page"
-        #else
-        #    # User canceled chapter selection; open without page
-        #    open_evince "$selected_ebook"
-        fi
+        [[ -n "$selected_chapter" ]] || return 1
+        page_value=$(extract_page "$selected_chapter")
+        [[ -n "$page_value" ]] || return 1
+        open_evince "$selected_ebook" "$page_value"
     else
-        # No chapters available; ask to open the ebook directly
-        #open_evince "$selected_ebook"
         handle_no_chapters "$selected_ebook"
     fi
 }
@@ -16071,320 +16463,15 @@ do_stuff_with_project_file() {
     }
 
     open_url_assoc_to_chosen_note() {
-        touch "$URLS_DB"
-        
-        #local URLS_DB="$URLS_DB"
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls            
-
-        # Check if URLs database exists
-        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
-            return 1
-        fi
-
-        while true; do
-            local selected_path
-            [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-            # Extract URLs for selected note
-            local urls=()
-            local titles=()
-            while IFS= read -r line; do
-                # Only for the matched line...
-                if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                    for entry in "${entries[@]}"; do
-                        IFS="$US" read -r url title <<< "$entry"
-                        urls+=("$url")
-                        titles+=("$title")
-                    done
-                    break
-                fi
-            done < "$URLS_DB"
-
-            if [[ ${#urls[@]} -eq 0 ]]; then
-                whiptail --msgbox "No URLs found for selected note!" 8 50 >/dev/tty
-                return 1                
-            fi
-
-            # URL selection loop
-            [[ ${#urls[@]} -gt 0 ]] && {
-                while true; do
-                    local url_menu_items=("<< Back" "")
-                    for i in "${!urls[@]}"; do
-                        url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-                    done
-
-                    local choice
-                    choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                        20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
-                    [[ -z "$choice" ]] && return 1
-
-                    if [[ "$choice" == "<< Back" ]]; then
-                        return 1
-                    elif [[ -n "${urls[$choice]}" ]]; then                
-                        nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
-                    fi
-                done
-            }
-        done
+        goals_open_url_for_note "$note_path"
     }
 
     assoc_url_to_chosen_note() {
-        touch "$URLS_DB"
-        
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls
-
-        # Extract note paths from NOTES_DB
-        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Error: Notes database not found or empty!" 8 50 >/dev/tty
-            return 1
-        fi
-        
-        local selected_path
-        [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-        # Load existing URLs
-        local urls=()
-        local titles=()
-        if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
-            while IFS= read -r line; do
-                if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                    for entry in "${entries[@]}"; do
-                        IFS="$US" read -r url title <<< "$entry"
-                        urls+=("$url")
-                        titles+=("$title")
-                    done
-                    break
-                fi
-            done < "$URLS_DB"
-        fi
-
-        local url_regex='^(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.)+[A-Za-z]{2,}(:[0-9]+)?(\/\S*)?$'
-
-        # URL management loop
-        while true; do
-            local menu_options=("Register URL" "" "Save and return" "")
-            for i in "${!urls[@]}"; do
-                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-            done
-
-            local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-            [[ -z "$choice" ]] && return 1
-
-            case "$choice" in
-                "Register URL")
-                    local new_url new_title
-                    new_url=$(whiptail --inputbox "Enter URL:" 8 50 3>&1 1>&2 2>&3)
-                    [[ $? -ne 0 ]] && continue
-
-                    # validate URL
-                    if [[ ! $new_url =~ $url_regex ]]; then
-                        whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    new_title=$(whiptail --inputbox "Enter URL title:" 8 50 3>&1 1>&2 2>&3)
-                    [[ $? -ne 0 ]] && continue
-
-                    if [[ -z "$new_url" || -z "$new_title" ]]; then
-                        whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    urls+=("$new_url")
-                    titles+=("$new_title")
-                    ;;
-
-                "Save and return")
-                    # Construct new entry
-                    local new_entry="${selected_path}${GS}"
-                    for i in "${!urls[@]}"; do
-                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
-                    done
-                    new_entry="${new_entry%$RS}"
-
-                    # Update URLS_DB
-                    local temp_file
-                    temp_file=$(mktemp) || return 1
-                    if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
-                        # Write every line except for selected path to temp file.
-                        while IFS= read -r line; do
-                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
-                        done < "$URLS_DB" > "$temp_file"
-                    fi
-                    # Add new entry at the end of the temp file.
-                    echo "$new_entry" >> "$temp_file"
-
-                    # Replace original file
-                    mv "$temp_file" "$URLS_DB"
-                    whiptail --msgbox "URL associations saved successfully!" 8 50 >/dev/tty
-                    return 0
-                    ;;
-
-                *)
-                    # Handle existing URL selection
-                    local index="$choice"
-                    if [[ ! -v urls[index] ]]; then
-                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    # Submenu for edit/delete
-                    local sub_choice
-                    sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
-                        "Change values" "" \
-                        "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
-                    [[ -z "$sub_choice" ]] && continue
-
-                    case "$sub_choice" in
-                        "Change values")
-                            local current_url="${urls[index]}"
-                            local current_title="${titles[index]}"
-                            new_url=$(whiptail --inputbox "Edit URL:" 8 50 "$current_url" 3>&1 1>&2 2>&3)
-                            [[ $? -ne 0 ]] && continue
-
-                            # validate URL
-                            if [[ ! $new_url =~ $url_regex ]]; then
-                                whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
-                                continue
-                            fi
-
-                            new_title=$(whiptail --inputbox "Edit URL title:" 8 50 "$current_title" 3>&1 1>&2 2>&3)
-                            [[ $? -ne 0 ]] && continue
-
-                            if [[ -z "$new_url" || -z "$new_title" ]]; then
-                                whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
-                                continue
-                            fi
-
-                            urls[index]="$new_url"
-                            titles[index]="$new_title"
-                            ;;
-                        "Delete URL")
-                            unset 'urls[index]'
-                            unset 'titles[index]'
-                            # Reindex arrays
-                            urls=("${urls[@]}")
-                            titles=("${titles[@]}")
-                            ;;
-                    esac
-                    ;;
-            esac
-        done
-    }    
+        goals_manage_urls_for_note "$note_path"
+    }
 
     dissoc_url_from_chosen_note() {
-        touch "$URLS_DB"
-        
-        #local URLS_DB="$URLS_DB"
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls
-
-        # Check URL database existence
-        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            #whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
-            whiptail --msgbox "No URLs found. Associate at least one URL and try again." 8 50 >/dev/tty
-            return 1
-        fi
-
-        local selected_path
-        [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-        # Load existing URLs
-        local urls=()
-        local titles=()
-        while IFS= read -r line; do
-            if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                for entry in "${entries[@]}"; do
-                    IFS="$US" read -r url title <<< "$entry"
-                    urls+=("$url")
-                    titles+=("$title")
-                done
-                break
-            fi
-        done < "$URLS_DB"
-
-        # URL removal loop
-        while true; do
-            local menu_options=("Remove URL" "" "Save and return" "")
-            for i in "${!urls[@]}"; do
-                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-            done
-
-            local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
-                "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-            [[ -z "$choice" ]] && continue
-
-            case "$choice" in
-                "Remove URL")
-                    if [[ ${#urls[@]} -eq 0 ]]; then
-                        whiptail --msgbox "No URLs to remove!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    # Create removal submenu
-                    local remove_menu=()
-                    for i in "${!urls[@]}"; do
-                        remove_menu+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-                    done
-
-                    local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
-                        "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
-                    [[ -z "$remove_index" ]] && continue
-
-                    # Validate and remove selected URL
-                    if [[ -v "urls[$remove_index]" ]]; then
-                        unset 'urls[$remove_index]'
-                        unset 'titles[$remove_index]'
-                        urls=("${urls[@]}")  # Reindex array
-                        titles=("${titles[@]}")
-                    else
-                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
-                    fi
-                    ;;
-
-                "Save and return")
-                    # Prepare new entry
-                    local new_entry="${selected_path}${GS}"
-                    for i in "${!urls[@]}"; do
-                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
-                    done
-                    new_entry="${new_entry%$RS}"
-
-                    # Update database
-                    local temp_file=$(mktemp) || return 1
-                    {
-                        # Copy existing entries except current note
-                        while IFS= read -r line; do
-                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
-                        done < "$URLS_DB"
-                        
-                        # Add updated entry if URLs remain
-                        [[ -n "$new_entry" ]] && echo "$new_entry"
-                    } > "$temp_file"
-
-                    mv "$temp_file" "$URLS_DB"
-                    whiptail --msgbox "URL associations updated!" 8 50 >/dev/tty
-                    return 0
-                    ;;
-
-                *)
-                    # Ignore URL index selections
-                    continue
-                    ;;
-            esac
-        done
+        goals_dissociate_urls_from_note "$note_path"
     }
 
     associate_chosen_note_to_project() {
@@ -16408,42 +16495,14 @@ do_stuff_with_project_file() {
             return 1
         fi
 
-        # FIX: ALLOW FILTERING BY GLOB.
-        # Get pattern from user using whiptail
-        local pattern
-        pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-        : "${pattern:=*}"	# default to * if unset.
-
-        # Enable case-insensitive glob matching
-        shopt -s nocasematch
-        
-        local project_menu_options=()
-        local filename title path rest
-        while IFS='|' read -r title path rest; do
-            # Extract filename from path
-            filename=$(basename "$path")
-            
-            # Check if filename matches the pattern (now case-insensitive)
-            if [[ "$filename" == $pattern ]]; then
-                project_menu_options+=("$path" "")
-            fi
-        done < "$PROJECTS_DB"
-        
-        # Restore default case sensitivity
-        shopt -u nocasematch
-
-        # If no matches found, show message and exit
-        if [ ${#project_menu_options[@]} -eq 0 ]; then
-            whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
-            return 1
-        fi
-        # END FIX.
-
-        # Project selection
-        paginate_get_projects "Select Project" "${project_menu_options[@]}"
-        local selected_project_path
-        selected_project_path="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_project_path" ]] && return 1
+        # Do not ask for a glob up front. Select Project offers
+        # __APPLY_GLOB__ / __RESET_GLOB__ and matches project file names.
+        local GOALS_PROJECT_RESTRICT_FILE=""
+        local GOALS_PROJECT_TITLE_MODE=""
+        GOALS_PROJECT_GLOB=""
+        goals_select_project "Select Project" || { rm -f -- "$temp_file"; return 1; }
+        local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
+        [[ -n "$selected_project_path" ]] || { rm -f -- "$temp_file"; return 1; }
 
         # User already chosen $note_path as chosen note file.
         local selected_note_path
@@ -20787,126 +20846,12 @@ Leave the pattern non-empty; use * to match all titles." \
 
         #-- Helper fn's for 'Add tag to item' and 'Remove tag from item'
         add_tag_to_item() {
-            local selected_note_line="$1"
-
-            local note_title note_path note_tags rest
-            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
-
-            local tag_menu=()
-            local tag
-
-            while IFS= read -r tag; do
-                [[ -z "$tag" ]] && continue
-
-                # Don't offer tags the note already has
-                if [[ ",$note_tags," != *",$tag,"* ]]; then
-                    tag_menu+=("$tag" "")
-                fi
-            done < "$NOTES_TAGS_DB"
-
-            if ((${#tag_menu[@]} == 0)); then
-                whiptail --msgbox "There are no tags available to add." 8 50
-                return 1
-            fi
-
-            local selected_tag
-
-            selected_tag=$(
-                whiptail \
-                    --title "Add tag" \
-                    --menu "Select a tag to add:" \
-                    20 70 12 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
-
-            # Add the selected tag
-            if [[ -n "$note_tags" ]]; then
-                note_tags+=",$selected_tag"
-            else
-                note_tags="$selected_tag"
-            fi
-
-            local new_line
-            new_line="$note_title|$note_path|$note_tags|$rest"
-
-            local tmp_file
-            tmp_file=$(mktemp) || return 1
-
-            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
-                $2 == path {
-                    print replacement
-                    next
-                }
-                { print }
-            ' "$NOTES_DB" > "$tmp_file"
-
-            mv "$tmp_file" "$NOTES_DB"
+            goals_add_tag_to_note "$1"
         }
 
 
         remove_tag_from_item() {
-            local selected_note_line="$1"
-
-            local note_title note_path note_tags rest
-            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
-
-            if [[ -z "$note_tags" ]]; then
-                whiptail --msgbox "This note has no tags to remove." 8 50
-                return 1
-            fi
-
-            local tag_menu=()
-            local tag
-
-            IFS=',' read -ra note_tag_array <<< "$note_tags"
-
-            for tag in "${note_tag_array[@]}"; do
-                [[ -z "$tag" ]] && continue
-                tag_menu+=("$tag" "")
-            done
-
-            if ((${#tag_menu[@]} == 0)); then
-                whiptail --msgbox "This note has no tags to remove." 8 50
-                return 1
-            fi
-
-            local selected_tag
-
-            selected_tag=$(
-                whiptail \
-                    --title "Remove tag" \
-                    --menu "Select a tag to remove:" \
-                    20 70 12 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
-
-            # Remove the selected tag
-            local new_tags=()
-            for tag in "${note_tag_array[@]}"; do
-                [[ "$tag" == "$selected_tag" ]] && continue
-                [[ -n "$tag" ]] && new_tags+=("$tag")
-            done
-
-            local updated_note_tags=""
-            ((${#new_tags[@]} > 0)) && updated_note_tags=$(IFS=,; echo "${new_tags[*]}")
-
-            local new_line
-            new_line="$note_title|$note_path|$updated_note_tags|$rest"
-
-            local tmp_file
-            tmp_file=$(mktemp) || return 1
-
-            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
-                $2 == path {
-                    print replacement
-                    next
-                }
-                { print }
-            ' "$NOTES_DB" > "$tmp_file"
-
-            mv "$tmp_file" "$NOTES_DB"
+            goals_remove_tag_from_note "$1"
         }
         #-- Helpers end.        
 
@@ -21248,42 +21193,18 @@ save_action_shortlisted() {
 
 add_to_shortlist() {
     add_item_to_shortlist() {
-        # Check if projects database exists and has entries
-        [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]] && {
-            whiptail --msgbox "No projects found. Add at least one project and try again." 8 40 </dev/tty >/dev/tty
+        [[ -s "$PROJECTS_DB" ]] || {
+            whiptail --msgbox "No projects found. Add at least one project and try again." 8 60
             return 1
         }
 
-        # FIX: ADD FILTERING
-        # Read all projects into array
-        local lines=()    
-        mapfile -d '' -t lines < <(filter_projects_by_name)		# get filtered lines from utility function. \0 delimited.
-
-        local menu_options=()
-        local title line lineno
-        for line in "${lines[@]}"; do
-            IFS='|' read -r title _ _ <<< "$line"
-            lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-            # Store matching index from PROJECTS_DB file.
-            [[ -n "$lineno" ]] && menu_options+=($((lineno-1)) "$title")
-        done
-        # END FIX.
-
-        # Paginate menu options
-        paginate_get_projects "Select Project" "${menu_options[@]}"
-        local selected_index
-        selected_index="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_index" ]] && return 1
-
-        # DIRTY FIX: OVERWRITE LINES TO CONTAIN ALL LINES FROM PROJECTS_DB.
-        mapfile -t lines < "$PROJECTS_DB"
-
-        # Parse selected project
-        local old_title old_path old_notes
-        IFS='|' read -r old_title old_path old_notes <<< "${lines[$selected_index]}"
-
-        echo "$old_path"
+        # No initial glob prompt: the picker offers __APPLY_GLOB__ and
+        # __RESET_GLOB__, matching the project file name (case-insensitively).
+        local GOALS_PROJECT_RESTRICT_FILE=""
+        local GOALS_PROJECT_TITLE_MODE=""
+        GOALS_PROJECT_GLOB=""
+        goals_select_project "Select Project" || return 1
+        printf '%s\n' "$GOALS_SELECTED_PROJECT_PATH"
     }
 
     # Ensure file exists
@@ -21363,64 +21284,40 @@ add_to_shortlist() {
 
 remove_from_shortlist() {
     touch "$PROJECTS_DB_SHORTLISTED"
+    [[ -s "$PROJECTS_DB_SHORTLISTED" ]] || {
+        whiptail --title "Shortlisted Projects" --msgbox "There are no projects in the shortlist." 8 60
+        return 1
+    }
 
-    local PAGE_SIZE=50
-    local offset=0
-    local choice
+    # Restrict the shared picker to shortlisted paths. Its glob is applied to
+    # project file names, with __APPLY_GLOB__ / __RESET_GLOB__ controls.
+    local GOALS_PROJECT_RESTRICT_FILE="$PROJECTS_DB_SHORTLISTED"
+    local GOALS_PROJECT_TITLE_MODE=""
+    local selected_path tmp_file
+    GOALS_PROJECT_GLOB=""
 
-    mapfile -t all_items < "$PROJECTS_DB_SHORTLISTED"
-    local total=${#all_items[@]}
+    while :; do
+        goals_select_project "Select Project to Remove from Shortlist" || return 1
+        selected_path="$GOALS_SELECTED_PROJECT_PATH"
+        [[ -n "$selected_path" ]] || continue
 
-    while true; do
-        local menu_items=()
-        menu_items+=( "Back" "" )
+        if whiptail --title "Remove from Shortlist" --yesno \
+            "Are you sure you want to remove this project from the shortlist?\n\n$selected_path" 12 80; then
+            tmp_file=$(mktemp) || return 1
+            awk -v selected="$selected_path" '$0 != selected { print }' \
+                "$PROJECTS_DB_SHORTLISTED" > "$tmp_file" || {
+                    rm -f -- "$tmp_file"
+                    return 1
+                }
+            mv -- "$tmp_file" "$PROJECTS_DB_SHORTLISTED" || return 1
+            save_action_shortlisted "$selected_path" "REMOVED"
+            whiptail --msgbox "Removed from shortlist:\n\n$selected_path" 10 80
+        fi
 
-        # Navigation (does NOT count toward page size)
-        (( offset > 0 )) && menu_items+=( "<< Prev" "" )
-        (( offset + PAGE_SIZE < total )) && menu_items+=( "Next >>" "" )
-
-        # Paginated shortlist items
-        for (( i=offset; i<offset+PAGE_SIZE && i<total; i++ )); do
-            menu_items+=( "${all_items[i]}" "" )
-        done
-
-        # Page indicator
-        local current_page=$(( offset / PAGE_SIZE + 1 ))
-        local total_pages=$(( (total + PAGE_SIZE - 1) / PAGE_SIZE ))
-
-        choice=$(whiptail \
-            --title "Shortlisted Projects" \
-            --cancel-button "Back" \
-            --menu "Select a project to remove (Page ${current_page}/${total_pages}):" \
-            20 155 10 \
-            "${menu_items[@]}" \
-            3>&1 1>&2 2>&3) || return 1
-
-        case "$choice" in
-            "Back")
-                return 1
-                ;;
-            "<< Prev")
-                (( offset -= PAGE_SIZE ))
-                (( offset < 0 )) && offset=0
-                ;;
-            "Next >>")
-                (( offset += PAGE_SIZE ))
-                ;;
-            *)
-                if whiptail --yesno "Are you sure you want to remove:\n$choice" 10 60; then
-                    sed -i "\|^$(printf '%s' "$choice" | sed 's/[&/\]/\\&/g')\$|d" "$PROJECTS_DB_SHORTLISTED"
-                    save_action_shortlisted "$choice" "REMOVED"
-                    whiptail --msgbox "Removed: $choice" 10 60
-
-                    # Refresh list and clamp offset
-                    mapfile -t all_items < "$PROJECTS_DB_SHORTLISTED"
-                    total=${#all_items[@]}
-                    (( offset >= total )) && offset=$(( total - PAGE_SIZE ))
-                    (( offset < 0 )) && offset=0
-                fi
-                ;;
-        esac
+        [[ -s "$PROJECTS_DB_SHORTLISTED" ]] || {
+            whiptail --title "Shortlisted Projects" --msgbox "The shortlist is now empty." 8 60
+            return 0
+        }
     done
 }
 
@@ -21543,320 +21440,15 @@ do_stuff_shortlisted() {
     }
 
     open_url_assoc_to_chosen_note() {
-        touch "$URLS_DB"
-        
-        #local URLS_DB="$URLS_DB"
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls            
-
-        # Check if URLs database exists
-        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            whiptail --msgbox "URL database not found or empty!" 8 50 >/dev/tty
-            return 1
-        fi
-
-        while true; do
-            local selected_path
-            [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-            # Extract URLs for selected note
-            local urls=()
-            local titles=()
-            while IFS= read -r line; do
-                # Only for the matched line...
-                if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                    for entry in "${entries[@]}"; do
-                        IFS="$US" read -r url title <<< "$entry"
-                        urls+=("$url")
-                        titles+=("$title")
-                    done
-                    break
-                fi
-            done < "$URLS_DB"
-
-            if [[ ${#urls[@]} -eq 0 ]]; then
-                whiptail --msgbox "No URLs found for selected note!" 8 50 >/dev/tty
-                return 1                
-            fi
-
-            # URL selection loop
-            [[ ${#urls[@]} -gt 0 ]] && {
-                while true; do
-                    local url_menu_items=("<< Back" "")
-                    for i in "${!urls[@]}"; do
-                        url_menu_items+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-                    done
-
-                    local choice
-                    choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
-                        20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || return 1
-                    [[ -z "$choice" ]] && return 1
-
-                    if [[ "$choice" == "<< Back" ]]; then
-                        return 1
-                    elif [[ -n "${urls[$choice]}" ]]; then                
-                        nohup "$URL_BROWSER" "${urls[$choice]}" >/dev/null 2>&1 &	# to make sure browser stays open
-                    fi
-                done
-            }
-        done
+        goals_open_url_for_note "$note_path"
     }
 
     assoc_url_to_chosen_note() {
-        touch "$URLS_DB"
-        
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls
-
-        # Extract note paths from NOTES_DB
-        if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
-            whiptail --msgbox "Error: Notes database not found or empty!" 8 50 >/dev/tty
-            return 1
-        fi
-        
-        local selected_path
-        [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-        # Load existing URLs
-        local urls=()
-        local titles=()
-        if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
-            while IFS= read -r line; do
-                if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                    IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                    for entry in "${entries[@]}"; do
-                        IFS="$US" read -r url title <<< "$entry"
-                        urls+=("$url")
-                        titles+=("$title")
-                    done
-                    break
-                fi
-            done < "$URLS_DB"
-        fi
-
-        local url_regex='^(https?:\/\/)?(www\.)?([a-zA-Z0-9-]+\.)+[A-Za-z]{2,}(:[0-9]+)?(\/\S*)?$'
-
-        # URL management loop
-        while true; do
-            local menu_options=("Register URL" "" "Save and return" "")
-            for i in "${!urls[@]}"; do
-                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-            done
-
-            local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-            [[ -z "$choice" ]] && return 1
-
-            case "$choice" in
-                "Register URL")
-                    local new_url new_title
-                    new_url=$(whiptail --inputbox "Enter URL:" 8 50 3>&1 1>&2 2>&3)
-                    [[ $? -ne 0 ]] && continue
-
-                    # validate URL
-                    if [[ ! $new_url =~ $url_regex ]]; then
-                        whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    new_title=$(whiptail --inputbox "Enter URL title:" 8 50 3>&1 1>&2 2>&3)
-                    [[ $? -ne 0 ]] && continue
-
-                    if [[ -z "$new_url" || -z "$new_title" ]]; then
-                        whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    urls+=("$new_url")
-                    titles+=("$new_title")
-                    ;;
-
-                "Save and return")
-                    # Construct new entry
-                    local new_entry="${selected_path}${GS}"
-                    for i in "${!urls[@]}"; do
-                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
-                    done
-                    new_entry="${new_entry%$RS}"
-
-                    # Update URLS_DB
-                    local temp_file
-                    temp_file=$(mktemp) || return 1
-                    if [[ -f "$URLS_DB" && -s "$URLS_DB" ]]; then
-                        # Write every line except for selected path to temp file.
-                        while IFS= read -r line; do
-                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
-                        done < "$URLS_DB" > "$temp_file"
-                    fi
-                    # Add new entry at the end of the temp file.
-                    echo "$new_entry" >> "$temp_file"
-
-                    # Replace original file
-                    mv "$temp_file" "$URLS_DB"
-                    whiptail --msgbox "URL associations saved successfully!" 8 50 >/dev/tty
-                    return 0
-                    ;;
-
-                *)
-                    # Handle existing URL selection
-                    local index="$choice"
-                    if [[ ! -v urls[index] ]]; then
-                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    # Submenu for edit/delete
-                    local sub_choice
-                    sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
-                        "Change values" "" \
-                        "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
-                    [[ -z "$sub_choice" ]] && continue
-
-                    case "$sub_choice" in
-                        "Change values")
-                            local current_url="${urls[index]}"
-                            local current_title="${titles[index]}"
-                            new_url=$(whiptail --inputbox "Edit URL:" 8 50 "$current_url" 3>&1 1>&2 2>&3)
-                            [[ $? -ne 0 ]] && continue
-
-                            # validate URL
-                            if [[ ! $new_url =~ $url_regex ]]; then
-                                whiptail --msgbox "Invalid URL format! Please enter a valid URL." 8 50 >/dev/tty
-                                continue
-                            fi
-
-                            new_title=$(whiptail --inputbox "Edit URL title:" 8 50 "$current_title" 3>&1 1>&2 2>&3)
-                            [[ $? -ne 0 ]] && continue
-
-                            if [[ -z "$new_url" || -z "$new_title" ]]; then
-                                whiptail --msgbox "URL and title cannot be empty!" 8 50 >/dev/tty
-                                continue
-                            fi
-
-                            urls[index]="$new_url"
-                            titles[index]="$new_title"
-                            ;;
-                        "Delete URL")
-                            unset 'urls[index]'
-                            unset 'titles[index]'
-                            # Reindex arrays
-                            urls=("${urls[@]}")
-                            titles=("${titles[@]}")
-                            ;;
-                    esac
-                    ;;
-            esac
-        done
-    }    
+        goals_manage_urls_for_note "$note_path"
+    }
 
     dissoc_url_from_chosen_note() {
-        touch "$URLS_DB"
-        
-        #local URLS_DB="$URLS_DB"
-        local GS=$'\x1D'  # separates note path and rest
-        local US=$'\x1F'  # separates url and url title
-        local RS=$'\x1E'  # separates urls
-
-        # Check URL database existence
-        if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            #whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
-            whiptail --msgbox "No URLs found. Associate at least one URL and try again." 8 50 >/dev/tty
-            return 1
-        fi
-
-        local selected_path
-        [[ -n "$note_path" ]] && { selected_path="$note_path"; } || return 1
-
-        # Load existing URLs
-        local urls=()
-        local titles=()
-        while IFS= read -r line; do
-            if [[ "$line" == "${selected_path}${GS}"* ]]; then
-                IFS="$RS" read -ra entries <<< "${line#*$GS}"
-                for entry in "${entries[@]}"; do
-                    IFS="$US" read -r url title <<< "$entry"
-                    urls+=("$url")
-                    titles+=("$title")
-                done
-                break
-            fi
-        done < "$URLS_DB"
-
-        # URL removal loop
-        while true; do
-            local menu_options=("Remove URL" "" "Save and return" "")
-            for i in "${!urls[@]}"; do
-                menu_options+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-            done
-
-            local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
-                "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-            [[ -z "$choice" ]] && continue
-
-            case "$choice" in
-                "Remove URL")
-                    if [[ ${#urls[@]} -eq 0 ]]; then
-                        whiptail --msgbox "No URLs to remove!" 8 50 >/dev/tty
-                        continue
-                    fi
-
-                    # Create removal submenu
-                    local remove_menu=()
-                    for i in "${!urls[@]}"; do
-                        remove_menu+=("$i" "${urls[i]} - ${titles[i]:0:50}")
-                    done
-
-                    local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
-                        "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
-                    [[ -z "$remove_index" ]] && continue
-
-                    # Validate and remove selected URL
-                    if [[ -v "urls[$remove_index]" ]]; then
-                        unset 'urls[$remove_index]'
-                        unset 'titles[$remove_index]'
-                        urls=("${urls[@]}")  # Reindex array
-                        titles=("${titles[@]}")
-                    else
-                        whiptail --msgbox "Invalid selection!" 8 50 >/dev/tty
-                    fi
-                    ;;
-
-                "Save and return")
-                    # Prepare new entry
-                    local new_entry="${selected_path}${GS}"
-                    for i in "${!urls[@]}"; do
-                        new_entry+="${urls[i]}${US}${titles[i]}${RS}"
-                    done
-                    new_entry="${new_entry%$RS}"
-
-                    # Update database
-                    local temp_file=$(mktemp) || return 1
-                    {
-                        # Copy existing entries except current note
-                        while IFS= read -r line; do
-                            [[ "$line" != "${selected_path}${GS}"* ]] && echo "$line"
-                        done < "$URLS_DB"
-                        
-                        # Add updated entry if URLs remain
-                        [[ -n "$new_entry" ]] && echo "$new_entry"
-                    } > "$temp_file"
-
-                    mv "$temp_file" "$URLS_DB"
-                    whiptail --msgbox "URL associations updated!" 8 50 >/dev/tty
-                    return 0
-                    ;;
-
-                *)
-                    # Ignore URL index selections
-                    continue
-                    ;;
-            esac
-        done
+        goals_dissociate_urls_from_note "$note_path"
     }
 
     associate_chosen_note_to_project() {
@@ -21880,42 +21472,14 @@ do_stuff_shortlisted() {
             return 1
         fi
 
-        # FIX: ALLOW FILTERING BY GLOB.
-        # Get pattern from user using whiptail
-        local pattern
-        pattern=$(whiptail --inputbox "Enter filename glob pattern to filter projects (empty for wildcard):" 10 60 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
-        : "${pattern:=*}"	# default to * if unset.
-
-        # Enable case-insensitive glob matching
-        shopt -s nocasematch
-        
-        local project_menu_options=()
-        local filename title path rest
-        while IFS='|' read -r title path rest; do
-            # Extract filename from path
-            filename=$(basename "$path")
-            
-            # Check if filename matches the pattern (now case-insensitive)
-            if [[ "$filename" == $pattern ]]; then
-                project_menu_options+=("$path" "")
-            fi
-        done < "$PROJECTS_DB"
-        
-        # Restore default case sensitivity
-        shopt -u nocasematch
-
-        # If no matches found, show message and exit
-        if [ ${#project_menu_options[@]} -eq 0 ]; then
-            whiptail --msgbox "No projects matched the pattern '${pattern}'" 8 40 >/dev/tty
-            return 1
-        fi
-        # END FIX.
-
-        # Project selection
-        paginate_get_projects "Select Project" "${project_menu_options[@]}"
-        local selected_project_path
-        selected_project_path="$SELECTED_ITEM_PROJECT"
-        [[ -z "$selected_project_path" ]] && return 1
+        # Do not ask for a glob up front. Select Project offers
+        # __APPLY_GLOB__ / __RESET_GLOB__ and matches project file names.
+        local GOALS_PROJECT_RESTRICT_FILE=""
+        local GOALS_PROJECT_TITLE_MODE=""
+        GOALS_PROJECT_GLOB=""
+        goals_select_project "Select Project" || { rm -f -- "$temp_file"; return 1; }
+        local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
+        [[ -n "$selected_project_path" ]] || { rm -f -- "$temp_file"; return 1; }
 
         # User already chosen $note_path as chosen note file.
         local selected_note_path
@@ -26261,126 +25825,12 @@ Leave the pattern non-empty; use * to match all titles." \
 
         #-- Helper fn's for 'Add tag to item' and 'Remove tag from item'
         add_tag_to_item() {
-            local selected_note_line="$1"
-
-            local note_title note_path note_tags rest
-            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
-
-            local tag_menu=()
-            local tag
-
-            while IFS= read -r tag; do
-                [[ -z "$tag" ]] && continue
-
-                # Don't offer tags the note already has
-                if [[ ",$note_tags," != *",$tag,"* ]]; then
-                    tag_menu+=("$tag" "")
-                fi
-            done < "$NOTES_TAGS_DB"
-
-            if ((${#tag_menu[@]} == 0)); then
-                whiptail --msgbox "There are no tags available to add." 8 50
-                return 1
-            fi
-
-            local selected_tag
-
-            selected_tag=$(
-                whiptail \
-                    --title "Add tag" \
-                    --menu "Select a tag to add:" \
-                    20 70 12 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
-
-            # Add the selected tag
-            if [[ -n "$note_tags" ]]; then
-                note_tags+=",$selected_tag"
-            else
-                note_tags="$selected_tag"
-            fi
-
-            local new_line
-            new_line="$note_title|$note_path|$note_tags|$rest"
-
-            local tmp_file
-            tmp_file=$(mktemp) || return 1
-
-            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
-                $2 == path {
-                    print replacement
-                    next
-                }
-                { print }
-            ' "$NOTES_DB" > "$tmp_file"
-
-            mv "$tmp_file" "$NOTES_DB"
+            goals_add_tag_to_note "$1"
         }
 
 
         remove_tag_from_item() {
-            local selected_note_line="$1"
-
-            local note_title note_path note_tags rest
-            IFS='|' read -r note_title note_path note_tags rest <<< "$selected_note_line"
-
-            if [[ -z "$note_tags" ]]; then
-                whiptail --msgbox "This note has no tags to remove." 8 50
-                return 1
-            fi
-
-            local tag_menu=()
-            local tag
-
-            IFS=',' read -ra note_tag_array <<< "$note_tags"
-
-            for tag in "${note_tag_array[@]}"; do
-                [[ -z "$tag" ]] && continue
-                tag_menu+=("$tag" "")
-            done
-
-            if ((${#tag_menu[@]} == 0)); then
-                whiptail --msgbox "This note has no tags to remove." 8 50
-                return 1
-            fi
-
-            local selected_tag
-
-            selected_tag=$(
-                whiptail \
-                    --title "Remove tag" \
-                    --menu "Select a tag to remove:" \
-                    20 70 12 \
-                    "${tag_menu[@]}" \
-                    3>&1 1>&2 2>&3
-            ) || return 1
-
-            # Remove the selected tag
-            local new_tags=()
-            for tag in "${note_tag_array[@]}"; do
-                [[ "$tag" == "$selected_tag" ]] && continue
-                [[ -n "$tag" ]] && new_tags+=("$tag")
-            done
-
-            local updated_note_tags=""
-            ((${#new_tags[@]} > 0)) && updated_note_tags=$(IFS=,; echo "${new_tags[*]}")
-
-            local new_line
-            new_line="$note_title|$note_path|$updated_note_tags|$rest"
-
-            local tmp_file
-            tmp_file=$(mktemp) || return 1
-
-            awk -F'|' -v path="$note_path" -v replacement="$new_line" '
-                $2 == path {
-                    print replacement
-                    next
-                }
-                { print }
-            ' "$NOTES_DB" > "$tmp_file"
-
-            mv "$tmp_file" "$NOTES_DB"
+            goals_remove_tag_from_note "$1"
         }
         #-- Helpers end.        
 
