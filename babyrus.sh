@@ -9671,6 +9671,9 @@ GOALS_SELECTED_PROJECT_LINE=""
 GOALS_SELECTED_NOTE_TAG=""
 GOALS_PICKED_NOTE_INDEX=""
 GOALS_PICKED_NOTE_PATH=""
+GOALS_PICKED_PATHS=()
+GOALS_NOTE_TITLE_MODE=""
+GOALS_PROJECT_TITLE_MODE=""
 GOALS_MENU_CHOICE=""
 
 # Pick a project from PROJECTS_DB.
@@ -9690,6 +9693,25 @@ goals_select_project() {
     local -a order=() menu_items=()
     local row lineno=0 t p n base choice new_glob
     local page=1 page_size=50 total total_pages start end k i prompt
+    local what="file name"
+    # With GOALS_PROJECT_RESTRICT_FILE set (a file holding one project path per
+    # line, e.g. the shortlist) only those projects are offered.
+    local -A allowed_paths=()
+    local restrict_note="" ap
+    if [[ -n "${GOALS_PROJECT_RESTRICT_FILE:-}" ]]; then
+        restrict_note=" (shortlisted projects only)"
+        if [[ -r "$GOALS_PROJECT_RESTRICT_FILE" ]]; then
+            while IFS= read -r ap || [[ -n "$ap" ]]; do
+                [[ -n "$ap" ]] && allowed_paths["$ap"]=1
+            done < "$GOALS_PROJECT_RESTRICT_FILE"
+        fi
+        if (( ${#allowed_paths[@]} == 0 )); then
+            whiptail --title "$menu_title" --msgbox \
+                "No shortlisted projects found. Shortlist at least one project and try again." 8 70
+            return 1
+        fi
+    fi
+    [[ -n "${GOALS_PROJECT_TITLE_MODE:-}" ]] && what="title"
 
     GOALS_SELECTED_PROJECT_LINENO=""
     GOALS_SELECTED_PROJECT_TITLE=""
@@ -9711,8 +9733,11 @@ goals_select_project() {
             [[ -n "$row" ]] || continue
             IFS='|' read -r t p n <<< "$row"
             [[ -n "$p" ]] || continue
+            if [[ -n "${GOALS_PROJECT_RESTRICT_FILE:-}" && -z "${allowed_paths[$p]:-}" ]]; then
+                continue
+            fi
             if [[ -n "$GOALS_PROJECT_GLOB" ]]; then
-                base="${p##*/}"
+                if [[ -n "${GOALS_PROJECT_TITLE_MODE:-}" ]]; then base="$t"; else base="${p##*/}"; fi
                 [[ "${base,,}" == ${GOALS_PROJECT_GLOB,,} ]] || continue
             fi
             rows_lineno+=("$lineno"); rows_title+=("$t"); rows_path+=("$p")
@@ -9724,7 +9749,11 @@ goals_select_project() {
         if (( ${#rows_path[@]} > 0 )); then
             mapfile -t order < <(
                 for i in "${!rows_path[@]}"; do
-                    printf '%s\t%s\n' "${rows_path[i],,}" "$i"
+                    if [[ -n "${GOALS_PROJECT_TITLE_MODE:-}" ]]; then
+                        printf '%s\t%s\n' "${rows_title[i],,}" "$i"
+                    else
+                        printf '%s\t%s\n' "${rows_path[i],,}" "$i"
+                    fi
                 done | LC_ALL=C sort -t $'\t' -k1,1 | cut -f2
             )
         fi
@@ -9738,18 +9767,22 @@ goals_select_project() {
         (( end > total )) && end=$total
 
         menu_items=(
-            "__APPLY_GLOB__" "Apply glob (matches project file name)"
+            "__APPLY_GLOB__" "Apply glob (matches project ${what})"
             "__RESET_GLOB__" "Reset glob"
         )
         (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
         for (( k = start; k < end; k++ )); do
             i=${order[k]}
-            menu_items+=("$((k + 1))" "${rows_path[i]}")
+            if [[ -n "${GOALS_PROJECT_TITLE_MODE:-}" ]]; then
+                menu_items+=("$((k + 1))" "${rows_title[i]}")
+            else
+                menu_items+=("$((k + 1))" "${rows_path[i]}")
+            fi
         done
         (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
-        prompt="Choose a project (page $page/$total_pages, $total shown)\nFile name glob: ${GOALS_PROJECT_GLOB:-none (showing all projects)}"
-        (( total == 0 )) && prompt+="\nNo project file names match the current glob."
+        prompt="Choose a project${restrict_note} (page $page/$total_pages, $total shown)\n${what^} glob: ${GOALS_PROJECT_GLOB:-none (showing all projects)}"
+        (( total == 0 )) && prompt+="\nNo project ${what}s match the current glob."
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "$prompt" 35 175 25 \
@@ -9759,8 +9792,8 @@ goals_select_project() {
             __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
             __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
             __APPLY_GLOB__)
-                if new_glob=$(whiptail --title "Apply Project File Name Glob" --inputbox \
-                    "Enter a case-insensitive glob to match project file names (for example: *javascript*). Leave empty to show all projects." \
+                if new_glob=$(whiptail --title "Apply Project ${what^} Glob" --inputbox \
+                    "Enter a case-insensitive glob to match project ${what}s (for example: *javascript*). Leave empty to show all projects." \
                     11 90 "$GOALS_PROJECT_GLOB" 3>&1 1>&2 2>&3); then
                     GOALS_PROJECT_GLOB="$new_glob"
                     page=1
@@ -9850,26 +9883,45 @@ goals_paged_menu() {
     done
 }
 
-# Select the note tag used to pre-filter notes (Associate Note with Project).
+# Select a note tag (with __FILTER__ / __RESET_FILTER__).
 #
-# Special choices: [NO TAG] and [ANY TAG].
-# __FILTER__ narrows the list of tags by a literal (case-insensitive)
-# substring; __RESET_FILTER__ clears it. Result in GOALS_SELECTED_NOTE_TAG.
+# Usage: goals_select_note_tag_filter [options] [--tags t1 t2 ...]
+#   --title TEXT         menu title
+#   --prompt TEXT        first line of the prompt
+#   --pins LIST          comma list of pinned entries: NO, ANY (default "NO,ANY";
+#                        use "" for none, "NO" for just [NO TAG])
+#   --no-tag-desc TEXT   description of [NO TAG]
+#   --any-tag-desc TEXT  description of [ANY TAG]
+#   --tags t1 t2 ...     list exactly these tags (must be the last option);
+#                        without it every tag in NOTES_TAGS_DB is listed
+# __FILTER__ narrows the tag list by a literal (case-insensitive) substring;
+# __RESET_FILTER__ clears it. Result in GOALS_SELECTED_NOTE_TAG.
 goals_select_note_tag_filter() {
     local menu_title="Select Note Tag to Filter Notes"
+    local base_prompt="Choose a tag to filter notes by"
+    local pins="NO,ANY"
+    local no_tag_desc="Notes that have no tag"
+    local any_tag_desc="All notes, with or without tags"
+    local use_db=1
     local tag_pattern="" pat_lc tag choice new_pat prompt status
     local page=1 page_size=30 total total_pages start end k
     local -a all_tags=() shown=() menu_items=()
 
     GOALS_SELECTED_NOTE_TAG=""
 
-    # With "--tags t1 t2 ..." the menu lists just those tags (used by the note
-    # picker's __FILTER_BY_TAG__); otherwise it lists every tag in NOTES_TAGS_DB.
-    if [[ "${1:-}" == "--tags" ]]; then
-        shift
-        menu_title="Filter Notes by Tag"
-        all_tags=("$@")
-    elif [[ -r "$NOTES_TAGS_DB" ]]; then
+    while (( $# > 0 )); do
+        case "$1" in
+            --title)        menu_title="$2"; shift 2 ;;
+            --prompt)       base_prompt="$2"; shift 2 ;;
+            --pins)         pins="$2"; shift 2 ;;
+            --no-tag-desc)  no_tag_desc="$2"; shift 2 ;;
+            --any-tag-desc) any_tag_desc="$2"; shift 2 ;;
+            --tags)         shift; use_db=0; all_tags=("$@"); break ;;
+            *)              shift ;;
+        esac
+    done
+
+    if (( use_db )) && [[ -r "$NOTES_TAGS_DB" ]]; then
         while IFS= read -r tag; do
             [[ -n "$tag" ]] && all_tags+=("$tag")
         done < <(sort -f -- "$NOTES_TAGS_DB")
@@ -9892,9 +9944,10 @@ goals_select_note_tag_filter() {
         end=$(( start + page_size ))
         (( end > total )) && end=$total
 
-        menu_items=(
-            "[NO TAG]" "Notes that have no tag"
-            "[ANY TAG]" "All notes, with or without tags"
+        menu_items=()
+        [[ ",$pins," == *,NO,* ]]  && menu_items+=("[NO TAG]" "$no_tag_desc")
+        [[ ",$pins," == *,ANY,* ]] && menu_items+=("[ANY TAG]" "$any_tag_desc")
+        menu_items+=(
             "__FILTER__" "Filter the tag list (literal substring)"
             "__RESET_FILTER__" "Reset the tag list filter"
         )
@@ -9910,7 +9963,8 @@ goals_select_note_tag_filter() {
         else
             status="Tag list filter: none - ${#all_tags[@]} tags"
         fi
-        prompt="Choose a tag to filter notes by (page $page/$total_pages)\n$status"
+        (( ${#all_tags[@]} == 0 )) && status+=$'\nThere are no tags to list.'
+        prompt="$base_prompt (page $page/$total_pages)\n$status"
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
             --menu "$prompt" 30 100 20 \
@@ -9939,6 +9993,188 @@ goals_select_note_tag_filter() {
     done
 }
 
+# Multi-select version of goals_pick_note (a checklist).
+#
+# Usage: goals_pick_notes_multi TITLE PURPOSE ACTION_TAG ACTION_DESC top|bottom path1 path2 ...
+#
+# Rows show the full note path followed by the note's tags. Control items:
+#   __APPLY_GLOB__ (matches note file name), __RESET_GLOB__,
+#   __FILTER_BY_TAG__ (then [ANY TAG], [NO TAG], __FILTER__, __RESET_FILTER__),
+#   __RESET_FILTER__, plus page navigation and the action item ACTION_TAG.
+# Ticked notes are remembered across pages, globs and tag filters.
+# The glob/filter live in GOALS_NOTE_GLOB / GOALS_NOTE_TAGFILTER.
+#
+# Sets GOALS_PICKED_PATHS (array) and returns 0 when the action item is ticked
+# with at least one note selected; returns 1 on Back.
+goals_pick_notes_multi() {
+    local menu_title="$1" purpose="$2" action_tag="$3" action_desc="$4" action_pos="$5"
+    shift 5
+    local -a cand_paths=("$@") cand_tags=() cand_names=() vis=() items=() sel_items=() page_idx=() split=() menu_tags=()
+    local -A db_tags=() selected=() seen_tags=()
+    local row_title row_path row_tags p i k t base choice new_glob it
+    local page=1 page_size=50 total total_pages start end prompt
+    local sel_count hidden has_untagged n_ctl
+    local do_apply do_reset_glob do_filter do_reset_filter do_prev do_next do_action
+
+    GOALS_PICKED_PATHS=()
+
+    if (( ${#cand_paths[@]} == 0 )); then
+        whiptail --title "$menu_title" --msgbox "There are no notes to choose from." 8 50
+        return 1
+    fi
+
+    if [[ -r "$NOTES_DB" ]]; then
+        while IFS='|' read -r row_title row_path row_tags _; do
+            [[ -n "$row_path" ]] && db_tags["$row_path"]="$row_tags"
+        done < "$NOTES_DB"
+    fi
+    for p in "${cand_paths[@]}"; do
+        cand_tags+=("${db_tags[$p]:-}")
+        cand_names+=("${p##*/}")
+    done
+
+    while :; do
+        vis=()
+        for i in "${!cand_paths[@]}"; do
+            if [[ -n "$GOALS_NOTE_GLOB" ]]; then
+                [[ "${cand_names[i],,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
+            fi
+            if [[ -n "$GOALS_NOTE_TAGFILTER" && "$GOALS_NOTE_TAGFILTER" != "[ANY TAG]" ]]; then
+                if [[ "$GOALS_NOTE_TAGFILTER" == "[NO TAG]" ]]; then
+                    [[ -z "${cand_tags[i]}" ]] || continue
+                else
+                    goals_note_has_tag "${cand_tags[i]}" "$GOALS_NOTE_TAGFILTER" || continue
+                fi
+            fi
+            vis+=("$i")
+        done
+
+        total=${#vis[@]}
+        total_pages=$(( (total + page_size - 1) / page_size ))
+        (( total_pages < 1 )) && total_pages=1
+        (( page > total_pages )) && page=$total_pages
+        start=$(( (page - 1) * page_size ))
+        end=$(( start + page_size ))
+        (( end > total )) && end=$total
+
+        items=()
+        [[ "$action_pos" == "top" ]] && items+=("$action_tag" "$action_desc" OFF)
+        items+=(
+            "__APPLY_GLOB__" "Apply glob (matches note file name)" OFF
+            "__RESET_GLOB__" "Reset glob" OFF
+            "__FILTER_BY_TAG__" "Filter by tag" OFF
+            "__RESET_FILTER__" "Reset tag filter" OFF
+        )
+        (( page > 1 )) && items+=("__PREV_PAGE__" "<< Previous page" OFF)
+        page_idx=()
+        for (( k = start; k < end; k++ )); do
+            i=${vis[k]}
+            page_idx+=("$i")
+            if [[ -n "${selected[$i]:-}" ]]; then
+                items+=("n$i" "${cand_paths[i]}  $(goals_truncate_note_tags "${cand_tags[i]}")" ON)
+            else
+                items+=("n$i" "${cand_paths[i]}  $(goals_truncate_note_tags "${cand_tags[i]}")" OFF)
+            fi
+        done
+        (( page < total_pages )) && items+=("__NEXT_PAGE__" "Next page >>" OFF)
+        [[ "$action_pos" == "bottom" ]] && items+=("$action_tag" "$action_desc" OFF)
+
+        sel_count=${#selected[@]}
+        hidden=0
+        for i in "${!selected[@]}"; do
+            local found=0
+            for k in "${vis[@]}"; do [[ "$k" == "$i" ]] && { found=1; break; }; done
+            (( found )) || hidden=$((hidden + 1))
+        done
+
+        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\nFile name glob: ${GOALS_NOTE_GLOB:-none}\nTag filter: ${GOALS_NOTE_TAGFILTER:-none}\nSelected: $sel_count note(s)"
+        (( hidden > 0 )) && prompt+=" ($hidden hidden by the current filters)"
+        prompt+="\nTick notes, then tick $action_tag and press OK. Tick only one control item at a time."
+        (( total == 0 )) && prompt+="\nNo notes match the current glob and tag filter."
+
+        choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
+            --checklist "$prompt" 35 155 25 \
+            "${items[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        choice=${choice//\"/}
+        read -r -a sel_items <<< "$choice"
+
+        # Commit the ticks of the notes on this page.
+        for i in "${page_idx[@]}"; do
+            unset 'selected[$i]'
+        done
+        do_apply=0; do_reset_glob=0; do_filter=0; do_reset_filter=0; do_prev=0; do_next=0; do_action=0
+        for it in "${sel_items[@]}"; do
+            case "$it" in
+                __APPLY_GLOB__)    do_apply=1 ;;
+                __RESET_GLOB__)    do_reset_glob=1 ;;
+                __FILTER_BY_TAG__) do_filter=1 ;;
+                __RESET_FILTER__)  do_reset_filter=1 ;;
+                __PREV_PAGE__)     do_prev=1 ;;
+                __NEXT_PAGE__)     do_next=1 ;;
+                "$action_tag")     do_action=1 ;;
+                n[0-9]*)           selected["${it#n}"]=1 ;;
+            esac
+        done
+
+        n_ctl=$(( do_apply + do_reset_glob + do_filter + do_reset_filter + do_prev + do_next + do_action ))
+        if (( n_ctl > 1 )); then
+            whiptail --title "Invalid selection" --msgbox \
+                "Tick only one control item at a time (your ticked notes were kept)." 8 70
+            continue
+        fi
+
+        if (( do_prev )); then
+            (( page > 1 )) && page=$((page - 1))
+        elif (( do_next )); then
+            (( page < total_pages )) && page=$((page + 1))
+        elif (( do_reset_glob )); then
+            GOALS_NOTE_GLOB=""; page=1
+        elif (( do_reset_filter )); then
+            GOALS_NOTE_TAGFILTER=""; page=1
+        elif (( do_apply )); then
+            if new_glob=$(whiptail --title "Apply Note File Name Glob" --inputbox \
+                "Enter a case-insensitive glob to match note file names (for example: *python*). Leave empty to show all notes." \
+                11 90 "$GOALS_NOTE_GLOB" 3>&1 1>&2 2>&3); then
+                GOALS_NOTE_GLOB="$new_glob"; page=1
+            fi
+        elif (( do_filter )); then
+            # Tags found on the notes that match the current glob.
+            seen_tags=(); has_untagged=0
+            for i in "${!cand_paths[@]}"; do
+                if [[ -n "$GOALS_NOTE_GLOB" ]]; then
+                    [[ "${cand_names[i],,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
+                fi
+                [[ -z "${cand_tags[i]}" ]] && { has_untagged=1; continue; }
+                IFS=',' read -r -a split <<< "${cand_tags[i]}"
+                for t in "${split[@]}"; do
+                    [[ -n "$t" ]] && seen_tags["${t,,}"]="$t"
+                done
+            done
+            menu_tags=()
+            if (( ${#seen_tags[@]} > 0 )); then
+                while IFS= read -r t; do
+                    [[ -n "$t" ]] && menu_tags+=("$t")
+                done < <(printf '%s\n' "${seen_tags[@]}" | sort -f)
+            fi
+            if goals_select_note_tag_filter --title "Filter Notes by Tag" --tags "${menu_tags[@]}"; then
+                GOALS_NOTE_TAGFILTER="$GOALS_SELECTED_NOTE_TAG"; page=1
+            fi
+        elif (( do_action )); then
+            if (( ${#selected[@]} == 0 )); then
+                whiptail --title "Nothing selected" --msgbox \
+                    "Select at least one note before choosing $action_tag." 8 70
+                continue
+            fi
+            GOALS_PICKED_PATHS=()
+            for i in "${!cand_paths[@]}"; do
+                [[ -n "${selected[$i]:-}" ]] && GOALS_PICKED_PATHS+=("${cand_paths[i]}")
+            done
+            return 0
+        fi
+    done
+}
+
 # Pick one note from a list of note paths.
 #
 # Usage: goals_pick_note "Menu title" "Prompt text" path1 path2 ...
@@ -9957,7 +10193,12 @@ goals_pick_note() {
     local menu_title="$1" purpose="$2"
     shift 2
     local -a cand_paths=("$@") cand_tags=() vis=() menu_items=() tag_items=()
-    local -A db_tags=() seen_tags=()
+    local -A db_tags=() db_titles=() seen_tags=()
+    local -a cand_names=() cand_labels=()
+    local glob_label="File name glob" glob_what="note file names" apply_desc="matches note file name" glob_title="File Name"
+    if [[ -n "${GOALS_NOTE_TITLE_MODE:-}" ]]; then
+        glob_label="Title glob"; glob_what="note titles"; apply_desc="matches note title"; glob_title="Title"
+    fi
     local row_title row_path row_tags p i k t base choice new_glob
     local page=1 page_size=50 total total_pages start end prompt tag_label
     local has_untagged=0
@@ -9973,18 +10214,28 @@ goals_pick_note() {
 
     if [[ -r "$NOTES_DB" ]]; then
         while IFS='|' read -r row_title row_path row_tags _; do
-            [[ -n "$row_path" ]] && db_tags["$row_path"]="$row_tags"
+            if [[ -n "$row_path" ]]; then
+                db_tags["$row_path"]="$row_tags"
+                db_titles["$row_path"]="$row_title"
+            fi
         done < "$NOTES_DB"
     fi
     for p in "${cand_paths[@]}"; do
         cand_tags+=("${db_tags[$p]:-}")
+        if [[ -n "${GOALS_NOTE_TITLE_MODE:-}" ]]; then
+            cand_names+=("${db_titles[$p]:-${p##*/}}")
+            cand_labels+=("${db_titles[$p]:-${p##*/}}")
+        else
+            cand_names+=("${p##*/}")
+            cand_labels+=("$p")
+        fi
     done
 
     while :; do
         vis=()
         for i in "${!cand_paths[@]}"; do
             if [[ -n "$GOALS_NOTE_GLOB" ]]; then
-                base="${cand_paths[i]##*/}"
+                base="${cand_names[i]}"
                 [[ "${base,,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
             fi
             if [[ -n "$GOALS_NOTE_TAGFILTER" && "$GOALS_NOTE_TAGFILTER" != "[ANY TAG]" ]]; then
@@ -10006,7 +10257,7 @@ goals_pick_note() {
         (( end > total )) && end=$total
 
         menu_items=(
-            "__APPLY_GLOB__" "Apply glob (matches note file name)"
+            "__APPLY_GLOB__" "Apply glob (${apply_desc})"
             "__RESET_GLOB__" "Reset glob"
             "__FILTER_BY_TAG__" "Filter by tag"
             "__RESET_FILTER__" "Reset tag filter"
@@ -10014,12 +10265,12 @@ goals_pick_note() {
         (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
         for (( k = start; k < end; k++ )); do
             i=${vis[k]}
-            menu_items+=("$i" "${cand_paths[i]}  $(goals_truncate_note_tags "${cand_tags[i]}")")
+            menu_items+=("$i" "${cand_labels[i]}  $(goals_truncate_note_tags "${cand_tags[i]}")")
         done
         (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
         tag_label="${GOALS_NOTE_TAGFILTER:-none}"
-        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\nFile name glob: ${GOALS_NOTE_GLOB:-none}\nTag filter: $tag_label"
+        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\n${glob_label}: ${GOALS_NOTE_GLOB:-none}\nTag filter: $tag_label"
         (( total == 0 )) && prompt+="\nNo notes match the current glob and tag filter."
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
@@ -10030,8 +10281,8 @@ goals_pick_note() {
             __PREV_PAGE__) (( page > 1 )) && page=$((page - 1)) ;;
             __NEXT_PAGE__) (( page < total_pages )) && page=$((page + 1)) ;;
             __APPLY_GLOB__)
-                if new_glob=$(whiptail --title "Apply Note File Name Glob" --inputbox \
-                    "Enter a case-insensitive glob to match note file names (for example: *python*). Leave empty to show all notes." \
+                if new_glob=$(whiptail --title "Apply Note ${glob_title} Glob" --inputbox \
+                    "Enter a case-insensitive glob to match ${glob_what} (for example: *python*). Leave empty to show all notes." \
                     11 90 "$GOALS_NOTE_GLOB" 3>&1 1>&2 2>&3); then
                     GOALS_NOTE_GLOB="$new_glob"
                     page=1
@@ -10052,7 +10303,7 @@ goals_pick_note() {
                 has_untagged=0
                 for i in "${!cand_paths[@]}"; do
                     if [[ -n "$GOALS_NOTE_GLOB" ]]; then
-                        base="${cand_paths[i]##*/}"
+                        base="${cand_names[i]}"
                         [[ "${base,,}" == ${GOALS_NOTE_GLOB,,} ]] || continue
                     fi
                     if [[ -z "${cand_tags[i]}" ]]; then
@@ -10073,7 +10324,7 @@ goals_pick_note() {
                             [[ -n "$t" ]] && menu_tags+=("$t")
                         done < <(printf '%s\n' "${seen_tags[@]}" | sort -f)
                     fi
-                    if goals_select_note_tag_filter --tags "${menu_tags[@]}"; then
+                    if goals_select_note_tag_filter --title "Filter Notes by Tag" --tags "${menu_tags[@]}"; then
                         GOALS_NOTE_TAGFILTER="$GOALS_SELECTED_NOTE_TAG"
                         page=1
                     fi
@@ -15778,9 +16029,10 @@ do_stuff_with_project_file() {
         local note_menu_options=("$@")
         local page=0
         local per_page=50    # adjust this to my liking
-        local filter_summary=""
-        [[ -n "${TAG_FILTER_BY:-}" ]] && filter_summary+=" [tag: ${TAG_FILTER_BY}]"
-        [[ -n "${GLOB_FILTER_BY:-}" ]] && filter_summary+=" [glob: ${GLOB_FILTER_BY}]"
+        # Status info: active filters and how many linked notes are visible.
+        local filter_summary
+        filter_summary="\nTag filter: ${TAG_FILTER_BY:-none}   |   Title glob: ${GLOB_FILTER_BY:-none}"
+        filter_summary+="\nShowing ${#note_lines[@]} of ${LINKED_NOTES_TOTAL:-?} linked notes"
         local total_items=$(( ${#note_menu_options[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local selected_note_tag=""
@@ -16439,261 +16691,7 @@ do_stuff_with_project_file() {
     }
 
     associate_note_to_project_from_do_stuff() {
-        paginate_get_projects_checklist() {
-            # Output: populates global array SELECTED_ITEMS_PROJECT with selected note paths.
-            # Usage: paginate_get_projects "Menu Title" "${FILTERED_PROJECTS[@]}"
-            # FILTERED_PROJECTS expected as pairs: "/note/path/note1.txt" "[tag1,tag2]" ...
-
-            # Clear any previous selection
-            SELECTED_ITEMS_PROJECT=()
-
-            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
-            local menu_title
-            local CURRENT_PAGE_PROJECTS
-            local -a FILTERED_PROJECTS
-
-            if [ "$#" -ge 3 ]; then
-                menu_title="$1"
-                shift
-                FILTERED_PROJECTS=("$@")
-                CURRENT_PAGE_PROJECTS=0
-            else
-                return 1
-            fi
-
-            # Basic validation
-            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
-                return 1
-            fi
-            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
-                echo "paginate_get_projects: FILTERED_PROJECTS must be path/tag pairs" >&2
-                return 1
-            fi
-
-            # Build arrays: KEYS, PATHS, DESCS
-            local -a KEYS=()
-            local -a PATHS=()
-            local -a DESCS=()
-            local total_projects=0
-
-            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
-                local path="${FILTERED_PROJECTS[i]}"
-                local tags="${FILTERED_PROJECTS[i+1]}"
-                local idx=$(( i / 2 ))
-                local key="p${idx}"   # safe tokens, no spaces
-                KEYS+=("$key")
-                PATHS+=("$path")
-                DESCS+=("$path $tags")
-                (( total_projects++ ))
-            done
-
-            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
-            (( total_pages == 0 )) && return 1
-
-            # ensure CURRENT_PAGE_PROJECTS within bounds
-            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
-                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-            fi
-            if (( CURRENT_PAGE_PROJECTS < 0 )); then
-                CURRENT_PAGE_PROJECTS=0
-            fi
-
-            # Persistent selection map across pages
-            local -A SELECTED_MAP=()
-
-            while true; do
-                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
-                local end_proj=$(( start_proj + chunk_size_projects ))
-                (( end_proj > total_projects )) && end_proj=$total_projects
-
-                local -a checklist_args=()
-
-                # Pseudo-keys for navigation and add
-                local PREV_KEY="__prev__"
-                local NEXT_KEY="__next__"
-                local ADD_KEY="__add__"
-
-                # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Add selected items (commit)" OFF)
-
-                # Show prev/next when applicable
-                if (( CURRENT_PAGE_PROJECTS > 0 )); then
-                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
-                fi
-                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
-                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
-                fi
-
-                # Page items
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local k="${KEYS[p]}"
-                    local desc="${DESCS[p]}"
-                    if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
-                        checklist_args+=("$k" "$desc" ON)
-                    else
-                        checklist_args+=("$k" "$desc" OFF)
-                    fi
-                done
-
-                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
-
-                local choice
-                choice=$(whiptail --title "$menu_title" \
-                    --cancel-button "Back" \
-                    --checklist "$prompt" 35 155 25 \
-                    "${checklist_args[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
-                    SELECTED_ITEMS_PROJECT=()
-                    return 1                
-                }
-
-                # Parse whiptail output safely into array (removing quotes)
-                local -a selected_array
-                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
-
-                # Booleans for special items
-                local prev_sel=0
-                local next_sel=0
-                local add_sel=0
-
-                for sel in "${selected_array[@]:-}"; do
-                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
-                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
-                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
-                done
-
-                # Update SELECTED_MAP for items on this page based on returned selections
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local k="${KEYS[p]}"
-                    local found=0
-                    for sel in "${selected_array[@]:-}"; do
-                        if [[ "$sel" == "$k" ]]; then
-                            found=1
-                            break
-                        fi
-                    done
-                    if (( found )); then
-                        SELECTED_MAP["$k"]=1
-                    else
-                        unset SELECTED_MAP["$k"]
-                    fi
-                done
-
-                # --- Validation rules ---
-                if (( prev_sel && next_sel )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60
-                    continue
-                fi
-
-                if (( add_sel && (prev_sel || next_sel) )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70
-                    continue
-                fi
-
-                # Handle navigation
-                if (( prev_sel )); then
-                    (( CURRENT_PAGE_PROJECTS-- ))
-                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
-                    continue
-                fi
-                if (( next_sel )); then
-                    (( CURRENT_PAGE_PROJECTS++ ))
-                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-                    continue
-                fi
-
-                # If add was selected, finalize selection and return (but ensure there is at least one project selected)
-                if (( add_sel )); then
-                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP
-                    SELECTED_ITEMS_PROJECT=()
-                    for (( p = 0; p < total_projects; p++ )); do
-                        local k="${KEYS[p]}"
-                        if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
-                            SELECTED_ITEMS_PROJECT+=("${PATHS[p]}")
-                        fi
-                    done
-
-                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
-                        whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
-                        continue
-                    fi
-
-                    # Success: return with SELECTED_ITEMS_PROJECT populated
-                    return 0
-                fi
-
-                # If we get here it means user pressed OK without choosing Add or navigation.
-                # Remind them to use Add to commit or navigate pages.
-                #whiptail --title "No action chosen" --msgbox "To finish, select 'Add selected projects'. Or use Previous/Next to continue browsing." 8 70
-                #continue
-            done
-
-            return 1
-        }
-
-        paginate_tags_menu() {
-            local title="$1"
-            shift
-            local items=("$@")
-            local per_page=20
-            local total_items=$(( ${#items[@]} / 2 ))
-            local total_pages=$(( (total_items + per_page - 1) / per_page ))
-            local current_page=1
-            local choice start_index end_index menu_items tag desc
-
-            while true; do
-                # Calculate start and end indices for current page
-                start_index=$(( (current_page - 1) * per_page * 2 ))
-                end_index=$(( start_index + per_page * 2 ))
-                menu_items=()
-
-                # Add items for current page
-                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                    tag="${items[i]}"
-                    desc="${items[i+1]}"
-                    menu_items+=("$tag" "$desc")
-                done
-
-                # Add navigation options
-                if (( current_page > 1 )); then
-                    menu_items+=("<< Prev" "")
-                fi
-                if (( current_page < total_pages )); then
-                    menu_items+=(">> Next" "")
-                fi
-
-                # Show whiptail menu
-                choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                case "$choice" in
-                    ">> Next")
-                        (( current_page++ ))
-                        ;;
-                    "<< Prev")
-                        (( current_page-- ))
-                        ;;
-                    *)
-                        # Return selected tag
-                        printf '%s\n' "$choice"
-                        return 0
-                        ;;
-                esac
-            done
-        }
-
-        #local PROJECTS_DB="$PROJECTS_DB"
-        #local NOTES_DB="$NOTES_DB"
-        local temp_file line_updated duplicate_detected project_found
-        temp_file=$(mktemp) || return 1
-        line_updated=0
-        duplicate_detected=0
-        project_found=0
-
-        # Check if databases exist
+        # Link note: pick a starting tag filter, then tick the notes to link.
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
             whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
@@ -16703,410 +16701,137 @@ do_stuff_with_project_file() {
             return 1
         fi
 
-        local selected_project_path
-        selected_project_path="$1"
+        local selected_project_path="$1"
         [[ -z "$selected_project_path" ]] && return 1
 
-        # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-        local note_tag_options=("NO TAG" "" "ANY TAG" "")    
+        # Notes already linked to the project are not offered again.
+        local -A linked_map=()
+        local pl_title pl_path pl_notes lnp
+        while IFS='|' read -r pl_title pl_path pl_notes; do
+            [[ "$pl_path" == "$selected_project_path" ]] || continue
+            while IFS= read -r lnp; do
+                [[ -n "$lnp" ]] && linked_map["$lnp"]=1
+            done < <(tr ',' '\n' <<< "$pl_notes")
+            break
+        done < "$PROJECTS_DB"
 
-        while IFS= read -r tag; do
-            [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
-        done < "$NOTES_TAGS_DB"
-
-        local selected_note_tag
-        selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
-
-        truncate_note_tags_by_tag() {
-            local tags="$1"
-            local inner
-            local -a tag_array
-            local count
-            local extra
-
-            # Remove surrounding [ ]
-            inner="${tags#[}"
-            inner="${inner%]}"
-
-            # Empty list
-            if [[ -z "$inner" ]]; then
-                printf '[]\n'
-                return
-            fi
-
-            # Split on commas
-            IFS=',' read -r -a tag_array <<< "$inner"
-
-            count=${#tag_array[@]}
-
-            if (( count <= 3 )); then
-                printf '[%s]\n' "$inner"
-                return
-            fi
-
-            extra=$((count - 3))
-
-            printf '[%s,%s,%s +%d]\n' \
-                "${tag_array[0]}" \
-                "${tag_array[1]}" \
-                "${tag_array[2]}" \
-                "$extra"
-        }
-
-        # Read notes into menu
-        local note_menu_options=()
-        local note_tags_arr
-        while IFS='|' read -r note_title note_path note_tags rest; do
-            local note_tags_old="$note_tags"
-            note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
-
-            # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
-            if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "$note_tags")
-                continue
-            fi
-
-            if [[ "$selected_note_tag" == "NO TAG" ]]; then
-                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
-                continue
-            fi
-
-            # FIX: FILTER BY NOTE TAG
-            IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
-
-            # only enters here if line already has a tag
-            for tag in "${note_tags_arr[@]}"; do
-                if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                    note_menu_options+=("$note_path" "$note_tags")
-                    break
-                fi
-            done
-
-            #note_menu_options+=("$note_path" "[${note_tags}]")
-        done < "$NOTES_DB"
-        if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            [[ "$selected_note_tag" == "ANY TAG" ]] && {
-                whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
-                return 1
-            }
-
-            [[ "$selected_note_tag" == "NO TAG" ]] && {
-                whiptail --msgbox "There are no notes with no associated tag found." 8 60
-                return 1
-            }    
-
-            whiptail --msgbox "No matching notes found." 8 50
-            return 1
-        fi
-
+        # Select Note Tag to Filter Notes: [NO TAG], [ANY TAG] or a tag, with
+        # __FILTER__ (literal substring) and __RESET_FILTER__.
+        local selected_note_tag note_title note_path note_tags rest
+        local -a note_candidates=() all_note_paths=()
         while :; do
-            # Note selection
-            paginate_get_projects_checklist "Choose Note to Associate" "${note_menu_options[@]}"
-            local selected_note_paths
-            selected_note_paths=("${SELECTED_ITEMS_PROJECT[@]}")     
-            [[ ${#selected_note_paths[@]} -eq 0 ]] && return 1
+            goals_select_note_tag_filter || return 1
+            selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
-            # Process PROJECTS_DB
-            project_found=0
-            line_updated=0
+            note_candidates=()
+            all_note_paths=()
+            while IFS='|' read -r note_title note_path note_tags rest; do
+                [[ -n "$note_path" ]] || continue
+                [[ -n "${linked_map[$note_path]:-}" ]] && continue
+                all_note_paths+=("$note_path")
+                case "$selected_note_tag" in
+                    "[ANY TAG]") note_candidates+=("$note_path") ;;
+                    "[NO TAG]")  [[ -z "$note_tags" ]] && note_candidates+=("$note_path") ;;
+                    *)           goals_note_has_tag "$note_tags" "$selected_note_tag" && note_candidates+=("$note_path") ;;
+                esac
+            done < "$NOTES_DB"
+
+            (( ${#note_candidates[@]} > 0 )) && break
+
+            case "$selected_note_tag" in
+                "[ANY TAG]") whiptail --msgbox "There are no notes left to link to this project." 8 60 ;;
+                "[NO TAG]")  whiptail --msgbox "There are no notes with no associated tag found." 8 60 ;;
+                *)           whiptail --msgbox "Tag '${selected_note_tag}' has no notes available to link." 8 60 ;;
+            esac
+        done
+
+        # Choose Note to Associate: the chosen tag is the starting tag filter;
+        # the status shows the current tag filter and glob.
+        GOALS_NOTE_GLOB=""
+        GOALS_NOTE_TAGFILTER="$selected_note_tag"
+        local -a selected_note_paths=() remaining=()
+        local temp_file project_found line_updated added_count line title path notes np new_notes
+        local -A already=()
+        while :; do
+            goals_pick_notes_multi "Choose Note to Associate" \
+                "Choose notes to link to the project" \
+                "__add__" "Link the selected notes to the project" top \
+                "${all_note_paths[@]}" || return 1
+            selected_note_paths=("${GOALS_PICKED_PATHS[@]}")
+
+            temp_file=$(mktemp) || return 1
+            project_found=0; line_updated=0; added_count=0
             while IFS= read -r line; do
-                if [[ -z "$line" ]]; then
-                    continue
-                fi
-
+                [[ -z "$line" ]] && continue
                 IFS='|' read -r title path notes <<< "$line"
-                # If there is matched line...
                 if [[ "$path" == "$selected_project_path" ]]; then
                     project_found=1
-                    local current_notes="$notes"
-                    local notes_array=()
-
-                    # Check for duplicates
-                    IFS=',' read -ra notes_array <<< "$current_notes"
-                    local duplicate
-
-                    local selected_string=$(IFS=,; echo "${selected_note_paths[*]}")
-
-                    for note in "${notes_array[@]}"; do
-                        duplicate=0
-
-                        for selected in "${selected_note_paths[@]}"; do
-                            if [[ "$note" == "$selected" ]]; then
-                                duplicate=1
-                                break
-                            fi
-                        done
-
-                        if (( duplicate )); then
-                            # remove selected from string
-                            selected_string="${selected_string//$selected,}"
-                            selected_string="${selected_string//,$selected}"
-                            selected_string="${selected_string//$selected}"        
-                        fi
+                    already=()
+                    while IFS= read -r np; do
+                        [[ -n "$np" ]] && already["$np"]=1
+                    done < <(tr ',' '\n' <<< "$notes")
+                    new_notes="$notes"
+                    for np in "${selected_note_paths[@]}"; do
+                        [[ -n "${already[$np]:-}" ]] && continue
+                        new_notes="${new_notes:+$new_notes,}$np"
+                        already["$np"]=1
+                        added_count=$((added_count + 1))
                     done
-
-                    local new_notes
-                    if [[ -z "$current_notes" ]]; then
-                        new_notes="$selected_string"
-                        line_updated=1
-                    elif [[ -n "$selected_string" ]]; then
-                        new_notes="${current_notes},${selected_string}"
-                        line_updated=1
-                    else
-                        new_notes="$current_notes"
-                    fi
-
-                    local new_line
-                    new_line="$title|$path|$new_notes"            
-                    echo "$new_line" >> "$temp_file"                             
+                    (( added_count > 0 )) && line_updated=1
+                    printf '%s\n' "$title|$path|$new_notes" >> "$temp_file"
                 else
-                    # Just leave the line unchanged.
-                    echo "$line" >> "$temp_file"
+                    printf '%s\n' "$line" >> "$temp_file"
                 fi
             done < "$PROJECTS_DB"
 
-            # Handle processing results
-            if (( project_found )); then
-                if (( line_updated )); then
-                    mv "$temp_file" "$PROJECTS_DB"
-                    whiptail --msgbox "Note(s) successfully associated with the project." 10 50
-                else
-                    rm "$temp_file"
-                    whiptail --msgbox "No changes were made to the project entry." 10 50
-                    continue
-                fi
-            else
-                rm "$temp_file"
+            if (( ! project_found )); then
+                rm -f "$temp_file"
                 whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
                 continue
+            fi
+            if (( ! line_updated )); then
+                rm -f "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                continue
+            fi
+
+            mv "$temp_file" "$PROJECTS_DB"
+            whiptail --msgbox "$added_count note(s) successfully associated with the project." 10 60
+
+            # The linked notes are no longer offered.
+            for np in "${selected_note_paths[@]}"; do linked_map["$np"]=1; done
+            remaining=()
+            for np in "${all_note_paths[@]}"; do
+                [[ -z "${linked_map[$np]:-}" ]] && remaining+=("$np")
+            done
+            all_note_paths=("${remaining[@]}")
+            if (( ${#all_note_paths[@]} == 0 )); then
+                whiptail --msgbox "All available notes are now linked to this project." 8 60
+                return 0
             fi
         done
     }
 
     dissociate_note_from_project_from_do_stuff() {
-        paginate_get_projects_checklist3() {
-            # Output: populates global array SELECTED_ITEMS_PROJECT with selected index tokens.
-            # Usage: paginate_get_projects_checklist2 "Menu Title" "${FILTERED_PROJECTS[@]}"
-            # FILTERED_PROJECTS expected as pairs: "token" "/note/path/note.txt [tag1,tag2]" ...
-
-            # Clear any previous selection
-            SELECTED_ITEMS_PROJECT=()
-
-            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
-            local menu_title
-            local CURRENT_PAGE_PROJECTS
-            local -a FILTERED_PROJECTS
-
-            if [ "$#" -ge 3 ]; then
-                menu_title="$1"
-                shift
-                FILTERED_PROJECTS=("$@")
-                CURRENT_PAGE_PROJECTS=0
-            else
-                return 1
-            fi
-
-            # Basic validation
-            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
-                return 1
-            fi
-            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
-                echo "paginate_get_projects_checklist3: FILTERED_PROJECTS must be token/description pairs" >&2
-                return 1
-            fi
-
-            # Build arrays: TOKENS, DESCS
-            local -a TOKENS=()
-            local -a DESCS=()
-            local total_projects=0
-
-            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
-                local token="${FILTERED_PROJECTS[i]}"
-                local desc="${FILTERED_PROJECTS[i+1]}"
-                TOKENS+=("$token")
-                DESCS+=("$desc")
-                (( total_projects++ ))
-            done
-
-            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
-            (( total_pages == 0 )) && return 1
-
-            # ensure CURRENT_PAGE_PROJECTS within bounds
-            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
-                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-            fi
-            if (( CURRENT_PAGE_PROJECTS < 0 )); then
-                CURRENT_PAGE_PROJECTS=0
-            fi
-
-            # Persistent selection map across pages (keys are tokens)
-            local -A SELECTED_MAP=()
-
-            while true; do
-                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
-                local end_proj=$(( start_proj + chunk_size_projects ))
-                (( end_proj > total_projects )) && end_proj=$total_projects
-
-                local -a checklist_args=()
-
-                # Pseudo-keys for navigation and add
-                local PREV_KEY="__prev__"
-                local NEXT_KEY="__next__"
-                local ADD_KEY="__remove__"
-
-                # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Remove selected items (commit)" OFF)
-
-                # Show prev/next when applicable
-                if (( CURRENT_PAGE_PROJECTS > 0 )); then
-                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
-                fi
-                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
-                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
-                fi
-
-                # Page items: use token as the whiptail tag and the description as the label
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local token="${TOKENS[p]}"
-                    local desc="${DESCS[p]}"
-                    if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
-                        checklist_args+=("$token" "$desc" ON)
-                    else
-                        checklist_args+=("$token" "$desc" OFF)
-                    fi
-                done
-
-                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
-
-                local choice
-                choice=$(whiptail --title "$menu_title" \
-                    --cancel-button "Back" \
-                    --checklist "$prompt" 35 155 25 \
-                    "${checklist_args[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
-                    SELECTED_ITEMS_PROJECT=()
-                    return 1
-                }
-
-                # Parse whiptail output safely into array (removing quotes)
-                local -a selected_array
-                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
-
-                # Booleans for special items
-                local prev_sel=0
-                local next_sel=0
-                local add_sel=0
-
-                for sel in "${selected_array[@]:-}"; do
-                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
-                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
-                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
-                done
-
-                # Update SELECTED_MAP for items on this page based on returned selections
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local token="${TOKENS[p]}"
-                    local found=0
-                    for sel in "${selected_array[@]:-}"; do
-                        if [[ "$sel" == "$token" ]]; then
-                            found=1
-                            break
-                        fi
-                    done
-                    if (( found )); then
-                        SELECTED_MAP["$token"]=1
-                    else
-                        unset SELECTED_MAP["$token"]
-                    fi
-                done
-
-                # --- Validation rules ---
-                if (( prev_sel && next_sel )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60 >/dev/tty
-                    continue
-                fi
-
-                if (( add_sel && (prev_sel || next_sel) )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70 >/dev/tty
-                    continue
-                fi
-
-                # Handle navigation
-                if (( prev_sel )); then
-                    (( CURRENT_PAGE_PROJECTS-- ))
-                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
-                    continue
-                fi
-                if (( next_sel )); then
-                    (( CURRENT_PAGE_PROJECTS++ ))
-                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-                    continue
-                fi
-
-                # If add was selected, finalize selection and return (but ensure there is at least one token selected)
-                if (( add_sel )); then
-                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP (return tokens)
-                    SELECTED_ITEMS_PROJECT=()
-                    for (( p = 0; p < total_projects; p++ )); do
-                        local token="${TOKENS[p]}"
-                        if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
-                            SELECTED_ITEMS_PROJECT+=("$token")
-                        fi
-                    done
-
-                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
-                        #whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
-                        continue
-                    fi
-
-                    # Success: return with SELECTED_ITEMS_PROJECT populated with index tokens
-                    return 0
-                fi
-
-                # If we get here it means user pressed OK without choosing Add or navigation.
-                # Loop back so they remain in the selection UI.
-                #continue
-            done
-
-            return 1
-        }
-
-        find_tags_for_linked_note() {
-            local path_to_note_file="$1"
-            local matching_tags_str=""
-
-            # Ensure NOTES_DB is defined and exists
-            if [[ -z "$NOTES_DB" || ! -f "$NOTES_DB" ]]; then
-                echo "Error: NOTES_DB not defined or file not found." >&2
-                return 1
-            fi
-
-            # Extract the tags (3rd field) for the matching note
-            matching_tags_str=$(awk -F'|' -v path="$path_to_note_file" '$2 == path {print $3}' "$NOTES_DB")
-
-            echo "$matching_tags_str"
-        }
-
-        # Check if database exists
+        # Unlink note: tick the linked notes to unlink. Glob (file name) and tag
+        # filters are available inside the picker.
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+            whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60
             return 1
         fi
 
-        # Load full DB lines for editing later
+        local -a lines=()
         mapfile -t lines < "$PROJECTS_DB"
 
         local selected_project_path="$1"
         shift
 
-        # A filtered view supplies full NOTES_DB lines after this marker. Keep
-        # their paths so the removal chooser can exclude every other note.
+        # With --filtered-notes only the notes visible in the main menu are offered.
         local restrict_to_filtered_notes=false
         local -A filtered_note_paths=()
         if [[ "${1:-}" == "--filtered-notes" ]]; then
             restrict_to_filtered_notes=true
             shift
-
             local filtered_note_line filtered_note_path
             for filtered_note_line in "$@"; do
                 IFS='|' read -r _ filtered_note_path _ <<< "$filtered_note_line"
@@ -17114,144 +16839,68 @@ do_stuff_with_project_file() {
             done
         fi
 
-        local selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
+        local selected_project
+        selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
         [[ -z "$selected_project" ]] && return 1
         ((selected_project--))
 
-        local line="${lines[selected_project]}"
-        IFS='|' read -r title path notes <<< "$line"
+        local title path notes
+        IFS='|' read -r title path notes <<< "${lines[selected_project]}"
 
-        truncate_note_tags_by_tag() {
-            local tags="$1"
-            local inner
-            local -a tag_array
-            local count
-            local extra
+        GOALS_NOTE_GLOB=""
+        GOALS_NOTE_TAGFILTER=""
 
-            # Remove surrounding [ ]
-            inner="${tags#[}"
-            inner="${inner%]}"
-
-            # Empty list
-            if [[ -z "$inner" ]]; then
-                printf '[]\n'
-                return
-            fi
-
-            # Split on commas
-            IFS=',' read -r -a tag_array <<< "$inner"
-
-            count=${#tag_array[@]}
-
-            if (( count <= 3 )); then
-                printf '[%s]\n' "$inner"
-                return
-            fi
-
-            extra=$((count - 3))
-
-            printf '[%s,%s,%s +%d]\n' \
-                "${tag_array[0]}" \
-                "${tag_array[1]}" \
-                "${tag_array[2]}" \
-                "$extra"
-        }
-
-        # Begin dissociation loop
+        local -a notes_arr=() candidates=() picked=() new_notes=()
+        local -A picked_map=()
+        local np new_notes_str tmp_db
         while true; do
             if [[ -z "$notes" ]]; then
-                whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+                whiptail --msgbox "Selected project has no associated notes." 10 60
                 return 1
             fi
 
-            # Split notes into array
-            local -a notes_arr
+            notes_arr=(); candidates=()
             IFS=',' read -ra notes_arr <<< "$notes"
-
-            if [[ ${#notes_arr[@]} -eq 0 ]]; then
-                whiptail --msgbox "No notes left to dissociate." 10 60 >/dev/tty
-                return 1
-            fi
-
-            # Reset menu options so they don't accumulate across loop iterations
-            local -a note_options=()
-
-            if [[ "$restrict_to_filtered_notes" == true && ${#filtered_note_paths[@]} -eq 0 ]]; then
-                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
-                return 1
-            fi
-
-            # Build menu options (add << Back at top)
-            #local -a note_options=("<< Back" "")   # Back item breaks logic
-            local note_index note_matching_tags
-            for note_index in "${!notes_arr[@]}"; do
-                if [[ "$restrict_to_filtered_notes" == true && -z "${filtered_note_paths[${notes_arr[note_index]}]:-}" ]]; then
+            for np in "${notes_arr[@]}"; do
+                [[ -z "$np" ]] && continue
+                if [[ "$restrict_to_filtered_notes" == true && -z "${filtered_note_paths[$np]:-}" ]]; then
                     continue
                 fi
-
-                note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-                note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
+                candidates+=("$np")
             done
-
-            if [[ ${#note_options[@]} -eq 0 ]]; then
-                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
+            if (( ${#candidates[@]} == 0 )); then
+                whiptail --msgbox "No linked notes match the current filter." 10 60
                 return 1
             fi
 
-            # Show note selection menu            
-            paginate_get_projects_checklist3 "Choose Note to Dissociate" "${note_options[@]}"
-            local selected_notes=("${SELECTED_ITEMS_PROJECT[@]}")
+            goals_pick_notes_multi "Choose Note to Dissociate" \
+                "Choose notes to unlink from the project" \
+                "__remove__" "Unlink the selected notes from the project" top \
+                "${candidates[@]}" || return 1
+            picked=("${GOALS_PICKED_PATHS[@]}")
 
-            # local contains_back=false
-
-            # for item in "${selected_notes[@]}"; do
-            #     if [[ "$item" == "<< Back" ]]; then
-            #         contains_back=true
-            #         break
-            #     fi
-            # done            
-
-            # If user chooses << Back, stop loop
-            [[ ${#selected_notes[@]} -eq 0 ]] && return 1
-
-            # build a fast lookup map of selected indices
-            local -A sel_map
-            for i in "${selected_notes[@]}"; do
-                sel_map["$i"]=1
+            picked_map=()
+            for np in "${picked[@]}"; do picked_map["$np"]=1; done
+            new_notes=()
+            for np in "${notes_arr[@]}"; do
+                [[ -z "$np" ]] && continue
+                [[ -z "${picked_map[$np]:-}" ]] && new_notes+=("$np")
             done
+            new_notes_str=""
+            (( ${#new_notes[@]} > 0 )) && new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
 
-            # populate new_notes with notes whose index is NOT in selected_notes
-            local -a new_notes=()
-            # iterate indices; sort numerically to preserve increasing order (optional)
-            for idx in $(printf '%s\n' "${!notes_arr[@]}" | sort -n); do
-                if [[ -z "${sel_map[$idx]:-}" ]]; then
-                    new_notes+=("${notes_arr[$idx]}")
-                fi
-            done
-
-            # Join remaining notes into CSV
-            local new_notes_str=""
-            if [[ ${#new_notes[@]} -gt 0 ]]; then
-                new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
-            fi
-
-            # Update database entry in memory
             lines[selected_project]="$title|$path|$new_notes_str"
-            notes="$new_notes_str"  # Update current project notes for next loop
+            notes="$new_notes_str"
 
-            # Write database back to file
-            local tmp_db
             tmp_db=$(mktemp) || return 1
-            printf "%s\n" "${lines[@]}" > "$tmp_db"
-            mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+            printf '%s\n' "${lines[@]}" > "$tmp_db"
+            mv -- "$tmp_db" "$PROJECTS_DB" || { rm -f -- "$tmp_db"; return 1; }
 
-            whiptail --msgbox "Note(s) successfully dissociated from project." 10 60 >/dev/tty
-
-            # If no notes left, exit loop automatically
-            [[ -z "$notes" ]] && {
-                whiptail --msgbox "All notes have been dissociated from this project." 10 60 >/dev/tty
+            whiptail --msgbox "${#picked[@]} note(s) successfully dissociated from project." 10 60
+            if [[ -z "$notes" ]]; then
+                whiptail --msgbox "All notes have been dissociated from this project." 10 60
                 break
-            }
+            fi
         done
     }
 
@@ -19627,27 +19276,15 @@ do_stuff_with_project_file() {
             "$extra"
     }
 
-    local projects=()
-    mapfile -d '' -t projects < <(filter_projects_by_name)	
-
-    local project_menu_options=("<< Back" "")
-    local title line lineno
-    for line in "${projects[@]}"; do
-        IFS='|' read -r title _ _ <<< "$line"
-        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-	    # Store matching index from PROJECTS_DB file.
-        [[ -n "$lineno" ]] && project_menu_options+=("$lineno" "$title")
-    done
-
-    mapfile -t projects < "$PROJECTS_DB"	# DIRTY FIX.
-    # END FIX.
-
-    # Show project selection
-    paginate_get_projects "Select Project" "${project_menu_options[@]}"
-    local selected_project_tag
-    selected_project_tag="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project_tag" || "$selected_project_tag" == "<< Back" ]] && return 1
+    # Select Project: rows show project titles. __APPLY_GLOB__ matches project
+    # titles and __RESET_GLOB__ clears the glob (no glob is asked up front).
+    local -a projects=()
+    GOALS_PROJECT_GLOB=""
+    local GOALS_PROJECT_TITLE_MODE=1
+    goals_select_project "Select Project" || return 1
+    GOALS_PROJECT_TITLE_MODE=""
+    local selected_project_tag="$GOALS_SELECTED_PROJECT_LINENO"
+    mapfile -t projects < "$PROJECTS_DB"
 
     local selected_project_path
     local note_lines=()
@@ -19668,6 +19305,11 @@ do_stuff_with_project_file() {
         note_lines=()
         note_menu_options=()
 
+        # Filters first, then the actions.
+        note_menu_options+=("__FILTER_BY_TAG__" "Filter linked notes by tag")
+        note_menu_options+=("__RESET_FILTER__" "Reset the tag filter")
+        note_menu_options+=("__APPLY_GLOB__" "Apply glob (matches note titles)")
+        note_menu_options+=("__RESET_GLOB__" "Reset the title glob")
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
@@ -19677,10 +19319,6 @@ do_stuff_with_project_file() {
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
         note_menu_options+=("Remove tag from linked notes" "")
-        note_menu_options+=("Filter linked notes by tag" "")
-        note_menu_options+=("Reset filter" "")
-        note_menu_options+=("Apply glob" "")
-        note_menu_options+=("Reset glob" "")
 
         local trunc_tag
 
@@ -19771,7 +19409,7 @@ do_stuff_with_project_file() {
             IFS='|' read -r title note_path note_tags rest <<< "$line"
 
             # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
-            if [[ "$selected_tag" == "NO TAG" ]]; then
+            if [[ "$selected_tag" == "[NO TAG]" ]]; then
                 [[ -z "$note_tags" ]] && printf '%s\n' "$line"
                 continue
             fi
@@ -19815,7 +19453,7 @@ do_stuff_with_project_file() {
             retrieve_linked_notes "$selected_project_path"
         )
 
-        if [[ -n "$TAG_FILTER_BY" ]]; then
+        if [[ -n "$TAG_FILTER_BY" && "$TAG_FILTER_BY" != "[ANY TAG]" ]]; then
             mapfile -t current_notes < <(
                 filter_linked_notes_by_tag "$TAG_FILTER_BY" "${current_notes[@]}"
             )
@@ -19863,7 +19501,13 @@ do_stuff_with_project_file() {
 
         note_lines=()
         note_menu_options=()
+        LINKED_NOTES_TOTAL=$(retrieve_linked_notes "$selected_project_path" | grep -c .)
 
+        # Filters first, then the actions.
+        note_menu_options+=("__FILTER_BY_TAG__" "Filter linked notes by tag")
+        note_menu_options+=("__RESET_FILTER__" "Reset the tag filter")
+        note_menu_options+=("__APPLY_GLOB__" "Apply glob (matches note titles)")
+        note_menu_options+=("__RESET_GLOB__" "Reset the title glob")
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
@@ -19873,10 +19517,6 @@ do_stuff_with_project_file() {
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
         note_menu_options+=("Remove tag from linked notes" "")
-        note_menu_options+=("Filter linked notes by tag" "")
-        note_menu_options+=("Reset filter" "")
-        note_menu_options+=("Apply glob" "")
-        note_menu_options+=("Reset glob" "")
 
         for line in "${filtered_linked_notes[@]}"; do
             [[ -z "$line" ]] && continue
@@ -19948,37 +19588,12 @@ do_stuff_with_project_file() {
         }
 
         choose_tag_goal() {
-            local tag
-            local menu_items=()
-            local choice
-
-            # Add NO TAG option first.
-            menu_items+=("NO TAG" "")
-
-            # Add tags from NOTES_TAGS_DB.
-            while IFS= read -r tag; do
-                [[ -n "$tag" ]] && menu_items+=("$tag" "")
-            done < "$NOTES_TAGS_DB"
-
-            # if ! choice=$(whiptail \
-            #     --title "Choose Tag" \
-            #     --menu "Select a tag for new linked note:" \
-            #     20 70 12 \
-            #     "${menu_items[@]}" \
-            #     3>&1 1>&2 2>&3
-            # ); then
-            #     return 1
-            # fi
-
-            choice=$(paginate_tags_menu "Choose Tag" "${menu_items[@]}") || return 1
-
-            if [[ "$choice" == "NO TAG" ]]; then
-                printf '%s' "[NO TAG]"
-            else
-                printf '%s' "$choice"
-            fi
-
-            return 0
+            # Choose Tag: [NO TAG] creates the note without a tag. __FILTER__
+            # narrows the tag list by a literal substring; __RESET_FILTER__ clears it.
+            goals_select_note_tag_filter --title "Choose Tag" \
+                --prompt "Choose a tag for the new linked note" --pins "NO" \
+                --no-tag-desc "Create the note without any tag" || return 1
+            printf '%s' "$GOALS_SELECTED_NOTE_TAG"
         }
 
         add_tag_to_notes_from_filtered() {
@@ -20038,134 +19653,45 @@ Tag you have chosen will be added to the selected notes." 10 60
             fi
 
             local selected_tag
-            # selected_tag=$(
-            #     whiptail --title "Select tag" \
-            #         --menu "Choose the tag to add:" \
-            #         20 70 10 \
-            #         "${tag_menu[@]}" \
-            #         3>&1 1>&2 2>&3
-            # ) || return 1
+            # Select tag: __FILTER__ narrows the tag list by a literal substring,
+            # __RESET_FILTER__ clears it.
+            local -a tag_list=()
+            local tk
+            for (( tk = 0; tk < ${#tag_menu[@]}; tk += 2 )); do
+                tag_list+=("${tag_menu[tk]}")
+            done
+            goals_select_note_tag_filter --title "Select tag" \
+                --prompt "Choose the tag to add to the notes" --pins "" \
+                --tags "${tag_list[@]}" || return 1
+            selected_tag="$GOALS_SELECTED_NOTE_TAG"
 
-            selected_tag=$(paginate_tags_menu "Select tag" "${tag_menu[@]}") || return 1
+            # Select notes: full note paths with their tags.
+            local -a all_paths=()
+            local ln_ ln_path_
+            for ln_ in "${all_notes[@]}"; do
+                IFS='|' read -r _ ln_path_ _ <<< "$ln_"
+                [[ -n "$ln_path_" ]] && all_paths+=("$ln_path_")
+            done
 
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
             local -A selected_paths=()
-            local page=0
-
+            local sp_
             while :; do
-                local start=$(( page * page_size ))
-                (( start < 0 )) && start=0
-                if (( start >= total )); then
-                    page=0
-                    start=0
-                fi
+                goals_pick_notes_multi "Select notes" "Tag to add: $selected_tag" \
+                    "__add_tag__" "Add tag to selected notes" top \
+                    "${all_paths[@]}" || return 1
 
-                local end=$(( start + page_size ))
-                (( end > total )) && end=$total
+                selected_paths=()
+                for sp_ in "${GOALS_PICKED_PATHS[@]}"; do selected_paths["$sp_"]=1; done
 
-                local -a checklist=()
-                local -a note_ids=()
-                local -a note_paths=()
+                local selected_count="${#selected_paths[@]}"
 
-                local i line title path tags rest id label status
-                for ((i=start; i<end; i++)); do
-                    line="${all_notes[i]}"
-
-                    IFS='|' read -r title path tags rest <<< "$line"
-                    id="n_$i"
-
-                    note_ids+=("$id")
-                    note_paths+=("$path")
-
-                    #label="$path"   # hack: display note title instead.
-                    label="$(awk -F'|' -v path="$path" '$2 == path { print $1; exit }' "$NOTES_DB")"                
-
-                    local tags_tr=""
-                    if [[ -n $tags ]]; then
-                        tags_tr="$(truncate_note_tags_by_tag "$tags")"
-
-                        label+=" $tags_tr"
-                    else
-                        label+=" []"
-                    fi
-
-                    status="OFF"
-                    [[ ${selected_paths["$path"]+x} ]] && status="ON"
-
-                    checklist+=("$id" "$label" "$status")
-                done
-
-                if (( page > 0 )); then
-                    checklist+=("prev_page" "Previous page" "OFF")
-                fi
-                if (( page + 1 < page_count )); then
-                    checklist+=("next_page" "Next page" "OFF")
-                fi
-                checklist+=("add_tag" "Add tag to selected notes" "OFF")
-
-                local choice_text=""
-                choice_text=$(
-                    whiptail --title "Select notes" \
-                        --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
-                        35 155 25 \
-                        "${checklist[@]}" \
-                        3>&1 1>&2 2>&3
-                ) || return 1
-
-                choice_text=${choice_text//\"/}
-                local -a choices=()
-                read -r -a choices <<< "$choice_text"
-
-                local nav_prev=0 nav_next=0 nav_add=0
-                local item
-                for item in "${choices[@]}"; do
-                    case $item in
-                        prev_page) nav_prev=1 ;;
-                        next_page) nav_next=1 ;;
-                        add_tag)   nav_add=1 ;;
-                    esac
-                done
-
-                if (( nav_prev && nav_next )); then
-                    whiptail --msgbox "Choose only one of prev_page or next_page." 8 60
+                if ! whiptail --title "Confirm" \
+                    --yesno "Add tag \"$selected_tag\" to $selected_count selected note(s)?" \
+                    10 70; then
                     continue
                 fi
-
-                if (( nav_add && (nav_prev || nav_next) )); then
-                    whiptail --msgbox "add_tag cannot be selected together with prev_page or next_page." 8 70
-                    continue
-                fi
-
-                # Commit the current page note selections into the persistent set.
-                for ((i=0; i<${#note_ids[@]}; i++)); do
-                    if [[ " ${choices[*]} " == *" ${note_ids[i]} "* ]]; then
-                        selected_paths["${note_paths[i]}"]=1
-                    else
-                        unset "selected_paths[${note_paths[i]}]"
-                    fi
-                done
-
-                if (( nav_prev )); then
-                    (( page > 0 )) && ((page--))
-                    continue
-                fi
-
-                if (( nav_next )); then
-                    (( page + 1 < page_count )) && ((page++))
-                    continue
-                fi
-
-                if (( nav_add )); then
-                    local selected_count="${#selected_paths[@]}"
-                    if (( selected_count == 0 )); then
-                        #whiptail --msgbox "No notes selected yet." 8 45
-                        continue
-                    fi
-
-                    if ! whiptail --title "Confirm" \
-                        --yesno "Add tag \"$selected_tag\" to $selected_count selected note(s)?" \
-                        10 70; then
-                        continue
-                    fi
 
                     tmp_sel=$(mktemp "${TMPDIR:-/tmp}/notes_sel.XXXXXX") || return 1
                     tmp_db=$(mktemp "${notes_db}.XXXXXX") || { rm -f -- "$tmp_sel"; return 1; }
@@ -20217,7 +19743,6 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     whiptail --msgbox "Tag \"$selected_tag\" added to selected notes." 8 60
                     return 0
-                fi
             done
         }
 
@@ -20370,7 +19895,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 IFS='|' read -r title note_path note_tags rest <<< "$line"
 
                 # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
-                if [[ "$selected_tag" == "NO TAG" ]]; then
+                if [[ "$selected_tag" == "[NO TAG]" ]]; then
                     [[ -z "$note_tags" ]] && printf '%s\n' "$line"
                     continue
                 fi
@@ -20529,6 +20054,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local id=1
 
             local -a note_items=()
+            local -a url_note_paths=()
             local -a url_items=()
 
             local -A note_path_by_id=()
@@ -20583,6 +20109,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     [[ -n $title ]] || title=$note_path
 
                     note_items+=("$id" "$title")
+                    url_note_paths+=("$note_path")
                     ((++id))
                 fi
             done
@@ -20592,23 +20119,20 @@ Tag you have chosen will be added to the selected notes." 10 60
                 return 1
             fi
 
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local GOALS_NOTE_TITLE_MODE=1
+            local GOALS_NOTE_TAGMENU_FULL=1
             while :; do
                 # ------------------------------------------------------------
                 # Select a note.
                 # ------------------------------------------------------------
 
-                selected_note=$(
-                    whiptail \
-                        --title "Select Note" \
-                        --cancel-button "Back" \
-                        --menu "Choose a linked note:" \
-                        22 100 14 \
-                        "${note_items[@]}" \
-                        3>&1 1>&2 2>&3
-                ) || return 1
-
-                note_path=${note_path_by_id[$selected_note]-}
-                [[ -n $note_path ]] || return 1
+                # Select Note: titles with tags; glob matches note titles;
+                # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
+                goals_pick_note "Select Note" "Choose a linked note" \
+                    "${url_note_paths[@]}" || return 1
+                note_path="$GOALS_PICKED_NOTE_PATH"
 
                 # ------------------------------------------------------------
                 # Build URL menu for the selected note.
@@ -20656,20 +20180,47 @@ Tag you have chosen will be added to the selected notes." 10 60
                     return 1
                 fi
 
+                # Select URL: __APPLY_GLOB__ matches the URL or its description.
+                local url_glob="" new_url_glob shown_urls k_
+                local -a url_menu=()
                 while :; do
-                    # ------------------------------------------------------------
-                    # Select URL.
-                    # ------------------------------------------------------------
+                    url_menu=(
+                        "__APPLY_GLOB__" "Apply glob (matches URL or description)"
+                        "__RESET_GLOB__" "Reset glob"
+                    )
+                    shown_urls=0
+                    for (( k_ = 0; k_ < ${#url_items[@]}; k_ += 2 )); do
+                        if [[ -n $url_glob ]]; then
+                            [[ "${url_items[k_+1],,}" == ${url_glob,,} ]] || continue
+                        fi
+                        url_menu+=("${url_items[k_]}" "${url_items[k_+1]}")
+                        shown_urls=$((shown_urls + 1))
+                    done
 
                     selected_url=$(
                         whiptail \
                             --title "Select URL" \
                             --cancel-button "Back" \
-                            --menu "Choose a URL to open:" \
+                            --menu "Choose a URL to open:\nGlob: ${url_glob:-none}   ($shown_urls of $(( ${#url_items[@]} / 2 )) URLs shown)" \
                             20 155 10 \
-                            "${url_items[@]}" \
+                            "${url_menu[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
+
+                    case $selected_url in
+                        __APPLY_GLOB__)
+                            if new_url_glob=$(whiptail --title "Apply URL Glob" --inputbox \
+                                "Enter a case-insensitive glob to match URLs or their descriptions (for example: *github*). Leave empty to show all URLs." \
+                                11 90 "$url_glob" 3>&1 1>&2 2>&3); then
+                                url_glob=$new_url_glob
+                            fi
+                            continue
+                            ;;
+                        __RESET_GLOB__)
+                            url_glob=""
+                            continue
+                            ;;
+                    esac
 
                     [[ -n $selected_url ]] || continue
 
@@ -20725,6 +20276,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local id
 
             local -a note_items=()
+            local -a ebook_note_paths=()
             local -A note_path_by_id=()
 
             local -a ebook_items=()
@@ -20783,6 +20335,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     note_path_by_id[$id]=$note_path
                     note_items+=("$id" "$title")
+                    ebook_note_paths+=("$note_path")
 
                     ((++id))
                 fi
@@ -20799,21 +20352,15 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Select note.
             # ------------------------------------------------------------
 
-            selected_note=$(
-                whiptail \
-                    --title "Select Note" \
-                    --cancel-button "Back" \
-                    --menu "Choose a linked note:" \
-                    22 100 14 \
-                    "${note_items[@]}" \
-                    3>&1 1>&2 2>&3
-            )
-            status=$?
-
-            ((status != 0)) && return "$status"
-
-            note_path=${note_path_by_id[$selected_note]-}
-            [[ -n $note_path ]] || return 1
+            # Select Note: titles with tags; glob matches note titles;
+            # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local GOALS_NOTE_TITLE_MODE=1
+            local GOALS_NOTE_TAGMENU_FULL=1
+            goals_pick_note "Select Note" "Choose a linked note" \
+                "${ebook_note_paths[@]}" || return 1
+            note_path="$GOALS_PICKED_NOTE_PATH"
 
             # ------------------------------------------------------------
             # Build ebook menu for the selected note.
@@ -21093,7 +20640,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             #     continue
             # fi
 
-            chosen_tag_for_removal=$(paginate_tags_menu "Remove Linked Note Tag" "${tag_menu_options[@]}") || continue
+            # Remove Linked Note Tag: __FILTER__ narrows the list by a literal
+            # substring, __RESET_FILTER__ clears it.
+            goals_select_note_tag_filter --title "Remove Linked Note Tag" \
+                --prompt "Select a tag to remove" --pins "" \
+                --tags "${note_tags[@]}" || continue
+            chosen_tag_for_removal="$GOALS_SELECTED_NOTE_TAG"
 
             # ------------------------------------------------------------
             # Find NOTES_DB lines containing the selected tag, then
@@ -21136,330 +20688,67 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Paginated checklist settings.
             # ------------------------------------------------------------
 
-            local -A selected_note_map=()
-
-            local notes_per_page=50
-            local current_page=0
-            local total_notes=${#notes_with_selected_tag[@]}
-            local total_pages=$(( (total_notes + notes_per_page - 1) / notes_per_page ))
-
-            local next_page="__NEXT_PAGE__"
-            local prev_page="__PREV_PAGE__"
-            local remove_notes="__REMOVE__"
-
-            local checklist_output
-            local selected_items=()
-
-            # ------------------------------------------------------------
-            # Pagination loop.
-            # ------------------------------------------------------------
-
+            # Select notes: __REMOVE__ at the top, full note paths with their
+            # tags, glob (file name) and tag filters.
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local selected_notes_for_removal=()
+            local rm_path_ matching_line__
             while :; do
+                goals_pick_notes_multi "Select Notes" \
+                    "Select notes to remove the tag \"$chosen_tag_for_removal\" from" \
+                    "__remove__" "Remove the tag from the selected notes" top \
+                    "${notes_with_selected_tag[@]}" || break
 
-                local page_start=$((current_page * notes_per_page))
-                local page_end=$((page_start + notes_per_page))
-
-                (( page_end > total_notes )) && page_end=$total_notes
-
-                local checklist_options=()
-                local i
-                local status
-
-                # --------------------------------------------------------
-                # Add notes belonging to current page.
-                # --------------------------------------------------------
-
-                for ((i = page_start; i < page_end; i++)); do
-
-                    status="OFF"
-
-                    if [[ -n "${selected_note_map[$i]+x}" ]]; then
-                        status="ON"
-                    fi
-
-                    checklist_options+=(
-                        "$i"
-                        "${notes_with_selected_tag[$i]}"
-                        "$status"
+                selected_notes_for_removal=()
+                for rm_path_ in "${GOALS_PICKED_PATHS[@]}"; do
+                    matching_line__=$(
+                        awk -F'|' -v path="$rm_path_" '$2 == path { print; exit }' "$NOTES_DB"
                     )
+                    [[ -n "$matching_line__" ]] &&
+                        selected_notes_for_removal+=("$matching_line__")
                 done
 
-                # --------------------------------------------------------
-                # Add previous-page navigation.
-                # --------------------------------------------------------
-
-                if (( current_page > 0 )); then
-                    checklist_options+=(
-                        "$prev_page"
-                        "prev_page"
-                        "OFF"
-                    )
+                if (( ${#selected_notes_for_removal[@]} == 0 )); then
+                    whiptail --title "No Notes Selected" --msgbox \
+                        "Select at least one note before choosing \"__remove__\"." 10 70
+                    continue
                 fi
 
-                # --------------------------------------------------------
-                # Add next-page navigation.
-                # --------------------------------------------------------
-
-                if (( current_page < total_pages - 1 )); then
-                    checklist_options+=(
-                        "$next_page"
-                        "next_page"
-                        "OFF"
-                    )
-                fi
-
-                # --------------------------------------------------------
-                # Add remove action.
-                # --------------------------------------------------------
-
-                checklist_options+=(
-                    "$remove_notes"
-                    "remove"
-                    "OFF"
-                )
-
-                # --------------------------------------------------------
-                # Show checklist.
-                # --------------------------------------------------------
-
-                if ! checklist_output=$(whiptail \
-                    --title "Select Notes - Page $((current_page + 1))/$total_pages" \
-                    --checklist \
-                    "Select notes to remove selected tag:" \
-                    35 155 25 \
-                    "${checklist_options[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-                ); then
-
-                    # User selected Back/Cancel.
+                if remove_linked_note_tag \
+                    "$chosen_tag_for_removal" \
+                    "${selected_notes_for_removal[@]}"
+                then
+                    whiptail --title "Tag Removed" --msgbox \
+                        "The tag \"$chosen_tag_for_removal\" has been removed from the selected notes." \
+                        10 80
                     break
                 fi
-
-                # --------------------------------------------------------
-                # Clear previous selections for notes on this page.
-                #
-                # Selections from other pages remain untouched.
-                # --------------------------------------------------------
-
-                for ((i = page_start; i < page_end; i++)); do
-                    unset 'selected_note_map[$i]'
-                done
-
-                # --------------------------------------------------------
-                # Parse whiptail checklist output.
-                # --------------------------------------------------------
-
-                read -r -a selected_items <<< "$checklist_output"
-
-                local next_selected=0
-                local prev_selected=0
-                local remove_selected=0
-                local selected_item
-
-                for selected_item in "${selected_items[@]}"; do
-
-                    # whiptail returns checklist tags surrounded by quotes.
-                    selected_item=${selected_item//\"/}
-
-                    case "$selected_item" in
-
-                        "$next_page")
-                            next_selected=1
-                            ;;
-
-                        "$prev_page")
-                            prev_selected=1
-                            ;;
-
-                        "$remove_notes")
-                            remove_selected=1
-                            ;;
-
-                        *)
-                            # Numeric checklist item = note index.
-                            if [[ "$selected_item" =~ ^[0-9]+$ ]]; then
-                                selected_note_map["$selected_item"]=1
-                            fi
-                            ;;
-
-                    esac
-                done
-
-                # --------------------------------------------------------
-                # Do not allow next_page + prev_page.
-                # --------------------------------------------------------
-
-                if (( next_selected && prev_selected )); then
-
-                    whiptail \
-                        --title "Invalid Selection" \
-                        --msgbox \
-                        "You cannot select both \"next_page\" and \"prev_page\"." \
-                        10 70 \
-                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Do not allow next_page/prev_page + remove.
-                # --------------------------------------------------------
-
-                if (( remove_selected && (next_selected || prev_selected) )); then
-
-                    whiptail \
-                        --title "Invalid Selection" \
-                        --msgbox \
-                        "You cannot select \"remove\" together with \"next_page\" or \"prev_page\"." \
-                        10 80 \
-                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Go to next page.
-                # --------------------------------------------------------
-
-                if (( next_selected )); then
-                    ((current_page++))
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Go to previous page.
-                # --------------------------------------------------------
-
-                if (( prev_selected )); then
-                    ((current_page--))
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Remove tag from selected notes.
-                # --------------------------------------------------------
-
-                if (( remove_selected )); then
-
-                    local selected_notes_for_removal=()
-                    local selected_index
-
-                    for ((selected_index = 0; selected_index < total_notes; selected_index++)); do
-
-                        if [[ -n "${selected_note_map[$selected_index]+x}" ]]; then
-                            local note_path__="${notes_with_selected_tag[$selected_index]}"
-                            local matching_line__
-                            
-                            matching_line__=$(
-                                awk -F'|' -v path="$note_path__" '$2 == path { print; exit }' "$NOTES_DB"
-                            )
-
-                            [[ -n "$matching_line__" ]] &&
-                                selected_notes_for_removal+=("$matching_line__")
-                        
-
-                            # selected_notes_for_removal+=(
-                            #     "${notes_with_selected_tag[$selected_index]}"
-                            # )
-                        fi
-
-                    done
-
-                    # ----------------------------------------------------
-                    # Make sure at least one note was selected.
-                    # ----------------------------------------------------
-
-                    if (( ${#selected_notes_for_removal[@]} == 0 )); then
-
-                        whiptail \
-                            --title "No Notes Selected" \
-                            --msgbox \
-                            "Select at least one note before choosing \"remove\"." \
-                            10 70 \
-                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                        continue
-                    fi
-
-                    # ----------------------------------------------------
-                    # Remove tag from all selected notes across all pages.
-                    # ----------------------------------------------------  
-
-                    if remove_linked_note_tag \
-                        "$chosen_tag_for_removal" \
-                        "${selected_notes_for_removal[@]}"
-                    then
-
-                        whiptail \
-                            --title "Tag Removed" \
-                            --msgbox \
-                            "The tag \"$chosen_tag_for_removal\" has been removed from the selected notes." \
-                            10 80 \
-                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                        break
-
-                    fi                    
-
-                fi
-
             done
             continue
-        elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
-            # Build tag choices from the notes currently visible after both the
-            # active tag and glob filters have been applied. This prevents tags
-            # from notes hidden by either filter from appearing in this menu.
-            mapfile -t linked_notes_array < <(get_current_filtered_linked_notes)
-            if ((${#linked_notes_array[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
-                continue
+        elif [[ "$selected_note_tag" == "__FILTER_BY_TAG__" ]]; then
+            # Offer [ANY TAG], [NO TAG] and the tags of the linked notes that match
+            # the title glob. __FILTER__ narrows the tag list (literal substring)
+            # and __RESET_FILTER__ clears that narrowing.
+            local -a filter_tags=()
+            mapfile -t linked_notes_array < <(get_linked_notes_matching_glob)
+            if ((${#linked_notes_array[@]} > 0)); then
+                mapfile -t filter_tags < <(
+                    retrieve_linked_note_tags "${linked_notes_array[@]}" | sed '/^$/d'
+                )
             fi
-
-            mapfile -t note_tags < <(
-                retrieve_linked_note_tags "${linked_notes_array[@]}"
-            )
-
-            local chosen_tag_for_filter
-            local tag_menu_options=()
-            local tag
-
-            # Offer '[NO TAG]' only if at least one currently visible note has no tags.
-            local has_untagged_notes=false
-            local note_line note_tags_for_line
-            for note_line in "${linked_notes_array[@]}"; do
-                IFS='|' read -r _ _ note_tags_for_line _ <<< "$note_line"
-                if [[ -z "$note_tags_for_line" ]]; then
-                    has_untagged_notes=true
-                    break
-                fi
-            done
-            [[ "$has_untagged_notes" == true ]] && tag_menu_options+=("[NO TAG]" "")
-
-            for tag in "${note_tags[@]}"; do
-                tag_menu_options+=("$tag" "")
-            done
-
-            # if chosen_tag_for_filter=$(whiptail \
-            #     --title "Filter Linked Notes" \
-            #     --menu "Select a tag to filter by:" \
-            #     20 80 10 \
-            #     "${tag_menu_options[@]}" \
-            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-            if chosen_tag_for_filter=$(paginate_tags_menu "Filter Linked Notes" "${tag_menu_options[@]}"); then
-                # NEW: map the menu label to a sentinel that can't be a real tag.
-                if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
-                    TAG_FILTER_BY="NO TAG"
-                else
-                    TAG_FILTER_BY="$chosen_tag_for_filter"
-                fi
+            if goals_select_note_tag_filter --title "Filter Linked Notes" \
+                --prompt "Choose a tag to filter the linked notes by" \
+                --no-tag-desc "Show only linked notes that have no tag" \
+                --any-tag-desc "Show linked notes with or without tags" \
+                --tags "${filter_tags[@]}"; then
+                TAG_FILTER_BY="$GOALS_SELECTED_NOTE_TAG"
             fi
-            continue 
-        elif [[ "$selected_note_tag" == "Reset filter" ]]; then
+            continue
+        elif [[ "$selected_note_tag" == "__RESET_FILTER__" ]]; then
             TAG_FILTER_BY=""
             continue
-        elif [[ "$selected_note_tag" == "Apply glob" ]]; then
+        elif [[ "$selected_note_tag" == "__APPLY_GLOB__" ]]; then
             local new_glob
             new_glob=$(whiptail \
                 --title "Apply Glob to Linked Note Titles" \
@@ -21473,14 +20762,14 @@ Leave the pattern non-empty; use * to match all titles." \
 
             if [[ -z "$new_glob" ]]; then
                 whiptail --title "Empty Glob" --msgbox \
-                    "The glob cannot be empty. Use * to match all titles, or choose Reset glob to clear the glob filter." \
+                    "The glob cannot be empty. Use * to match all titles, or choose __RESET_GLOB__ to clear the glob filter." \
                     10 75
                 continue
             fi
 
             GLOB_FILTER_BY="$new_glob"
             continue
-        elif [[ "$selected_note_tag" == "Reset glob" ]]; then
+        elif [[ "$selected_note_tag" == "__RESET_GLOB__" ]]; then
             GLOB_FILTER_BY=""
             continue
         elif [[ "$selected_note_tag" == "Create new note tag" ]]; then
@@ -22212,13 +21501,13 @@ do_stuff_shortlisted() {
         local note_menu_options=("$@")
         local page=0
         local per_page=50    # adjust this to my liking
+        # Status info: active filters and how many linked notes are visible.
+        local filter_summary
+        filter_summary="\nTag filter: ${TAG_FILTER_BY:-none}   |   Title glob: ${GLOB_FILTER_BY:-none}"
+        filter_summary+="\nShowing ${#note_lines[@]} of ${LINKED_NOTES_TOTAL:-?} linked notes"
         local total_items=$(( ${#note_menu_options[@]} / 2 ))
         local total_pages=$(( (total_items + per_page - 1) / per_page ))
         local selected_note_tag=""
-        local filter_summary=""
-        [[ -n "${TAG_FILTER_BY:-}" ]] && filter_summary+=" [tag: ${TAG_FILTER_BY}]"
-        [[ -n "${GLOB_FILTER_BY:-}" ]] && filter_summary+=" [glob: ${GLOB_FILTER_BY}]"
-
 
         while true; do
             local start=$(( page * per_page ))
@@ -22473,7 +21762,8 @@ do_stuff_shortlisted() {
 
         # Check URL database existence
         if [[ ! -f "$URLS_DB" || ! -s "$URLS_DB" ]]; then
-            whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+            #whiptail --msgbox "Error: URLs database not found or empty!" 8 50 >/dev/tty
+            whiptail --msgbox "No URLs found. Associate at least one URL and try again." 8 50 >/dev/tty
             return 1
         fi
 
@@ -22767,17 +22057,6 @@ do_stuff_shortlisted() {
         print_file_from_do_stuff_project "$selected_path"
     }
 
-    # Receives project path and echos matching whole line from PROJECTS_DB file.
-    lookup_shortlist_item_from_proj_db() {
-        local path="$1"
-        local line
-
-        # Use awk to match the second field (| as delimiter) with the given path
-        line="$(awk -F'|' -v p="$path" '$2 == p {print; exit}' "$PROJECTS_DB")"
-
-        echo "$line"
-    }
-
     associate_new_note_to_project_from_shortlist() {
         # note path is the new note you've just created from select notes menu.
         local NEW_NOTE_PATH="$note_path"
@@ -22884,261 +22163,7 @@ do_stuff_shortlisted() {
     }
 
     associate_note_to_project_from_shortlist() {
-        paginate_get_projects_checklist2() {
-            # Output: populates global array SELECTED_ITEMS_PROJECT with selected note paths.
-            # Usage: paginate_get_projects "Menu Title" "${FILTERED_PROJECTS[@]}"
-            # FILTERED_PROJECTS expected as pairs: "/note/path/note1.txt" "[tag1,tag2]" ...
-
-            # Clear any previous selection
-            SELECTED_ITEMS_PROJECT=()
-
-            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
-            local menu_title
-            local CURRENT_PAGE_PROJECTS
-            local -a FILTERED_PROJECTS
-
-            if [ "$#" -ge 3 ]; then
-                menu_title="$1"
-                shift
-                FILTERED_PROJECTS=("$@")
-                CURRENT_PAGE_PROJECTS=0
-            else
-                return 1
-            fi
-
-            # Basic validation
-            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
-                return 1
-            fi
-            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
-                echo "paginate_get_projects: FILTERED_PROJECTS must be path/tag pairs" >&2
-                return 1
-            fi
-
-            # Build arrays: KEYS, PATHS, DESCS
-            local -a KEYS=()
-            local -a PATHS=()
-            local -a DESCS=()
-            local total_projects=0
-
-            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
-                local path="${FILTERED_PROJECTS[i]}"
-                local tags="${FILTERED_PROJECTS[i+1]}"
-                local idx=$(( i / 2 ))
-                local key="p${idx}"   # safe tokens, no spaces
-                KEYS+=("$key")
-                PATHS+=("$path")
-                DESCS+=("$path $tags")
-                (( total_projects++ ))
-            done
-
-            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
-            (( total_pages == 0 )) && return 1
-
-            # ensure CURRENT_PAGE_PROJECTS within bounds
-            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
-                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-            fi
-            if (( CURRENT_PAGE_PROJECTS < 0 )); then
-                CURRENT_PAGE_PROJECTS=0
-            fi
-
-            # Persistent selection map across pages
-            local -A SELECTED_MAP=()
-
-            while true; do
-                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
-                local end_proj=$(( start_proj + chunk_size_projects ))
-                (( end_proj > total_projects )) && end_proj=$total_projects
-
-                local -a checklist_args=()
-
-                # Pseudo-keys for navigation and add
-                local PREV_KEY="__prev__"
-                local NEXT_KEY="__next__"
-                local ADD_KEY="__add__"
-
-                # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Add selected items (commit)" OFF)
-
-                # Show prev/next when applicable
-                if (( CURRENT_PAGE_PROJECTS > 0 )); then
-                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
-                fi
-                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
-                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
-                fi
-
-                # Page items
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local k="${KEYS[p]}"
-                    local desc="${DESCS[p]}"
-                    if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
-                        checklist_args+=("$k" "$desc" ON)
-                    else
-                        checklist_args+=("$k" "$desc" OFF)
-                    fi
-                done
-
-                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
-
-                local choice
-                choice=$(whiptail --title "$menu_title" \
-                    --cancel-button "Back" \
-                    --checklist "$prompt" 35 155 25 \
-                    "${checklist_args[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
-                    SELECTED_ITEMS_PROJECT=()
-                    return 1                
-                }
-
-                # Parse whiptail output safely into array (removing quotes)
-                local -a selected_array
-                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
-
-                # Booleans for special items
-                local prev_sel=0
-                local next_sel=0
-                local add_sel=0
-
-                for sel in "${selected_array[@]:-}"; do
-                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
-                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
-                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
-                done
-
-                # Update SELECTED_MAP for items on this page based on returned selections
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local k="${KEYS[p]}"
-                    local found=0
-                    for sel in "${selected_array[@]:-}"; do
-                        if [[ "$sel" == "$k" ]]; then
-                            found=1
-                            break
-                        fi
-                    done
-                    if (( found )); then
-                        SELECTED_MAP["$k"]=1
-                    else
-                        unset SELECTED_MAP["$k"]
-                    fi
-                done
-
-                # --- Validation rules ---
-                if (( prev_sel && next_sel )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60
-                    continue
-                fi
-
-                if (( add_sel && (prev_sel || next_sel) )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70
-                    continue
-                fi
-
-                # Handle navigation
-                if (( prev_sel )); then
-                    (( CURRENT_PAGE_PROJECTS-- ))
-                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
-                    continue
-                fi
-                if (( next_sel )); then
-                    (( CURRENT_PAGE_PROJECTS++ ))
-                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-                    continue
-                fi
-
-                # If add was selected, finalize selection and return (but ensure there is at least one project selected)
-                if (( add_sel )); then
-                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP
-                    SELECTED_ITEMS_PROJECT=()
-                    for (( p = 0; p < total_projects; p++ )); do
-                        local k="${KEYS[p]}"
-                        if [[ -n "${SELECTED_MAP[$k]:-}" ]]; then
-                            SELECTED_ITEMS_PROJECT+=("${PATHS[p]}")
-                        fi
-                    done
-
-                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
-                        whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
-                        continue
-                    fi
-
-                    # Success: return with SELECTED_ITEMS_PROJECT populated
-                    return 0
-                fi
-
-                # If we get here it means user pressed OK without choosing Add or navigation.
-                # Remind them to use Add to commit or navigate pages.
-                #whiptail --title "No action chosen" --msgbox "To finish, select 'Add selected projects'. Or use Previous/Next to continue browsing." 8 70
-                #continue
-            done
-
-            return 1
-        }
-
-        paginate_tags_menu() {
-            local title="$1"
-            shift
-            local items=("$@")
-            local per_page=20
-            local total_items=$(( ${#items[@]} / 2 ))
-            local total_pages=$(( (total_items + per_page - 1) / per_page ))
-            local current_page=1
-            local choice start_index end_index menu_items tag desc
-
-            while true; do
-                # Calculate start and end indices for current page
-                start_index=$(( (current_page - 1) * per_page * 2 ))
-                end_index=$(( start_index + per_page * 2 ))
-                menu_items=()
-
-                # Add items for current page
-                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                    tag="${items[i]}"
-                    desc="${items[i+1]}"
-                    menu_items+=("$tag" "$desc")
-                done
-
-                # Add navigation options
-                if (( current_page > 1 )); then
-                    menu_items+=("<< Prev" "")
-                fi
-                if (( current_page < total_pages )); then
-                    menu_items+=(">> Next" "")
-                fi
-
-                # Show whiptail menu
-                choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                case "$choice" in
-                    ">> Next")
-                        (( current_page++ ))
-                        ;;
-                    "<< Prev")
-                        (( current_page-- ))
-                        ;;
-                    *)
-                        # Return selected tag
-                        printf '%s\n' "$choice"
-                        return 0
-                        ;;
-                esac
-            done
-        }
-
-        #local PROJECTS_DB="$PROJECTS_DB"
-        #local NOTES_DB="$NOTES_DB"
-        local temp_file line_updated duplicate_detected project_found
-        temp_file=$(mktemp) || return 1
-        line_updated=0
-        duplicate_detected=0
-        project_found=0
-
-        # Check if databases exist
+        # Link note: pick a starting tag filter, then tick the notes to link.
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
             whiptail --msgbox "Please add at least one project and try again." 8 60
             return 1
@@ -23148,410 +22173,137 @@ do_stuff_shortlisted() {
             return 1
         fi
 
-        local selected_project_path
-        selected_project_path="$1"
+        local selected_project_path="$1"
         [[ -z "$selected_project_path" ]] && return 1
 
-        # FIX: FILTER BY TAG AND PAGINATE TAG SELECTION.
-        local note_tag_options=("NO TAG" "" "ANY TAG" "")    
+        # Notes already linked to the project are not offered again.
+        local -A linked_map=()
+        local pl_title pl_path pl_notes lnp
+        while IFS='|' read -r pl_title pl_path pl_notes; do
+            [[ "$pl_path" == "$selected_project_path" ]] || continue
+            while IFS= read -r lnp; do
+                [[ -n "$lnp" ]] && linked_map["$lnp"]=1
+            done < <(tr ',' '\n' <<< "$pl_notes")
+            break
+        done < "$PROJECTS_DB"
 
-        while IFS= read -r tag; do
-            [[ -n "$tag" ]] && note_tag_options+=("$tag" "")
-        done < "$NOTES_TAGS_DB"
-
-        local selected_note_tag
-        selected_note_tag="$(paginate_tags_menu "Select Note Tag to Filter Notes" "${note_tag_options[@]}")" || return 1
-
-        truncate_note_tags_by_tag() {
-            local tags="$1"
-            local inner
-            local -a tag_array
-            local count
-            local extra
-
-            # Remove surrounding [ ]
-            inner="${tags#[}"
-            inner="${inner%]}"
-
-            # Empty list
-            if [[ -z "$inner" ]]; then
-                printf '[]\n'
-                return
-            fi
-
-            # Split on commas
-            IFS=',' read -r -a tag_array <<< "$inner"
-
-            count=${#tag_array[@]}
-
-            if (( count <= 3 )); then
-                printf '[%s]\n' "$inner"
-                return
-            fi
-
-            extra=$((count - 3))
-
-            printf '[%s,%s,%s +%d]\n' \
-                "${tag_array[0]}" \
-                "${tag_array[1]}" \
-                "${tag_array[2]}" \
-                "$extra"
-        }
-
-        # Read notes into menu
-        local note_menu_options=()
-        local note_tags_arr
-        while IFS='|' read -r note_title note_path note_tags rest; do
-            local note_tags_old="$note_tags"
-            note_tags="$(truncate_note_tags_by_tag "[${note_tags}]")"
-
-            # handle case when line has no associated tag yet. include its note path if ANY TAG was selected.
-            if [[ "$selected_note_tag" == "ANY TAG" ]]; then
-                note_menu_options+=("$note_path" "$note_tags")
-                continue
-            fi
-
-            if [[ "$selected_note_tag" == "NO TAG" ]]; then
-                [[ -z "$note_tags" ]] && note_menu_options+=("$note_path" "$note_tags")
-                continue
-            fi            
-
-            # FIX: FILTER BY NOTE TAG
-            IFS=',' read -r -a note_tags_arr <<< "$note_tags_old"
-
-            # only enters here if line already has a tag
-            for tag in "${note_tags_arr[@]}"; do
-                if [[ "${tag,,}" == "${selected_note_tag,,}" || "$selected_note_tag" == "ANY TAG" ]]; then
-                    note_menu_options+=("$note_path" "$note_tags")
-                    break
-                fi
-            done
-
-            #note_menu_options+=("$note_path" "[${note_tags}]")
-        done < "$NOTES_DB"
-        if [[ "${#note_menu_options[@]}" -eq 0 ]]; then
-            [[ "$selected_note_tag" == "ANY TAG" ]] && {
-                whiptail --msgbox "No notes found. Add at least one note and try again." 8 60
-                return 1
-            }
-
-            [[ "$selected_note_tag" == "NO TAG" ]] && {
-                whiptail --msgbox "There are no notes with no associated tag found." 8 60
-                return 1
-            }    
-
-            whiptail --msgbox "No matching notes found." 8 50
-            return 1
-        fi
-
+        # Select Note Tag to Filter Notes: [NO TAG], [ANY TAG] or a tag, with
+        # __FILTER__ (literal substring) and __RESET_FILTER__.
+        local selected_note_tag note_title note_path note_tags rest
+        local -a note_candidates=() all_note_paths=()
         while :; do
-            # Note selection
-            paginate_get_projects_checklist2 "Choose Note to Associate" "${note_menu_options[@]}"
-            local selected_note_paths
-            selected_note_paths=("${SELECTED_ITEMS_PROJECT[@]}")     
-            [[ ${#selected_note_paths[@]} -eq 0 ]] && return 1
-        
-            # Process PROJECTS_DB
-            project_found=0
-            line_updated=0                        
-            while IFS= read -r line; do
-                if [[ -z "$line" ]]; then
-                    continue
-                fi
+            goals_select_note_tag_filter || return 1
+            selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
+            note_candidates=()
+            all_note_paths=()
+            while IFS='|' read -r note_title note_path note_tags rest; do
+                [[ -n "$note_path" ]] || continue
+                [[ -n "${linked_map[$note_path]:-}" ]] && continue
+                all_note_paths+=("$note_path")
+                case "$selected_note_tag" in
+                    "[ANY TAG]") note_candidates+=("$note_path") ;;
+                    "[NO TAG]")  [[ -z "$note_tags" ]] && note_candidates+=("$note_path") ;;
+                    *)           goals_note_has_tag "$note_tags" "$selected_note_tag" && note_candidates+=("$note_path") ;;
+                esac
+            done < "$NOTES_DB"
+
+            (( ${#note_candidates[@]} > 0 )) && break
+
+            case "$selected_note_tag" in
+                "[ANY TAG]") whiptail --msgbox "There are no notes left to link to this project." 8 60 ;;
+                "[NO TAG]")  whiptail --msgbox "There are no notes with no associated tag found." 8 60 ;;
+                *)           whiptail --msgbox "Tag '${selected_note_tag}' has no notes available to link." 8 60 ;;
+            esac
+        done
+
+        # Choose Note to Associate: the chosen tag is the starting tag filter;
+        # the status shows the current tag filter and glob.
+        GOALS_NOTE_GLOB=""
+        GOALS_NOTE_TAGFILTER="$selected_note_tag"
+        local -a selected_note_paths=() remaining=()
+        local temp_file project_found line_updated added_count line title path notes np new_notes
+        local -A already=()
+        while :; do
+            goals_pick_notes_multi "Choose Note to Associate" \
+                "Choose notes to link to the project" \
+                "__add__" "Link the selected notes to the project" top \
+                "${all_note_paths[@]}" || return 1
+            selected_note_paths=("${GOALS_PICKED_PATHS[@]}")
+
+            temp_file=$(mktemp) || return 1
+            project_found=0; line_updated=0; added_count=0
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
                 IFS='|' read -r title path notes <<< "$line"
-                # If there is matched line...
                 if [[ "$path" == "$selected_project_path" ]]; then
                     project_found=1
-                    current_notes="$notes"
-                    local notes_array=()
-
-                    # Check for duplicates
-                    IFS=',' read -ra notes_array <<< "$current_notes"
-                    local duplicate
-
-                    local selected_string=$(IFS=,; echo "${selected_note_paths[*]}")
-
-                    for note in "${notes_array[@]}"; do
-                        duplicate=0
-
-                        for selected in "${selected_note_paths[@]}"; do
-                            if [[ "$note" == "$selected" ]]; then
-                                duplicate=1
-                                break
-                            fi
-                        done
-
-                        if (( duplicate )); then
-                            # remove selected from string
-                            selected_string="${selected_string//$selected,}"
-                            selected_string="${selected_string//,$selected}"
-                            selected_string="${selected_string//$selected}"        
-                        fi
+                    already=()
+                    while IFS= read -r np; do
+                        [[ -n "$np" ]] && already["$np"]=1
+                    done < <(tr ',' '\n' <<< "$notes")
+                    new_notes="$notes"
+                    for np in "${selected_note_paths[@]}"; do
+                        [[ -n "${already[$np]:-}" ]] && continue
+                        new_notes="${new_notes:+$new_notes,}$np"
+                        already["$np"]=1
+                        added_count=$((added_count + 1))
                     done
-
-                    local new_notes
-                    if [[ -z "$current_notes" ]]; then
-                        new_notes="$selected_string"
-                        line_updated=1
-                    elif [[ -n "$selected_string" ]]; then
-                        new_notes="${current_notes},${selected_string}"
-                        line_updated=1
-                    else
-                        new_notes="$current_notes"
-                    fi
-
-                    local new_line
-                    new_line="$title|$path|$new_notes"            
-                    echo "$new_line" >> "$temp_file"                             
+                    (( added_count > 0 )) && line_updated=1
+                    printf '%s\n' "$title|$path|$new_notes" >> "$temp_file"
                 else
-                    # Just leave the line unchanged.
-                    echo "$line" >> "$temp_file"
+                    printf '%s\n' "$line" >> "$temp_file"
                 fi
             done < "$PROJECTS_DB"
 
-            # Handle processing results
-            if (( project_found )); then
-                if (( line_updated )); then
-                    mv "$temp_file" "$PROJECTS_DB"
-                    whiptail --msgbox "Note(s) successfully associated with the project." 10 50
-                else
-                    rm "$temp_file"
-                    whiptail --msgbox "No changes were made to the project entry." 10 50
-                    continue
-                fi
-            else
-                rm "$temp_file"
+            if (( ! project_found )); then
+                rm -f "$temp_file"
                 whiptail --msgbox "Selected project not found in database. It may have been removed." 10 50
                 continue
+            fi
+            if (( ! line_updated )); then
+                rm -f "$temp_file"
+                whiptail --msgbox "No changes were made to the project entry." 10 50
+                continue
+            fi
+
+            mv "$temp_file" "$PROJECTS_DB"
+            whiptail --msgbox "$added_count note(s) successfully associated with the project." 10 60
+
+            # The linked notes are no longer offered.
+            for np in "${selected_note_paths[@]}"; do linked_map["$np"]=1; done
+            remaining=()
+            for np in "${all_note_paths[@]}"; do
+                [[ -z "${linked_map[$np]:-}" ]] && remaining+=("$np")
+            done
+            all_note_paths=("${remaining[@]}")
+            if (( ${#all_note_paths[@]} == 0 )); then
+                whiptail --msgbox "All available notes are now linked to this project." 8 60
+                return 0
             fi
         done
     }
 
     dissociate_note_from_project_from_shortlist() {
-        paginate_get_projects_checklist4() {
-            # Output: populates global array SELECTED_ITEMS_PROJECT with selected index tokens.
-            # Usage: paginate_get_projects_checklist2 "Menu Title" "${FILTERED_PROJECTS[@]}"
-            # FILTERED_PROJECTS expected as pairs: "token" "/note/path/note.txt [tag1,tag2]" ...
-
-            # Clear any previous selection
-            SELECTED_ITEMS_PROJECT=()
-
-            local chunk_size_projects=20   # tweak to fit your terminal/whiptail size
-            local menu_title
-            local CURRENT_PAGE_PROJECTS
-            local -a FILTERED_PROJECTS
-
-            if [ "$#" -ge 3 ]; then
-                menu_title="$1"
-                shift
-                FILTERED_PROJECTS=("$@")
-                CURRENT_PAGE_PROJECTS=0
-            else
-                return 1
-            fi
-
-            # Basic validation
-            if (( ${#FILTERED_PROJECTS[@]} == 0 )); then
-                return 1
-            fi
-            if (( ${#FILTERED_PROJECTS[@]} % 2 != 0 )); then
-                echo "paginate_get_projects_checklist3: FILTERED_PROJECTS must be token/description pairs" >&2
-                return 1
-            fi
-
-            # Build arrays: TOKENS, DESCS
-            local -a TOKENS=()
-            local -a DESCS=()
-            local total_projects=0
-
-            for (( i=0; i<${#FILTERED_PROJECTS[@]}; i+=2 )); do
-                local token="${FILTERED_PROJECTS[i]}"
-                local desc="${FILTERED_PROJECTS[i+1]}"
-                TOKENS+=("$token")
-                DESCS+=("$desc")
-                (( total_projects++ ))
-            done
-
-            local total_pages=$(( (total_projects + chunk_size_projects - 1) / chunk_size_projects ))
-            (( total_pages == 0 )) && return 1
-
-            # ensure CURRENT_PAGE_PROJECTS within bounds
-            if (( CURRENT_PAGE_PROJECTS >= total_pages )); then
-                CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-            fi
-            if (( CURRENT_PAGE_PROJECTS < 0 )); then
-                CURRENT_PAGE_PROJECTS=0
-            fi
-
-            # Persistent selection map across pages (keys are tokens)
-            local -A SELECTED_MAP=()
-
-            while true; do
-                local start_proj=$(( CURRENT_PAGE_PROJECTS * chunk_size_projects ))
-                local end_proj=$(( start_proj + chunk_size_projects ))
-                (( end_proj > total_projects )) && end_proj=$total_projects
-
-                local -a checklist_args=()
-
-                # Pseudo-keys for navigation and add
-                local PREV_KEY="__prev__"
-                local NEXT_KEY="__next__"
-                local ADD_KEY="__remove__"
-
-                # Always show __add__ (user can toggle it to commit)
-                checklist_args+=("$ADD_KEY" "Remove selected items (commit)" OFF)
-
-                # Show prev/next when applicable
-                if (( CURRENT_PAGE_PROJECTS > 0 )); then
-                    checklist_args+=("$PREV_KEY" "<<< Previous page" OFF)
-                fi
-                if (( CURRENT_PAGE_PROJECTS < total_pages - 1 )); then
-                    checklist_args+=("$NEXT_KEY" "Next page >>>" OFF)
-                fi
-
-                # Page items: use token as the whiptail tag and the description as the label
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local token="${TOKENS[p]}"
-                    local desc="${DESCS[p]}"
-                    if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
-                        checklist_args+=("$token" "$desc" ON)
-                    else
-                        checklist_args+=("$token" "$desc" OFF)
-                    fi
-                done
-
-                local prompt="Select items (Page $((CURRENT_PAGE_PROJECTS + 1))/$total_pages)"
-
-                local choice
-                choice=$(whiptail --title "$menu_title" \
-                    --cancel-button "Back" \
-                    --checklist "$prompt" 35 155 25 \
-                    "${checklist_args[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || {
-                    SELECTED_ITEMS_PROJECT=()
-                    return 1
-                }
-
-                # Parse whiptail output safely into array (removing quotes)
-                local -a selected_array
-                IFS=' ' read -r -a selected_array <<< "${choice//\"/}"
-
-                # Booleans for special items
-                local prev_sel=0
-                local next_sel=0
-                local add_sel=0
-
-                for sel in "${selected_array[@]:-}"; do
-                    if [[ "$sel" == "$PREV_KEY" ]]; then prev_sel=1; fi
-                    if [[ "$sel" == "$NEXT_KEY" ]]; then next_sel=1; fi
-                    if [[ "$sel" == "$ADD_KEY" ]]; then add_sel=1; fi
-                done
-
-                # Update SELECTED_MAP for items on this page based on returned selections
-                for (( p = start_proj; p < end_proj; p++ )); do
-                    local token="${TOKENS[p]}"
-                    local found=0
-                    for sel in "${selected_array[@]:-}"; do
-                        if [[ "$sel" == "$token" ]]; then
-                            found=1
-                            break
-                        fi
-                    done
-                    if (( found )); then
-                        SELECTED_MAP["$token"]=1
-                    else
-                        unset SELECTED_MAP["$token"]
-                    fi
-                done
-
-                # --- Validation rules ---
-                if (( prev_sel && next_sel )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot select Previous and Next at the same time." 8 60 >/dev/tty
-                    continue
-                fi
-
-                if (( add_sel && (prev_sel || next_sel) )); then
-                    whiptail --title "Invalid selection" --msgbox "You cannot navigate (Previous/Next) while using Add." 8 70 >/dev/tty
-                    continue
-                fi
-
-                # Handle navigation
-                if (( prev_sel )); then
-                    (( CURRENT_PAGE_PROJECTS-- ))
-                    (( CURRENT_PAGE_PROJECTS < 0 )) && CURRENT_PAGE_PROJECTS=0
-                    continue
-                fi
-                if (( next_sel )); then
-                    (( CURRENT_PAGE_PROJECTS++ ))
-                    (( CURRENT_PAGE_PROJECTS >= total_pages )) && CURRENT_PAGE_PROJECTS=$(( total_pages - 1 ))
-                    continue
-                fi
-
-                # If add was selected, finalize selection and return (but ensure there is at least one token selected)
-                if (( add_sel )); then
-                    # Build final SELECTED_ITEMS_PROJECT from SELECTED_MAP (return tokens)
-                    SELECTED_ITEMS_PROJECT=()
-                    for (( p = 0; p < total_projects; p++ )); do
-                        local token="${TOKENS[p]}"
-                        if [[ -n "${SELECTED_MAP[$token]:-}" ]]; then
-                            SELECTED_ITEMS_PROJECT+=("$token")
-                        fi
-                    done
-
-                    if (( ${#SELECTED_ITEMS_PROJECT[@]} == 0 )); then
-                        #whiptail --title "Nothing selected" --msgbox "No projects are selected to add. Select at least one project before pressing Add." 8 60
-                        continue
-                    fi
-
-                    # Success: return with SELECTED_ITEMS_PROJECT populated with index tokens
-                    return 0
-                fi
-
-                # If we get here it means user pressed OK without choosing Add or navigation.
-                # Loop back so they remain in the selection UI.
-                #continue
-            done
-
-            return 1
-        }
-
-        find_tags_for_linked_note() {
-            local path_to_note_file="$1"
-            local matching_tags_str=""
-
-            # Ensure NOTES_DB is defined and exists
-            if [[ -z "$NOTES_DB" || ! -f "$NOTES_DB" ]]; then
-                echo "Error: NOTES_DB not defined or file not found." >&2
-                return 1
-            fi
-
-            # Extract the tags (3rd field) for the matching note
-            matching_tags_str=$(awk -F'|' -v path="$path_to_note_file" '$2 == path {print $3}' "$NOTES_DB")
-
-            echo "$matching_tags_str"
-        }
-
-        # Check if database exists
+        # Unlink note: tick the linked notes to unlink. Glob (file name) and tag
+        # filters are available inside the picker.
         if [[ ! -f "$PROJECTS_DB" || ! -s "$PROJECTS_DB" ]]; then
-            whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60 >/dev/tty
+            whiptail --msgbox "Error: PROJECTS_DB file '$PROJECTS_DB' not found or empty." 10 60
             return 1
         fi
 
-        # Load full DB lines for editing later
+        local -a lines=()
         mapfile -t lines < "$PROJECTS_DB"
 
         local selected_project_path="$1"
         shift
 
-        # A filtered view supplies full NOTES_DB lines after this marker. Keep
-        # their paths so the removal chooser can exclude every other note.
+        # With --filtered-notes only the notes visible in the main menu are offered.
         local restrict_to_filtered_notes=false
         local -A filtered_note_paths=()
         if [[ "${1:-}" == "--filtered-notes" ]]; then
             restrict_to_filtered_notes=true
             shift
-
             local filtered_note_line filtered_note_path
             for filtered_note_line in "$@"; do
                 IFS='|' read -r _ filtered_note_path _ <<< "$filtered_note_line"
@@ -23559,144 +22311,68 @@ do_stuff_shortlisted() {
             done
         fi
 
-        local selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
+        local selected_project
+        selected_project=$(awk -F'|' -v path="$selected_project_path" '$2 == path { print NR; exit }' "$PROJECTS_DB")
         [[ -z "$selected_project" ]] && return 1
         ((selected_project--))
 
-        local line="${lines[selected_project]}"
-        IFS='|' read -r title path notes <<< "$line"
+        local title path notes
+        IFS='|' read -r title path notes <<< "${lines[selected_project]}"
 
-        truncate_note_tags_by_tag() {
-            local tags="$1"
-            local inner
-            local -a tag_array
-            local count
-            local extra
+        GOALS_NOTE_GLOB=""
+        GOALS_NOTE_TAGFILTER=""
 
-            # Remove surrounding [ ]
-            inner="${tags#[}"
-            inner="${inner%]}"
-
-            # Empty list
-            if [[ -z "$inner" ]]; then
-                printf '[]\n'
-                return
-            fi
-
-            # Split on commas
-            IFS=',' read -r -a tag_array <<< "$inner"
-
-            count=${#tag_array[@]}
-
-            if (( count <= 3 )); then
-                printf '[%s]\n' "$inner"
-                return
-            fi
-
-            extra=$((count - 3))
-
-            printf '[%s,%s,%s +%d]\n' \
-                "${tag_array[0]}" \
-                "${tag_array[1]}" \
-                "${tag_array[2]}" \
-                "$extra"
-        }
-
-        # Begin dissociation loop
+        local -a notes_arr=() candidates=() picked=() new_notes=()
+        local -A picked_map=()
+        local np new_notes_str tmp_db
         while true; do
             if [[ -z "$notes" ]]; then
-                whiptail --msgbox "Selected project has no associated notes." 10 60 >/dev/tty
+                whiptail --msgbox "Selected project has no associated notes." 10 60
                 return 1
             fi
 
-            # Split notes into array
-            local -a notes_arr
+            notes_arr=(); candidates=()
             IFS=',' read -ra notes_arr <<< "$notes"
-
-            if [[ ${#notes_arr[@]} -eq 0 ]]; then
-                whiptail --msgbox "No notes left to dissociate." 10 60 >/dev/tty
-                return 1
-            fi
-
-            # Reset menu options so they don't accumulate across loop iterations
-            local -a note_options=()
-
-            if [[ "$restrict_to_filtered_notes" == true && ${#filtered_note_paths[@]} -eq 0 ]]; then
-                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
-                return 1
-            fi
-
-            # Build menu options (add << Back at top)
-            #local -a note_options=("<< Back" "")   # Back item breaks logic
-            local note_index note_matching_tags
-            for note_index in "${!notes_arr[@]}"; do
-                if [[ "$restrict_to_filtered_notes" == true && -z "${filtered_note_paths[${notes_arr[note_index]}]:-}" ]]; then
+            for np in "${notes_arr[@]}"; do
+                [[ -z "$np" ]] && continue
+                if [[ "$restrict_to_filtered_notes" == true && -z "${filtered_note_paths[$np]:-}" ]]; then
                     continue
                 fi
-
-                note_matching_tags="$(find_tags_for_linked_note "${notes_arr[note_index]}")"
-                note_options+=("$note_index" "${notes_arr[note_index]} $(truncate_note_tags_by_tag "[${note_matching_tags}]")")
+                candidates+=("$np")
             done
-
-            if [[ ${#note_options[@]} -eq 0 ]]; then
-                whiptail --msgbox "No linked notes match the current filter." 10 60 >/dev/tty
+            if (( ${#candidates[@]} == 0 )); then
+                whiptail --msgbox "No linked notes match the current filter." 10 60
                 return 1
             fi
 
-            # Show note selection menu            
-            paginate_get_projects_checklist4 "Choose Note to Dissociate" "${note_options[@]}"
-            local selected_notes=("${SELECTED_ITEMS_PROJECT[@]}")
+            goals_pick_notes_multi "Choose Note to Dissociate" \
+                "Choose notes to unlink from the project" \
+                "__remove__" "Unlink the selected notes from the project" top \
+                "${candidates[@]}" || return 1
+            picked=("${GOALS_PICKED_PATHS[@]}")
 
-            # local contains_back=false
-
-            # for item in "${selected_notes[@]}"; do
-            #     if [[ "$item" == "<< Back" ]]; then
-            #         contains_back=true
-            #         break
-            #     fi
-            # done            
-
-            # If user chooses << Back, stop loop
-            [[ ${#selected_notes[@]} -eq 0 ]] && return 1
-
-            # build a fast lookup map of selected indices
-            local -A sel_map
-            for i in "${selected_notes[@]}"; do
-                sel_map["$i"]=1
+            picked_map=()
+            for np in "${picked[@]}"; do picked_map["$np"]=1; done
+            new_notes=()
+            for np in "${notes_arr[@]}"; do
+                [[ -z "$np" ]] && continue
+                [[ -z "${picked_map[$np]:-}" ]] && new_notes+=("$np")
             done
+            new_notes_str=""
+            (( ${#new_notes[@]} > 0 )) && new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
 
-            # populate new_notes with notes whose index is NOT in selected_notes
-            local -a new_notes=()
-            # iterate indices; sort numerically to preserve increasing order (optional)
-            for idx in $(printf '%s\n' "${!notes_arr[@]}" | sort -n); do
-                if [[ -z "${sel_map[$idx]:-}" ]]; then
-                    new_notes+=("${notes_arr[$idx]}")
-                fi
-            done
-
-            # Join remaining notes into CSV
-            local new_notes_str=""
-            if [[ ${#new_notes[@]} -gt 0 ]]; then
-                new_notes_str=$(IFS=','; printf '%s' "${new_notes[*]}")
-            fi
-
-            # Update database entry in memory
             lines[selected_project]="$title|$path|$new_notes_str"
-            notes="$new_notes_str"  # Update current project notes for next loop
+            notes="$new_notes_str"
 
-            # Write database back to file
-            local tmp_db
             tmp_db=$(mktemp) || return 1
-            printf "%s\n" "${lines[@]}" > "$tmp_db"
-            mv -- "$tmp_db" "$PROJECTS_DB" || { rm -- "$tmp_db"; return 1; }
+            printf '%s\n' "${lines[@]}" > "$tmp_db"
+            mv -- "$tmp_db" "$PROJECTS_DB" || { rm -f -- "$tmp_db"; return 1; }
 
-            whiptail --msgbox "Note(s) successfully dissociated from project." 10 60 >/dev/tty
-
-            # If no notes left, exit loop automatically
-            [[ -z "$notes" ]] && {
-                whiptail --msgbox "All notes have been dissociated from this project." 10 60 >/dev/tty
+            whiptail --msgbox "${#picked[@]} note(s) successfully dissociated from project." 10 60
+            if [[ -z "$notes" ]]; then
+                whiptail --msgbox "All notes have been dissociated from this project." 10 60
                 break
-            }
+            fi
         done
     }
 
@@ -24620,8 +23296,9 @@ do_stuff_shortlisted() {
             sort_children "$date_heading_id"
 
             # Keep TODO as the first root-level heading.
-            sort_children "0"
-        }
+            sort_children "0"            
+        }        
+
 
         add_item() {
             local type="$1"
@@ -24697,61 +23374,61 @@ do_stuff_shortlisted() {
             item_content[index]="$new_text"
         }
 
-        edit_task() {
-            local index="$1"
-            local task plan
+    edit_task() {
+        local index="$1"
+        local task plan
 
-            if [[ "${item_content[index]}" == *"->"* ]]; then
-                task="${item_content[index]%%->*}"
-                plan="${item_content[index]#*->}"
-            else
-                task="${item_content[index]}"
-                plan=""
-            fi
+        if [[ "${item_content[index]}" == *"->"* ]]; then
+            task="${item_content[index]%%->*}"
+            plan="${item_content[index]#*->}"
+        else
+            task="${item_content[index]}"
+            plan=""
+        fi
 
-            task="$(
-                whiptail \
-                    --title "Edit Task" \
-                    --inputbox "Task:" \
-                    10 70 \
-                    "$task" \
-                    3>&1 1>&2 2>&3
-            )" || return
+        task="$(
+            whiptail \
+                --title "Edit Task" \
+                --inputbox "Task:" \
+                10 70 \
+                "$task" \
+                3>&1 1>&2 2>&3
+        )" || return
 
-            # Validate task
-            if [[ -z "$task" || "$task" == *"|"* ]]; then
-                whiptail \
-                    --title "Invalid Task" \
-                    --msgbox "Task cannot be blank or contain the | character." \
-                    8 60
-                return
-            fi
+        # Validate task
+        if [[ -z "$task" || "$task" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Task" \
+                --msgbox "Task cannot be blank or contain the | character." \
+                8 60
+            return
+        fi
 
-            plan="$(
-                whiptail \
-                    --title "Edit Plan" \
-                    --inputbox "Plan:" \
-                    10 70 \
-                    "$plan" \
-                    3>&1 1>&2 2>&3
-            )" || return
+        plan="$(
+            whiptail \
+                --title "Edit Plan" \
+                --inputbox "Plan:" \
+                10 70 \
+                "$plan" \
+                3>&1 1>&2 2>&3
+        )" || return
 
-            # Validate plan
-            if [[ "$plan" == *"|"* ]]; then
-                whiptail \
-                    --title "Invalid Plan" \
-                    --msgbox "Plan cannot contain the | character." \
-                    8 60
-                return
-            fi
+        # Validate plan
+        if [[ "$plan" == *"|"* ]]; then
+            whiptail \
+                --title "Invalid Plan" \
+                --msgbox "Plan cannot contain the | character." \
+                8 60
+            return
+        fi
 
-            # deal with case where there is no ->
-            if [[ -n "$plan" ]]; then
-                item_content[index]="${task}->${plan}"
-            else
-                item_content[index]="$task"
-            fi
-        }
+        # deal with case where there is no ->
+        if [[ -n "$plan" ]]; then
+            item_content[index]="${task}->${plan}"
+        else
+            item_content[index]="$task"
+        fi
+    }
 
         edit_comment() {            
             local index="$1"
@@ -24831,7 +23508,7 @@ do_stuff_shortlisted() {
             )" || return
 
             if [[ "$comment" == *"|"* || "$comment" == *$'\n'* ]]; then
-                whiptail --msgbox "A comment cannot contain '|' or a line break.\n\nThey are reserved by the project file format." 9 70
+                whiptail --msgbox "A comment cannot contain '|' or newline.\n\nThey are reserved by the project file format." 9 70
                 return
             fi
 
@@ -25653,7 +24330,6 @@ do_stuff_shortlisted() {
             done
         }
 
-
         # ------------------------------------------------------------
         # Item action menu
         # ------------------------------------------------------------
@@ -25756,7 +24432,7 @@ do_stuff_shortlisted() {
 
                     SORT)
                         sort_children "${item_id[index]}"
-                        ;;                        
+                        ;;
 
                     DELETE)
                         local deleted_id="${item_id[index]}"
@@ -25881,7 +24557,7 @@ do_stuff_shortlisted() {
             (( ${#PROJECT_FILE} > 80 )) && project_file_tr+="..."
 
             local tree_page=0
-            local tree_page_size=25   # tree items per page
+            local tree_page_size=25   # tree items per page            
 
             # Remember the saved state so Back can detect unsaved changes.
             local PROJECT_SAVED_SIG
@@ -25910,7 +24586,7 @@ do_stuff_shortlisted() {
                     "ADD_H" "Add top-level heading"
                     "ADD_T" "Add task"
                     "ADD_TODO" "Add TODO item"
-                    "ADD_RULES" "Add RULES FOR TODAY item"                    
+                    "ADD_RULES" "Add RULES FOR TODAY item"                 
                     "SORT" "Sort root's children by number prefix"
                     "SAVE" "Save changes"
                     "REVERT" "Discard changes and reload from disk"
@@ -25968,13 +24644,13 @@ do_stuff_shortlisted() {
                         fi
                         ;;
 
-                    ADD_TODO)
-                        add_todo_item
-                        ;;
-
                     ADD_RULES)
                         add_rules_for_today_item
-                        ;;                                            
+                        ;;                    
+
+                    ADD_TODO)
+                        add_todo_item
+                        ;;                    
 
                     SORT)
                         sort_children "0"
@@ -26017,7 +24693,7 @@ do_stuff_shortlisted() {
                         fi
                         ;;
                 esac
-            done        
+            done
         }
 
         # ------------------------------------------------------------
@@ -26030,11 +24706,11 @@ do_stuff_shortlisted() {
         fi
 
         if ! load_project "$PROJECT_FILE"; then
-            exit 1
+            return 1
         fi
 
-        project_menu            
-    }    
+        project_menu    
+    }
 
     truncate_note_tags_by_tag() {
         local tags="$1"
@@ -26072,36 +24748,17 @@ do_stuff_shortlisted() {
             "$extra"
     }
 
-    # Populate menu with current shortlist
-    local projects=()
-    mapfile -t projects < "$PROJECTS_DB_SHORTLISTED"
-
-    mapfile -t projects < <(
-        printf '%s\n' "${projects[@]}" | sort
-    )
-
-    local project_menu_options=("<< Back" "")
-    local p title line lineno
-    for p in "${projects[@]}"; do
-        # Get the matching line.
-        line="$(lookup_shortlist_item_from_proj_db "$p")"
-
-        IFS='|' read -r title _ _ <<< "$line"
-        lineno=$(grep -Fxnm1 "$line" "$PROJECTS_DB" | cut -d: -f1)
-
-	    # Store matching index from PROJECTS_DB file.
-        [[ -n "$lineno" ]] && project_menu_options+=("$lineno" "$title")
-    done
-
-    mapfile -t projects < "$PROJECTS_DB"	# DIRTY FIX.
-    # END FIX.
-
-    # Show project selection
-    paginate_get_projects "Select Project" "${project_menu_options[@]}"
-    local selected_project_tag
-    selected_project_tag="$SELECTED_ITEM_PROJECT"
-    [[ -z "$selected_project_tag" || "$selected_project_tag" == "<< Back" ]] && return 1
-
+    # Select Project: only shortlisted projects are offered, shown by title.
+    # __APPLY_GLOB__ matches project titles and __RESET_GLOB__ clears the glob
+    # (no glob is asked up front).
+    local -a projects=()
+    GOALS_PROJECT_GLOB=""
+    local GOALS_PROJECT_TITLE_MODE=1
+    local GOALS_PROJECT_RESTRICT_FILE="$PROJECTS_DB_SHORTLISTED"
+    goals_select_project "Select Project" || return 1
+    GOALS_PROJECT_TITLE_MODE=""
+    local selected_project_tag="$GOALS_SELECTED_PROJECT_LINENO"
+    mapfile -t projects < "$PROJECTS_DB"
 
     local selected_project_path
     local note_lines=()
@@ -26122,6 +24779,11 @@ do_stuff_shortlisted() {
         note_lines=()
         note_menu_options=()
 
+        # Filters first, then the actions.
+        note_menu_options+=("__FILTER_BY_TAG__" "Filter linked notes by tag")
+        note_menu_options+=("__RESET_FILTER__" "Reset the tag filter")
+        note_menu_options+=("__APPLY_GLOB__" "Apply glob (matches note titles)")
+        note_menu_options+=("__RESET_GLOB__" "Reset the title glob")
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
@@ -26131,10 +24793,6 @@ do_stuff_shortlisted() {
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
         note_menu_options+=("Remove tag from linked notes" "")
-        note_menu_options+=("Filter linked notes by tag" "")
-        note_menu_options+=("Reset filter" "")
-        note_menu_options+=("Apply glob" "")
-        note_menu_options+=("Reset glob" "")
 
         local trunc_tag
 
@@ -26225,7 +24883,7 @@ do_stuff_shortlisted() {
             IFS='|' read -r title note_path note_tags rest <<< "$line"
 
             # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
-            if [[ "$selected_tag" == "NO TAG" ]]; then
+            if [[ "$selected_tag" == "[NO TAG]" ]]; then
                 [[ -z "$note_tags" ]] && printf '%s\n' "$line"
                 continue
             fi
@@ -26242,11 +24900,8 @@ do_stuff_shortlisted() {
     }    
     #-- Helpers end.
 
-    local TAG_FILTER_BY=""
-    local GLOB_FILTER_BY=""
-
-    # Apply a case-insensitive Bash glob to the complete linked-note title.
-    # Use patterns such as *python* for substring matching.
+    # Apply a Bash glob to the note title (case-insensitive). The glob matches
+    # the whole title, so use *text* for a contains-style match.
     filter_linked_notes_by_glob() {
         local pattern="$1"
         shift
@@ -26254,20 +24909,25 @@ do_stuff_shortlisted() {
         local line title lower_pattern="${pattern,,}"
         for line in "$@"; do
             IFS='|' read -r title _ _ _ <<< "$line"
+            # Keep the right-hand pattern unquoted so Bash interprets glob syntax.
             if [[ "${title,,}" == $lower_pattern ]]; then
                 printf '%s\n' "$line"
             fi
         done
     }
 
-    # Return linked notes after applying both active filters.
+    local TAG_FILTER_BY=""
+    local GLOB_FILTER_BY=""
+
+    # Return linked notes after applying both active filters. This helper is
+    # shared by the menu and all actions that operate on the visible note list.
     get_current_filtered_linked_notes() {
         local -a current_notes=()
         mapfile -t current_notes < <(
             retrieve_linked_notes "$selected_project_path"
         )
 
-        if [[ -n "$TAG_FILTER_BY" ]]; then
+        if [[ -n "$TAG_FILTER_BY" && "$TAG_FILTER_BY" != "[ANY TAG]" ]]; then
             mapfile -t current_notes < <(
                 filter_linked_notes_by_tag "$TAG_FILTER_BY" "${current_notes[@]}"
             )
@@ -26282,8 +24942,8 @@ do_stuff_shortlisted() {
         ((${#current_notes[@]} > 0)) && printf '%s\n' "${current_notes[@]}"
     }
 
-    # Ignore the active tag filter when offering tag choices, so the user can
-    # change the tag filter without resetting the glob.
+    # Get notes matching the glob without applying the current tag filter. This
+    # lets the user change the tag filter while the glob remains in force.
     get_linked_notes_matching_glob() {
         local -a current_notes=()
         mapfile -t current_notes < <(
@@ -26305,7 +24965,7 @@ do_stuff_shortlisted() {
 
         mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
 
-        # Keep the visible notes in alphabetical title order.
+        # Keep the visible list alphabetically sorted by title.
         if ((${#filtered_linked_notes[@]} > 0)); then
             mapfile -t filtered_linked_notes < <(
                 printf '%s\n' "${filtered_linked_notes[@]}" |
@@ -26315,7 +24975,13 @@ do_stuff_shortlisted() {
 
         note_lines=()
         note_menu_options=()
+        LINKED_NOTES_TOTAL=$(retrieve_linked_notes "$selected_project_path" | grep -c .)
 
+        # Filters first, then the actions.
+        note_menu_options+=("__FILTER_BY_TAG__" "Filter linked notes by tag")
+        note_menu_options+=("__RESET_FILTER__" "Reset the tag filter")
+        note_menu_options+=("__APPLY_GLOB__" "Apply glob (matches note titles)")
+        note_menu_options+=("__RESET_GLOB__" "Reset the title glob")
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
@@ -26325,10 +24991,6 @@ do_stuff_shortlisted() {
         note_menu_options+=("Unlink note" "")
         note_menu_options+=("Add tag to linked notes" "")
         note_menu_options+=("Remove tag from linked notes" "")
-        note_menu_options+=("Filter linked notes by tag" "")
-        note_menu_options+=("Reset filter" "")
-        note_menu_options+=("Apply glob" "")
-        note_menu_options+=("Reset glob" "")
 
         for line in "${filtered_linked_notes[@]}"; do
             [[ -z "$line" ]] && continue
@@ -26345,38 +25007,67 @@ do_stuff_shortlisted() {
     while :; do
         refresh_filtered_linked_notes
 
+        paginate_tags_menu() {
+            local title="$1"
+            shift
+            local items=("$@")
+            local per_page=20
+            local total_items=$(( ${#items[@]} / 2 ))
+            local total_pages=$(( (total_items + per_page - 1) / per_page ))
+            local current_page=1
+            local choice start_index end_index menu_items tag desc
+
+            while true; do
+                # Calculate start and end indices for current page
+                start_index=$(( (current_page - 1) * per_page * 2 ))
+                end_index=$(( start_index + per_page * 2 ))
+                menu_items=()
+
+                # Add items for current page
+                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
+                    tag="${items[i]}"
+                    desc="${items[i+1]}"
+                    menu_items+=("$tag" "$desc")
+                done
+
+                # Add navigation options
+                if (( current_page > 1 )); then
+                    menu_items+=("<< Prev" "")
+                fi
+                if (( current_page < total_pages )); then
+                    menu_items+=(">> Next" "")
+                fi
+
+                # Show whiptail menu
+                choice=$(whiptail --title "$title" \
+                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
+
+                [[ $? -ne 0 ]] && return 1  # Cancel pressed
+
+                case "$choice" in
+                    ">> Next")
+                        (( current_page++ ))
+                        ;;
+                    "<< Prev")
+                        (( current_page-- ))
+                        ;;
+                    *)
+                        # Return selected tag
+                        printf '%s\n' "$choice"
+                        return 0
+                        ;;
+                esac
+            done
+        }
+
         choose_tag_goal() {
-            local tag
-            local menu_items=()
-            local choice
-
-            # Add NO TAG option first.
-            menu_items+=("NO TAG" "")
-
-            # Add tags from NOTES_TAGS_DB.
-            while IFS= read -r tag; do
-                [[ -n "$tag" ]] && menu_items+=("$tag" "")
-            done < "$NOTES_TAGS_DB"
-
-            # if ! choice=$(whiptail \
-            #     --title "Choose Tag" \
-            #     --menu "Select a tag for new linked note:" \
-            #     20 70 12 \
-            #     "${menu_items[@]}" \
-            #     3>&1 1>&2 2>&3
-            # ); then
-            #     return 1
-            # fi
-
-            choice=$(paginate_tags_menu "Choose Tag" "${menu_items[@]}") || return 1
-
-            if [[ "$choice" == "NO TAG" ]]; then
-                printf '%s' "[NO TAG]"
-            else
-                printf '%s' "$choice"
-            fi
-
-            return 0
+            # Choose Tag: [NO TAG] creates the note without a tag. __FILTER__
+            # narrows the tag list by a literal substring; __RESET_FILTER__ clears it.
+            goals_select_note_tag_filter --title "Choose Tag" \
+                --prompt "Choose a tag for the new linked note" --pins "NO" \
+                --no-tag-desc "Create the note without any tag" || return 1
+            printf '%s' "$GOALS_SELECTED_NOTE_TAG"
         }
 
         add_tag_to_notes_from_filtered() {
@@ -26436,188 +25127,45 @@ Tag you have chosen will be added to the selected notes." 10 60
             fi
 
             local selected_tag
-            # selected_tag=$(
-            #     whiptail --title "Select tag" \
-            #         --menu "Choose the tag to add:" \
-            #         20 70 10 \
-            #         "${tag_menu[@]}" \
-            #         3>&1 1>&2 2>&3
-            # ) || return 1
+            # Select tag: __FILTER__ narrows the tag list by a literal substring,
+            # __RESET_FILTER__ clears it.
+            local -a tag_list=()
+            local tk
+            for (( tk = 0; tk < ${#tag_menu[@]}; tk += 2 )); do
+                tag_list+=("${tag_menu[tk]}")
+            done
+            goals_select_note_tag_filter --title "Select tag" \
+                --prompt "Choose the tag to add to the notes" --pins "" \
+                --tags "${tag_list[@]}" || return 1
+            selected_tag="$GOALS_SELECTED_NOTE_TAG"
 
-            paginate_tags_menu() {
-                local title="$1"
-                shift
-                local items=("$@")
-                local per_page=20
-                local total_items=$(( ${#items[@]} / 2 ))
-                local total_pages=$(( (total_items + per_page - 1) / per_page ))
-                local current_page=1
-                local choice start_index end_index menu_items tag desc
+            # Select notes: full note paths with their tags.
+            local -a all_paths=()
+            local ln_ ln_path_
+            for ln_ in "${all_notes[@]}"; do
+                IFS='|' read -r _ ln_path_ _ <<< "$ln_"
+                [[ -n "$ln_path_" ]] && all_paths+=("$ln_path_")
+            done
 
-                while true; do
-                    # Calculate start and end indices for current page
-                    start_index=$(( (current_page - 1) * per_page * 2 ))
-                    end_index=$(( start_index + per_page * 2 ))
-                    menu_items=()
-
-                    # Add items for current page
-                    for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                        tag="${items[i]}"
-                        desc="${items[i+1]}"
-                        menu_items+=("$tag" "$desc")
-                    done
-
-                    # Add navigation options
-                    if (( current_page > 1 )); then
-                        menu_items+=("<< Prev" "")
-                    fi
-                    if (( current_page < total_pages )); then
-                        menu_items+=(">> Next" "")
-                    fi
-
-                    # Show whiptail menu
-                    choice=$(whiptail --title "$title" \
-                        --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                        "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                    [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                    case "$choice" in
-                        ">> Next")
-                            (( current_page++ ))
-                            ;;
-                        "<< Prev")
-                            (( current_page-- ))
-                            ;;
-                        *)
-                            # Return selected tag
-                            printf '%s\n' "$choice"
-                            return 0
-                            ;;
-                    esac
-                done
-            }
-
-            selected_tag=$(paginate_tags_menu "Select tag" "${tag_menu[@]}") || return 1
-
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
             local -A selected_paths=()
-            local page=0
-
+            local sp_
             while :; do
-                local start=$(( page * page_size ))
-                (( start < 0 )) && start=0
-                if (( start >= total )); then
-                    page=0
-                    start=0
-                fi
+                goals_pick_notes_multi "Select notes" "Tag to add: $selected_tag" \
+                    "__add_tag__" "Add tag to selected notes" top \
+                    "${all_paths[@]}" || return 1
 
-                local end=$(( start + page_size ))
-                (( end > total )) && end=$total
+                selected_paths=()
+                for sp_ in "${GOALS_PICKED_PATHS[@]}"; do selected_paths["$sp_"]=1; done
 
-                local -a checklist=()
-                local -a note_ids=()
-                local -a note_paths=()
+                local selected_count="${#selected_paths[@]}"
 
-                local i line title path tags rest id label status
-                for ((i=start; i<end; i++)); do
-                    line="${all_notes[i]}"
-
-                    IFS='|' read -r title path tags rest <<< "$line"
-                    id="n_$i"
-
-                    note_ids+=("$id")
-                    note_paths+=("$path")
-
-                    #label="$path"   # hack: display note title instead.
-                    label="$(awk -F'|' -v path="$path" '$2 == path { print $1; exit }' "$NOTES_DB")"                
-
-                    local tags_tr=""
-                    if [[ -n $tags ]]; then
-                        tags_tr="$(truncate_note_tags_by_tag "$tags")"
-
-                        label+=" $tags_tr"
-                    else
-                        label+=" []"
-                    fi
-
-                    status="OFF"
-                    [[ ${selected_paths["$path"]+x} ]] && status="ON"
-
-                    checklist+=("$id" "$label" "$status")
-                done
-
-                if (( page > 0 )); then
-                    checklist+=("prev_page" "Previous page" "OFF")
-                fi
-                if (( page + 1 < page_count )); then
-                    checklist+=("next_page" "Next page" "OFF")
-                fi
-                checklist+=("add_tag" "Add tag to selected notes" "OFF")
-
-                local choice_text=""
-                choice_text=$(
-                    whiptail --title "Select notes" \
-                        --checklist "Tag: $selected_tag   Page $((page + 1))/$page_count" \
-                        35 155 25 \
-                        "${checklist[@]}" \
-                        3>&1 1>&2 2>&3
-                ) || return 1
-
-                choice_text=${choice_text//\"/}
-                local -a choices=()
-                read -r -a choices <<< "$choice_text"
-
-                local nav_prev=0 nav_next=0 nav_add=0
-                local item
-                for item in "${choices[@]}"; do
-                    case $item in
-                        prev_page) nav_prev=1 ;;
-                        next_page) nav_next=1 ;;
-                        add_tag)   nav_add=1 ;;
-                    esac
-                done
-
-                if (( nav_prev && nav_next )); then
-                    whiptail --msgbox "Choose only one of prev_page or next_page." 8 60
+                if ! whiptail --title "Confirm" \
+                    --yesno "Add tag \"$selected_tag\" to $selected_count selected note(s)?" \
+                    10 70; then
                     continue
                 fi
-
-                if (( nav_add && (nav_prev || nav_next) )); then
-                    whiptail --msgbox "add_tag cannot be selected together with prev_page or next_page." 8 70
-                    continue
-                fi
-
-                # Commit the current page note selections into the persistent set.
-                for ((i=0; i<${#note_ids[@]}; i++)); do
-                    if [[ " ${choices[*]} " == *" ${note_ids[i]} "* ]]; then
-                        selected_paths["${note_paths[i]}"]=1
-                    else
-                        unset "selected_paths[${note_paths[i]}]"
-                    fi
-                done
-
-                if (( nav_prev )); then
-                    (( page > 0 )) && ((page--))
-                    continue
-                fi
-
-                if (( nav_next )); then
-                    (( page + 1 < page_count )) && ((page++))
-                    continue
-                fi
-
-                if (( nav_add )); then
-                    local selected_count="${#selected_paths[@]}"
-                    if (( selected_count == 0 )); then
-                        #whiptail --msgbox "No notes selected yet." 8 45
-                        continue
-                    fi
-
-                    if ! whiptail --title "Confirm" \
-                        --yesno "Add tag \"$selected_tag\" to $selected_count selected note(s)?" \
-                        10 70; then
-                        continue
-                    fi
 
                     tmp_sel=$(mktemp "${TMPDIR:-/tmp}/notes_sel.XXXXXX") || return 1
                     tmp_db=$(mktemp "${notes_db}.XXXXXX") || { rm -f -- "$tmp_sel"; return 1; }
@@ -26669,7 +25217,6 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     whiptail --msgbox "Tag \"$selected_tag\" added to selected notes." 8 60
                     return 0
-                fi
             done
         }
 
@@ -26805,7 +25352,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             # Replace the original database
             mv "$temp_file" "$NOTES_DB"
-        }        
+        }
 
         filter_linked_notes_by_tag() {
             local selected_tag="$1"
@@ -26822,7 +25369,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                 IFS='|' read -r title note_path note_tags rest <<< "$line"
 
                 # NEW: 'NO TAG' sentinel matches linked notes with an empty tag field.
-                if [[ "$selected_tag" == "NO TAG" ]]; then
+                if [[ "$selected_tag" == "[NO TAG]" ]]; then
                     [[ -z "$note_tags" ]] && printf '%s\n' "$line"
                     continue
                 fi
@@ -26981,6 +25528,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local id=1
 
             local -a note_items=()
+            local -a url_note_paths=()
             local -a url_items=()
 
             local -A note_path_by_id=()
@@ -27035,6 +25583,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     [[ -n $title ]] || title=$note_path
 
                     note_items+=("$id" "$title")
+                    url_note_paths+=("$note_path")
                     ((++id))
                 fi
             done
@@ -27044,23 +25593,20 @@ Tag you have chosen will be added to the selected notes." 10 60
                 return 1
             fi
 
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local GOALS_NOTE_TITLE_MODE=1
+            local GOALS_NOTE_TAGMENU_FULL=1
             while :; do
                 # ------------------------------------------------------------
                 # Select a note.
                 # ------------------------------------------------------------
 
-                selected_note=$(
-                    whiptail \
-                        --title "Select Note" \
-                        --cancel-button "Back" \
-                        --menu "Choose a linked note:" \
-                        22 100 14 \
-                        "${note_items[@]}" \
-                        3>&1 1>&2 2>&3
-                ) || return 1
-
-                note_path=${note_path_by_id[$selected_note]-}
-                [[ -n $note_path ]] || return 1
+                # Select Note: titles with tags; glob matches note titles;
+                # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
+                goals_pick_note "Select Note" "Choose a linked note" \
+                    "${url_note_paths[@]}" || return 1
+                note_path="$GOALS_PICKED_NOTE_PATH"
 
                 # ------------------------------------------------------------
                 # Build URL menu for the selected note.
@@ -27108,20 +25654,47 @@ Tag you have chosen will be added to the selected notes." 10 60
                     return 1
                 fi
 
+                # Select URL: __APPLY_GLOB__ matches the URL or its description.
+                local url_glob="" new_url_glob shown_urls k_
+                local -a url_menu=()
                 while :; do
-                    # ------------------------------------------------------------
-                    # Select URL.
-                    # ------------------------------------------------------------
+                    url_menu=(
+                        "__APPLY_GLOB__" "Apply glob (matches URL or description)"
+                        "__RESET_GLOB__" "Reset glob"
+                    )
+                    shown_urls=0
+                    for (( k_ = 0; k_ < ${#url_items[@]}; k_ += 2 )); do
+                        if [[ -n $url_glob ]]; then
+                            [[ "${url_items[k_+1],,}" == ${url_glob,,} ]] || continue
+                        fi
+                        url_menu+=("${url_items[k_]}" "${url_items[k_+1]}")
+                        shown_urls=$((shown_urls + 1))
+                    done
 
                     selected_url=$(
                         whiptail \
                             --title "Select URL" \
                             --cancel-button "Back" \
-                            --menu "Choose a URL to open:" \
+                            --menu "Choose a URL to open:\nGlob: ${url_glob:-none}   ($shown_urls of $(( ${#url_items[@]} / 2 )) URLs shown)" \
                             20 155 10 \
-                            "${url_items[@]}" \
+                            "${url_menu[@]}" \
                             3>&1 1>&2 2>&3
                     ) || break
+
+                    case $selected_url in
+                        __APPLY_GLOB__)
+                            if new_url_glob=$(whiptail --title "Apply URL Glob" --inputbox \
+                                "Enter a case-insensitive glob to match URLs or their descriptions (for example: *github*). Leave empty to show all URLs." \
+                                11 90 "$url_glob" 3>&1 1>&2 2>&3); then
+                                url_glob=$new_url_glob
+                            fi
+                            continue
+                            ;;
+                        __RESET_GLOB__)
+                            url_glob=""
+                            continue
+                            ;;
+                    esac
 
                     [[ -n $selected_url ]] || continue
 
@@ -27177,6 +25750,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local id
 
             local -a note_items=()
+            local -a ebook_note_paths=()
             local -A note_path_by_id=()
 
             local -a ebook_items=()
@@ -27235,6 +25809,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     note_path_by_id[$id]=$note_path
                     note_items+=("$id" "$title")
+                    ebook_note_paths+=("$note_path")
 
                     ((++id))
                 fi
@@ -27251,21 +25826,15 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Select note.
             # ------------------------------------------------------------
 
-            selected_note=$(
-                whiptail \
-                    --title "Select Note" \
-                    --cancel-button "Back" \
-                    --menu "Choose a linked note:" \
-                    22 100 14 \
-                    "${note_items[@]}" \
-                    3>&1 1>&2 2>&3
-            )
-            status=$?
-
-            ((status != 0)) && return "$status"
-
-            note_path=${note_path_by_id[$selected_note]-}
-            [[ -n $note_path ]] || return 1
+            # Select Note: titles with tags; glob matches note titles;
+            # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local GOALS_NOTE_TITLE_MODE=1
+            local GOALS_NOTE_TAGMENU_FULL=1
+            goals_pick_note "Select Note" "Choose a linked note" \
+                "${ebook_note_paths[@]}" || return 1
+            note_path="$GOALS_PICKED_NOTE_PATH"
 
             # ------------------------------------------------------------
             # Build ebook menu for the selected note.
@@ -27359,7 +25928,6 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
-                    #_spawn zathura -- "$ebook"
                     _spawn "$(get_open_command "$ebook")" -- "$ebook"
                     ;;
 
@@ -27435,6 +26003,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     page=${page_by_id[$bookmark_selection]-}
                     [[ -n $page ]] || return 1
 
+
                     local cmd__ vcmd__
                     cmd__="$(get_open_command "$ebook")"
                     vcmd__="${VIEWER_COMMANDS["$cmd__"]}"
@@ -27444,9 +26013,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     read -r -a viewer_cmd__ <<< "$vcmd__"
                     _spawn "${viewer_cmd__[@]}" "$page" -- "$ebook"
 
-                    # old.
-                    #_spawn "$vcmd__" "$page" -- "$ebook"                    
-                    #_spawn zathura --page="$page" -- "$ebook"
+                    #_spawn "$vcmd__" "$page" -- "$ebook"
                     ;;
 
                 *)
@@ -27456,63 +26023,10 @@ Tag you have chosen will be added to the selected notes." 10 60
         }
 
 
+
         # FIX: PAGINATE LINKED NOTE SELECTION
         local selected_note_tag
         selected_note_tag="$(show_note_menu "$selected_project_title" "${note_menu_options[@]}")" || return 1
-
-        paginate_tags_menu() {
-            local title="$1"
-            shift
-            local items=("$@")
-            local per_page=20
-            local total_items=$(( ${#items[@]} / 2 ))
-            local total_pages=$(( (total_items + per_page - 1) / per_page ))
-            local current_page=1
-            local choice start_index end_index menu_items tag desc
-
-            while true; do
-                # Calculate start and end indices for current page
-                start_index=$(( (current_page - 1) * per_page * 2 ))
-                end_index=$(( start_index + per_page * 2 ))
-                menu_items=()
-
-                # Add items for current page
-                for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                    tag="${items[i]}"
-                    desc="${items[i+1]}"
-                    menu_items+=("$tag" "$desc")
-                done
-
-                # Add navigation options
-                if (( current_page > 1 )); then
-                    menu_items+=("<< Prev" "")
-                fi
-                if (( current_page < total_pages )); then
-                    menu_items+=(">> Next" "")
-                fi
-
-                # Show whiptail menu
-                choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                    "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                case "$choice" in
-                    ">> Next")
-                        (( current_page++ ))
-                        ;;
-                    "<< Prev")
-                        (( current_page-- ))
-                        ;;
-                    *)
-                        # Return selected tag
-                        printf '%s\n' "$choice"
-                        return 0
-                        ;;
-                esac
-            done
-        }
 
         # Handle case when user selects "Create new lnked note".
         if [[ "$selected_note_tag" == "Create new linked note" ]]; then
@@ -27528,16 +26042,11 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue    # Continue since we need to update the linked notes list now.
         elif [[ "$selected_note_tag" == "Link note" ]]; then
             associate_note_to_project_from_shortlist "$selected_project_path" || continue
-            continue    # Display list of linked notes again after associating a note.
+            continue    # Display list of linked notes again after associating a note.   
         elif [[ "$selected_note_tag" == "Unlink note" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
-
-            if [[ -n "$TAG_FILTER_BY" || -n "$GLOB_FILTER_BY" ]]; then
-                dissociate_note_from_project_from_shortlist \
-                    "$selected_project_path" --filtered-notes "${filtered_linked_notes[@]}" || continue
-            else
-                dissociate_note_from_project_from_shortlist "$selected_project_path" || continue
-            fi
+            dissociate_note_from_project_from_shortlist \
+                "$selected_project_path" --filtered-notes "${filtered_linked_notes[@]}" || continue
             continue    # Display list of linked notes again after dissociating notes.
         elif [[ "$selected_note_tag" == "Manage plan" ]]; then
             edit_plan "$selected_project_path" || continue
@@ -27545,22 +26054,16 @@ Tag you have chosen will be added to the selected notes." 10 60
         elif [[ "$selected_note_tag" == "Add tag to linked notes" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
             if ((${#filtered_linked_notes[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
+                whiptail --title "No Matching Notes" --msgbox \
+                    "No linked notes match the active filters." 8 60
                 continue
             fi
             add_tag_to_notes_from_filtered "${filtered_linked_notes[@]}"
             continue
         elif [[ "$selected_note_tag" == "Remove tag from linked notes" ]]; then
-            # Restrict tag removal to exactly the notes shown by current filters.
+            # Work only with notes that satisfy both active filters.
             local notes_for_tag_workflow=()
             mapfile -t notes_for_tag_workflow < <(get_current_filtered_linked_notes)
-
-            if ((${#notes_for_tag_workflow[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
-                continue
-            fi
 
             # ------------------------------------------------------------
             # Retrieve tags from the relevant linked notes.
@@ -27601,60 +26104,6 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Select tag.
             # ------------------------------------------------------------
 
-            paginate_tags_menu() {
-                local title="$1"
-                shift
-                local items=("$@")
-                local per_page=20
-                local total_items=$(( ${#items[@]} / 2 ))
-                local total_pages=$(( (total_items + per_page - 1) / per_page ))
-                local current_page=1
-                local choice start_index end_index menu_items tag desc
-
-                while true; do
-                    # Calculate start and end indices for current page
-                    start_index=$(( (current_page - 1) * per_page * 2 ))
-                    end_index=$(( start_index + per_page * 2 ))
-                    menu_items=()
-
-                    # Add items for current page
-                    for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
-                        tag="${items[i]}"
-                        desc="${items[i+1]}"
-                        menu_items+=("$tag" "$desc")
-                    done
-
-                    # Add navigation options
-                    if (( current_page > 1 )); then
-                        menu_items+=("<< Prev" "")
-                    fi
-                    if (( current_page < total_pages )); then
-                        menu_items+=(">> Next" "")
-                    fi
-
-                    # Show whiptail menu
-                    choice=$(whiptail --title "$title" \
-                        --menu "Page ${current_page}/${total_pages}" 20 60 12 \
-                        "${menu_items[@]}" 3>&1 1>&2 2>&3)
-
-                    [[ $? -ne 0 ]] && return 1  # Cancel pressed
-
-                    case "$choice" in
-                        ">> Next")
-                            (( current_page++ ))
-                            ;;
-                        "<< Prev")
-                            (( current_page-- ))
-                            ;;
-                        *)
-                            # Return selected tag
-                            printf '%s\n' "$choice"
-                            return 0
-                            ;;
-                    esac
-                done
-            }
-
             # if ! chosen_tag_for_removal=$(whiptail \
             #     --title "Remove Linked Note Tag" \
             #     --menu "Select a tag to remove:" \
@@ -27665,7 +26114,12 @@ Tag you have chosen will be added to the selected notes." 10 60
             #     continue
             # fi
 
-            chosen_tag_for_removal=$(paginate_tags_menu "Remove Linked Note Tag" "${tag_menu_options[@]}") || continue
+            # Remove Linked Note Tag: __FILTER__ narrows the list by a literal
+            # substring, __RESET_FILTER__ clears it.
+            goals_select_note_tag_filter --title "Remove Linked Note Tag" \
+                --prompt "Select a tag to remove" --pins "" \
+                --tags "${note_tags[@]}" || continue
+            chosen_tag_for_removal="$GOALS_SELECTED_NOTE_TAG"
 
             # ------------------------------------------------------------
             # Find NOTES_DB lines containing the selected tag, then
@@ -27708,350 +26162,88 @@ Tag you have chosen will be added to the selected notes." 10 60
             # Paginated checklist settings.
             # ------------------------------------------------------------
 
-            local -A selected_note_map=()
-
-            local notes_per_page=50
-            local current_page=0
-            local total_notes=${#notes_with_selected_tag[@]}
-            local total_pages=$(( (total_notes + notes_per_page - 1) / notes_per_page ))
-
-            local next_page="__NEXT_PAGE__"
-            local prev_page="__PREV_PAGE__"
-            local remove_notes="__REMOVE__"
-
-            local checklist_output
-            local selected_items=()
-
-            # ------------------------------------------------------------
-            # Pagination loop.
-            # ------------------------------------------------------------
-
+            # Select notes: __REMOVE__ at the top, full note paths with their
+            # tags, glob (file name) and tag filters.
+            GOALS_NOTE_GLOB=""
+            GOALS_NOTE_TAGFILTER=""
+            local selected_notes_for_removal=()
+            local rm_path_ matching_line__
             while :; do
+                goals_pick_notes_multi "Select Notes" \
+                    "Select notes to remove the tag \"$chosen_tag_for_removal\" from" \
+                    "__remove__" "Remove the tag from the selected notes" top \
+                    "${notes_with_selected_tag[@]}" || break
 
-                local page_start=$((current_page * notes_per_page))
-                local page_end=$((page_start + notes_per_page))
-
-                (( page_end > total_notes )) && page_end=$total_notes
-
-                local checklist_options=()
-                local i
-                local status
-
-                # --------------------------------------------------------
-                # Add notes belonging to current page.
-                # --------------------------------------------------------
-
-                for ((i = page_start; i < page_end; i++)); do
-
-                    status="OFF"
-
-                    if [[ -n "${selected_note_map[$i]+x}" ]]; then
-                        status="ON"
-                    fi
-
-                    checklist_options+=(
-                        "$i"
-                        "${notes_with_selected_tag[$i]}"
-                        "$status"
+                selected_notes_for_removal=()
+                for rm_path_ in "${GOALS_PICKED_PATHS[@]}"; do
+                    matching_line__=$(
+                        awk -F'|' -v path="$rm_path_" '$2 == path { print; exit }' "$NOTES_DB"
                     )
+                    [[ -n "$matching_line__" ]] &&
+                        selected_notes_for_removal+=("$matching_line__")
                 done
 
-                # --------------------------------------------------------
-                # Add previous-page navigation.
-                # --------------------------------------------------------
-
-                if (( current_page > 0 )); then
-                    checklist_options+=(
-                        "$prev_page"
-                        "prev_page"
-                        "OFF"
-                    )
+                if (( ${#selected_notes_for_removal[@]} == 0 )); then
+                    whiptail --title "No Notes Selected" --msgbox \
+                        "Select at least one note before choosing \"__remove__\"." 10 70
+                    continue
                 fi
 
-                # --------------------------------------------------------
-                # Add next-page navigation.
-                # --------------------------------------------------------
-
-                if (( current_page < total_pages - 1 )); then
-                    checklist_options+=(
-                        "$next_page"
-                        "next_page"
-                        "OFF"
-                    )
-                fi
-
-                # --------------------------------------------------------
-                # Add remove action.
-                # --------------------------------------------------------
-
-                checklist_options+=(
-                    "$remove_notes"
-                    "remove"
-                    "OFF"
-                )
-
-                # --------------------------------------------------------
-                # Show checklist.
-                # --------------------------------------------------------
-
-                if ! checklist_output=$(whiptail \
-                    --title "Select Notes - Page $((current_page + 1))/$total_pages" \
-                    --checklist \
-                    "Select notes to remove selected tag:" \
-                    35 155 25 \
-                    "${checklist_options[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-                ); then
-
-                    # User selected Back/Cancel.
+                if remove_linked_note_tag \
+                    "$chosen_tag_for_removal" \
+                    "${selected_notes_for_removal[@]}"
+                then
+                    whiptail --title "Tag Removed" --msgbox \
+                        "The tag \"$chosen_tag_for_removal\" has been removed from the selected notes." \
+                        10 80
                     break
                 fi
-
-                # --------------------------------------------------------
-                # Clear previous selections for notes on this page.
-                #
-                # Selections from other pages remain untouched.
-                # --------------------------------------------------------
-
-                for ((i = page_start; i < page_end; i++)); do
-                    unset 'selected_note_map[$i]'
-                done
-
-                # --------------------------------------------------------
-                # Parse whiptail checklist output.
-                # --------------------------------------------------------
-
-                read -r -a selected_items <<< "$checklist_output"
-
-                local next_selected=0
-                local prev_selected=0
-                local remove_selected=0
-                local selected_item
-
-                for selected_item in "${selected_items[@]}"; do
-
-                    # whiptail returns checklist tags surrounded by quotes.
-                    selected_item=${selected_item//\"/}
-
-                    case "$selected_item" in
-
-                        "$next_page")
-                            next_selected=1
-                            ;;
-
-                        "$prev_page")
-                            prev_selected=1
-                            ;;
-
-                        "$remove_notes")
-                            remove_selected=1
-                            ;;
-
-                        *)
-                            # Numeric checklist item = note index.
-                            if [[ "$selected_item" =~ ^[0-9]+$ ]]; then
-                                selected_note_map["$selected_item"]=1
-                            fi
-                            ;;
-
-                    esac
-                done
-
-                # --------------------------------------------------------
-                # Do not allow next_page + prev_page.
-                # --------------------------------------------------------
-
-                if (( next_selected && prev_selected )); then
-
-                    whiptail \
-                        --title "Invalid Selection" \
-                        --msgbox \
-                        "You cannot select both \"next_page\" and \"prev_page\"." \
-                        10 70 \
-                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Do not allow next_page/prev_page + remove.
-                # --------------------------------------------------------
-
-                if (( remove_selected && (next_selected || prev_selected) )); then
-
-                    whiptail \
-                        --title "Invalid Selection" \
-                        --msgbox \
-                        "You cannot select \"remove\" together with \"next_page\" or \"prev_page\"." \
-                        10 80 \
-                        3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Go to next page.
-                # --------------------------------------------------------
-
-                if (( next_selected )); then
-                    ((current_page++))
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Go to previous page.
-                # --------------------------------------------------------
-
-                if (( prev_selected )); then
-                    ((current_page--))
-                    continue
-                fi
-
-                # --------------------------------------------------------
-                # Remove tag from selected notes.
-                # --------------------------------------------------------
-
-                if (( remove_selected )); then
-
-                    local selected_notes_for_removal=()
-                    local selected_index
-
-                    for ((selected_index = 0; selected_index < total_notes; selected_index++)); do
-
-                        if [[ -n "${selected_note_map[$selected_index]+x}" ]]; then
-                            local note_path__="${notes_with_selected_tag[$selected_index]}"
-                            local matching_line__
-                            
-                            matching_line__=$(
-                                awk -F'|' -v path="$note_path__" '$2 == path { print; exit }' "$NOTES_DB"
-                            )
-
-                            [[ -n "$matching_line__" ]] &&
-                                selected_notes_for_removal+=("$matching_line__")
-                        
-
-                            # selected_notes_for_removal+=(
-                            #     "${notes_with_selected_tag[$selected_index]}"
-                            # )
-                        fi
-
-                    done
-
-                    # ----------------------------------------------------
-                    # Make sure at least one note was selected.
-                    # ----------------------------------------------------
-
-                    if (( ${#selected_notes_for_removal[@]} == 0 )); then
-
-                        whiptail \
-                            --title "No Notes Selected" \
-                            --msgbox \
-                            "Select at least one note before choosing \"remove\"." \
-                            10 70 \
-                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                        continue
-                    fi
-
-                    # ----------------------------------------------------
-                    # Remove tag from all selected notes across all pages.
-                    # ----------------------------------------------------  
-
-                    if remove_linked_note_tag \
-                        "$chosen_tag_for_removal" \
-                        "${selected_notes_for_removal[@]}"
-                    then
-
-                        whiptail \
-                            --title "Tag Removed" \
-                            --msgbox \
-                            "The tag \"$chosen_tag_for_removal\" has been removed from the selected notes." \
-                            10 80 \
-                            3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-
-                        break
-
-                    fi                    
-
-                fi
-
             done
-
             continue
-        elif [[ "$selected_note_tag" == "Filter linked notes by tag" ]]; then
-            # Build tag choices from the notes currently visible after both the
-            # active tag and glob filters have been applied. This prevents tags
-            # from notes hidden by either filter from appearing in this menu.
-            mapfile -t linked_notes_array < <(get_current_filtered_linked_notes)
-            if ((${#linked_notes_array[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
-                continue
+        elif [[ "$selected_note_tag" == "__FILTER_BY_TAG__" ]]; then
+            # Offer [ANY TAG], [NO TAG] and the tags of the linked notes that match
+            # the title glob. __FILTER__ narrows the tag list (literal substring)
+            # and __RESET_FILTER__ clears that narrowing.
+            local -a filter_tags=()
+            mapfile -t linked_notes_array < <(get_linked_notes_matching_glob)
+            if ((${#linked_notes_array[@]} > 0)); then
+                mapfile -t filter_tags < <(
+                    retrieve_linked_note_tags "${linked_notes_array[@]}" | sed '/^$/d'
+                )
             fi
-
-            mapfile -t note_tags < <(
-                retrieve_linked_note_tags "${linked_notes_array[@]}"
-            )
-
-            local chosen_tag_for_filter
-            local tag_menu_options=()
-            local tag
-
-            # Offer '[NO TAG]' only if at least one currently visible note has no tags.
-            local has_untagged_notes=false
-            local note_line note_tags_for_line
-            for note_line in "${linked_notes_array[@]}"; do
-                IFS='|' read -r _ _ note_tags_for_line _ <<< "$note_line"
-                if [[ -z "$note_tags_for_line" ]]; then
-                    has_untagged_notes=true
-                    break
-                fi
-            done
-            [[ "$has_untagged_notes" == true ]] && tag_menu_options+=("[NO TAG]" "")
-
-            for tag in "${note_tags[@]}"; do
-                tag_menu_options+=("$tag" "")
-            done
-
-            # if chosen_tag_for_filter=$(whiptail \
-            #     --title "Filter Linked Notes" \
-            #     --menu "Select a tag to filter by:" \
-            #     20 80 10 \
-            #     "${tag_menu_options[@]}" \
-            #     3>&1 1>&2 2>&3 </dev/tty >/dev/tty
-            # ); then
-
-            if chosen_tag_for_filter=$(paginate_tags_menu "Filter Linked Notes" "${tag_menu_options[@]}"); then
-                # NEW: map the menu label to a sentinel that can't be a real tag.
-                if [[ "$chosen_tag_for_filter" == "[NO TAG]" ]]; then
-                    TAG_FILTER_BY="NO TAG"
-                else
-                    TAG_FILTER_BY="$chosen_tag_for_filter"
-                fi
+            if goals_select_note_tag_filter --title "Filter Linked Notes" \
+                --prompt "Choose a tag to filter the linked notes by" \
+                --no-tag-desc "Show only linked notes that have no tag" \
+                --any-tag-desc "Show linked notes with or without tags" \
+                --tags "${filter_tags[@]}"; then
+                TAG_FILTER_BY="$GOALS_SELECTED_NOTE_TAG"
             fi
-            continue    
-        elif [[ "$selected_note_tag" == "Reset filter" ]]; then
+            continue
+        elif [[ "$selected_note_tag" == "__RESET_FILTER__" ]]; then
             TAG_FILTER_BY=""
             continue
-        elif [[ "$selected_note_tag" == "Apply glob" ]]; then
+        elif [[ "$selected_note_tag" == "__APPLY_GLOB__" ]]; then
             local new_glob
             new_glob=$(whiptail \
                 --title "Apply Glob to Linked Note Titles" \
                 --inputbox \
-                "Enter a case-insensitive Bash glob for note titles.\nExamples: *Python* or Meeting-??\n\nLeave the pattern non-empty; use * to match all titles." \
+                "Enter a case-insensitive Bash glob for note titles.
+Examples: *Python* or Meeting-??
+
+Leave the pattern non-empty; use * to match all titles." \
                 13 80 "$GLOB_FILTER_BY" \
                 3>&1 1>&2 2>&3) || continue
 
             if [[ -z "$new_glob" ]]; then
                 whiptail --title "Empty Glob" --msgbox \
-                    "The glob cannot be empty. Use * to match all titles, or choose Reset glob to clear the glob filter." \
+                    "The glob cannot be empty. Use * to match all titles, or choose __RESET_GLOB__ to clear the glob filter." \
                     10 75
                 continue
             fi
 
             GLOB_FILTER_BY="$new_glob"
             continue
-        elif [[ "$selected_note_tag" == "Reset glob" ]]; then
+        elif [[ "$selected_note_tag" == "__RESET_GLOB__" ]]; then
             GLOB_FILTER_BY=""
             continue
         elif [[ "$selected_note_tag" == "Create new note tag" ]]; then
@@ -28059,23 +26251,13 @@ Tag you have chosen will be added to the selected notes." 10 60
             continue
         elif [[ "$selected_note_tag" == "Open URL" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
-            if ((${#filtered_linked_notes[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
-                continue
-            fi
             open_urls_filtered "${filtered_linked_notes[@]}"
             continue
         elif [[ "$selected_note_tag" == "Open ebook" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
-            if ((${#filtered_linked_notes[@]} == 0)); then
-                whiptail --title "No Matching Notes" \
-                    --msgbox "No linked notes match the current filters." 8 60
-                continue
-            fi
             open_ebook_filtered "${filtered_linked_notes[@]}"
             continue
-        fi       
+        fi
 
         #-- Helper fn's for 'Add tag to item' and 'Remove tag from item'
         add_tag_to_item() {
