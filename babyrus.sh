@@ -8694,8 +8694,9 @@ lookup_note_tags() {
         done < "$NOTES_TAGS_DB"
     fi
 
-    local chosen_tag="" first=1 rc
+    local chosen_tag="" first=1 rc tag_ok=0
     local info_title info_path info_tags
+    local tag_menu_filter=""   # __FILTER__ text, kept while the tag menu is reopened
 
     np_reset
     NP_SRC_FILE="$NOTES_DB"
@@ -8703,11 +8704,12 @@ lookup_note_tags() {
     NP_CHANGE_TAG=1
 
     while true; do
-        if np_tag_menu "Lookup Note Tag" "Choose a tag to look up notes" 150 pinned all_tags 1; then
+        if np_tag_menu "Lookup Note Tag" "Choose a tag to look up notes" 150 pinned all_tags 1 tag_menu_filter; then
             chosen_tag="$NP_PICKED_TAG"
         else
-            # Back at the very start leaves; Back later keeps the current tag.
-            (( first )) && return 1
+            # Back leaves when there is no usable tag (start, or the last tag
+            # picked had no notes); otherwise it keeps the current tag.
+            (( first || ! tag_ok )) && return 1
         fi
         first=0
 
@@ -8727,8 +8729,10 @@ lookup_note_tags() {
                     "[ANY TAG]") whiptail --title "Attention" --msgbox "No notes found." 8 60 ;;
                     *)           whiptail --title "Attention" --msgbox "No matching notes for tag '${chosen_tag}'." 8 60 ;;
                 esac
+                tag_ok=0
                 break
             fi
+            tag_ok=1
 
             np_pick_note "Lookup notes" "Select a note to see its details"
             rc=$?
@@ -9021,13 +9025,18 @@ Empty input removes the glob filter." 14 "$NP_WIDTH" "$NP_GLOB" 3>&1 1>&2 2>&3) 
 # "tag" "description", e.g. [NO TAG] / [ANY TAG]) are shown on EVERY page.
 # WITH_FILTER=1 adds __FILTER__ / __RESET_FILTER__ items that narrow the tags
 # down by a literal (not glob), case insensitive substring.
+# Optional 7th argument: NAME of a variable that keeps the __FILTER__ text. It is
+# read when the menu opens and updated whenever the filter changes, so the
+# caller can reopen the menu later with the same filter still applied.
 # Sets NP_PICKED_TAG; returns 1 on Back / Esc.
 np_tag_menu() {
     local title="$1" prompt="$2" width="${3:-155}" with_filter="${6:-0}"
     local -n _npt_pinned="$4"
     local -n _npt_tags="$5"
+    local _npt_nofilter=""
+    local -n _npt_keep="${7:-_npt_nofilter}"
     local -a shown=() menu=()
-    local filter="" page=0 per_page=50 k t matched pages choice f
+    local filter="$_npt_keep" page=0 per_page=50 k t matched pages choice f
     local rows cols h w lh n_extra
 
     NP_PICKED_TAG=""
@@ -9091,9 +9100,10 @@ np_tag_menu() {
 "Enter text to narrow down the tag list.\n\
 Tags that contain this text are shown (literal substring match, case insensitive; no wildcards).\n\
 Empty input removes the filter." 12 "$w" "$filter" 3>&1 1>&2 2>&3) && filter="$f"
+                _npt_keep="$filter"
                 page=0
                 ;;
-            "__RESET_FILTER__") filter=""; page=0 ;;
+            "__RESET_FILTER__") filter=""; _npt_keep=""; page=0 ;;
             "<< Previous Page") (( page-- )) ;;
             ">> Next Page")     (( page++ )) ;;
             *)
