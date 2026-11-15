@@ -231,7 +231,9 @@ whiptail() {
         "Note Action"|"Actions"|"Book Builder"|"Book Management"|\
         "URL Management"|"Configure"|"Help"|"Manage URL"|\
         "Manage URLs for "*|"Project: "*|"Chapter: "*|\
-        "Current project: "*|"Selected section: "*)
+        "Current project: "*|"Selected section: "*|\
+        *" - Choose Action"|*" - Edit or Delete"|*" - Manage URLs of Note"|\
+        *" - Associate with Project?"|*" - Configure Project")
             is_navigation=1
             ;;
     esac
@@ -433,6 +435,7 @@ declare -A EXTENSION_COMMANDS=(
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
+    ["djvu"]="djview4"
 )
 
 # Tweak these to set external apps for other sections.
@@ -458,6 +461,10 @@ declare -A VIEWER_COMMANDS=(
     ["zathura"]="zathura -P"
     ["mupdf"]="mupdf -p"
     ["qpdfview"]="qpdfview"
+
+    # DjVu viewers (page option is handled in ebook_open_at; evince/okular/zathura are listed above)
+    ["djview4"]="djview4"
+    ["djview"]="djview"
 
     # EPUB/MOBI/AZW3 viewers
     ["calibre"]="ebook-viewer --open-at"   
@@ -492,6 +499,7 @@ declare -A AVAILABLE_CMDS=(
   ["epub"]="calibre foliate okular bookworm thorium-reader"
   ["mobi"]="calibre okular"
   ["azw3"]="calibre okular"
+  ["djvu"]="djview4 djview evince okular zathura"
   ["DEFAULT_EDITOR"]="nano vim nvim emacs micro helix"
   ["URL_BROWSER"]="firefox chromium google-chrome brave-browser vivaldi opera qutebrowser lynx w3m"
 )
@@ -513,7 +521,7 @@ edit_configuration() {
         done
 
         local chosen_cmd
-        chosen_cmd=$(whiptail --title "Select Command" \
+        chosen_cmd=$(whiptail --title "Open With - Choose Application" \
             --default-item "$current_val" \
             --menu "Choose application for $chosen_ext" \
             20 70 10 \
@@ -550,6 +558,9 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     # Reload configuration from file before making changes
     source <(sed -n '/^#+++ CONFIGURATION +++#$/,/^#+++ CONFIGURATION END +++#$/{//!p}' "$config_file")
 
+    # Configuration blocks saved by older versions have no djvu entry: use a default.
+    [[ -n "${EXTENSION_COMMANDS[djvu]:-}" ]] || EXTENSION_COMMANDS[djvu]="djview4"
+
     # --- Make a local backup in memory ---
     local -A BACKUP_EC
     for key in "${!EXTENSION_COMMANDS[@]}"; do
@@ -560,7 +571,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     local BACKUP_UB="$URL_BROWSER"
 
     # Create ordered list of extensions for consistent display
-    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3")
+    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu")
 
     while true; do
         # Build menu options
@@ -573,7 +584,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
         options+=("Save" "Save changes")
 
         local choice
-        choice=$(whiptail --title "Set Default Apps" --menu \
+        choice=$(whiptail --title "Default Apps - Choose Setting" --menu \
             "Choose a setting to modify:" 20 60 10 "${options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
 
         # Cancel pressed
@@ -645,6 +656,7 @@ declare -A EXTENSION_COMMANDS=(
     [\"epub\"]=\"${EXTENSION_COMMANDS[epub]}\"
     [\"mobi\"]=\"${EXTENSION_COMMANDS[mobi]}\"
     [\"azw3\"]=\"${EXTENSION_COMMANDS[azw3]}\"
+    [\"djvu\"]=\"${EXTENSION_COMMANDS[djvu]}\"
 )
 
 # Tweak these to set external apps for other sections.
@@ -757,9 +769,14 @@ TAGS_DB="${BABYRUS_PATH}/tags.db"      # Format: "tag"
 # Ensure databases exist
 touch "$EBOOKS_DB" "$TAGS_DB"
 
+# Older configuration blocks have no djvu entry: use a default.
+[[ -n "${EXTENSION_COMMANDS[djvu]:-}" ]] || EXTENSION_COMMANDS[djvu]="djview4"
+
 # Check all specified external apps are found for 'Manage eBooks' section.
 for ext in "${!EXTENSION_COMMANDS[@]}"; do
     cmd="${EXTENSION_COMMANDS[$ext]}"
+    # DjVu is optional: a missing viewer is reported when a .djvu file is opened.
+    [[ "$ext" == "djvu" ]] && continue
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Command for .$ext ($cmd) is not found. Modify EXTENSION_COMMANDS accordingly." >&2
         exit 1
@@ -864,7 +881,7 @@ navigate() {
         done
 
         read -r h w lh <<< "$(eb_menu_dims)"
-        selected=$(whiptail --title "File Browser" \
+        selected=$(whiptail --title "File Browser - Choose Folder to Search" \
                             --menu "Current Directory: $current_path\nSelect a folder to search files.\nPage $((page + 1))/${pages}  |  ${total} sub-director(ies)" \
                             "$h" "$w" "$lh" \
                             "${menu[@]}" 3>&1 1>&2 2>&3)
@@ -1592,7 +1609,7 @@ ebooks_pick_files_checklist() {
 # Paginated (50 per page) directory picker: registered directories plus their
 # parents (see ebooks_dir_menu_items). Prints the chosen directory.
 ebooks_select_dir() {
-    local prompt="${1:-Choose a directory:}"
+    local prompt="${1:-Choose a directory:}" dir_title="${2:-Choose Directory}"
     local page=0 total_dirs total_pages start end i sel h w lh
     local -a menu_items all_items
 
@@ -1616,8 +1633,8 @@ ebooks_select_dir() {
         done
 
         read -r h w lh <<< "$(eb_menu_dims)"
-        sel=$(whiptail --title "Select Directory" \
-            --menu "${prompt}\nPage $((page + 1))/${total_pages}  |  ${total_dirs} director(ies)" \
+        sel=$(whiptail --title "$dir_title" \
+            --menu "${prompt}\nHighlight a directory and press OK (Back cancels).\nPage $((page + 1))/${total_pages}  |  ${total_dirs} director(ies)" \
             "$h" "$w" "$lh" "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
         case "$sel" in
@@ -1662,7 +1679,7 @@ eb_paginate_tags_menu() {
 
         read -r h w lh <<< "$(eb_menu_dims)"
         choice=$(whiptail --title "$title" \
-            --menu "Page ${current_page}/${total_pages}" "$h" "$w" "$lh" \
+            --menu "Highlight a tag and press OK (Back cancels).\nPage ${current_page}/${total_pages}" "$h" "$w" "$lh" \
             "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
         case "$choice" in
@@ -1950,7 +1967,7 @@ register_ebook() {
     ebooks_filter_reset
     EB_PATH_MAX=140
     local rc=0
-    ebooks_pick_file "Select Ebook" "Choose a file to register in: $search_path" || rc=1
+    ebooks_pick_file "Add eBook - Choose File to Register" "Choose the file to register in the eBook database (folder: $search_path):" || rc=1
     EB_NO_TAGS=0
     EB_SRC_FILE=""
     rm -f "$tmp"
@@ -2082,7 +2099,7 @@ associate_tag() {
     local -a tags sorted tags_whip
 
     while :; do
-        ebooks_pick_file "Associate Tag" "Select an eBook to associate a tag with" || return
+        ebooks_pick_file "Associate Tag - Choose eBook" "Choose the eBook that will receive a tag:" || return
 
         ebook="${EB_SELECTED_LINE%%|*}"
         existing_tags="${EB_SELECTED_LINE#*|}"
@@ -2191,7 +2208,7 @@ view_tags() {
         done
 
         read -r h w lh <<< "$(eb_menu_dims)"
-        choice=$(whiptail --title "Tags" --cancel-button "Back" \
+        choice=$(whiptail --title "Registered Tags - Choose Tag" --cancel-button "Back" \
             --menu "Registered tags: ${#all_tags[@]}  |  Matching: ${total}  |  Page $((page + 1))/${pages}  |  tag filter: ${filter:-(none)}" \
             "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 0
 
@@ -2227,7 +2244,7 @@ dissociate_tag_from_registered_ebook() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_file "Dissociate Tag" "Select an eBook to remove a tag from" || return 0
+    ebooks_pick_file "Dissociate Tag - Choose eBook" "Choose the eBook you want to remove a tag from:" || return 0
 
     local selected_ebook="${EB_SELECTED_LINE%%|*}"
     local original_tags="${EB_SELECTED_LINE#*|}"
@@ -2306,7 +2323,7 @@ delete_tag_from_global_list() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" $(eb_menu_dims) \
+                --menu "Highlight a tag and press OK (Back cancels).\nPage ${current_page}/${total_pages}" $(eb_menu_dims) \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -2353,7 +2370,7 @@ delete_tag_from_global_list() {
 
     # # Tag selection
     # local selected_tag
-    # selected_tag=$(whiptail --title "Delete Global Tag" --menu "Choose tag to delete:" \
+    # selected_tag=$(whiptail --title "Delete eBook Tag - Choose Tag to Delete" --menu "Choose tag to delete:" \
     #     20 60 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     # [[ $? -ne 0 ]] && return 0  # User canceled
 
@@ -2401,7 +2418,7 @@ remove_registered_ebook() {
     EB_PATH_MAX=110
     EB_TAG_PICK=1
 
-    ebooks_pick_file "Select Ebook to Remove" "Select a registered eBook to remove from the database" || return 1
+    ebooks_pick_file "Remove eBook - Choose eBook" "Choose the registered eBook to remove from the database:" || return 1
 
     local selected_path="${EB_SELECTED_LINE%%|*}"
 
@@ -2425,6 +2442,8 @@ remove_registered_ebook() {
 get_open_command() {
     local file="$1"
     local extension="${file##*.}"
+    extension="${extension,,}"
+    [[ "$extension" == "djv" ]] && extension="djvu"
     local cmd="${EXTENSION_COMMANDS[$extension]}"
     
     [ -z "$cmd" ] && cmd="xdg-open"
@@ -2473,7 +2492,7 @@ open_file_by_search() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_file "Open eBook by Search" "Select a file to open (filter with __APPLY_GLOB__ / __FILTER_BY_TAG__)" || return 1
+    ebooks_pick_file "Open eBook - Choose File" "Choose the file to open (narrow the list with __APPLY_GLOB__ / __FILTER_BY_TAG__):" || return 1
 
     local selected="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
@@ -2494,7 +2513,7 @@ add_files_in_bulk() {
 "This advanced feature allows you to add multiple eBook files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. The files found (txt, pdf, epub, mobi, azw3) that are not registered yet are listed. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+2. The files found (txt, pdf, epub, mobi, azw3, djvu) that are not registered yet are listed. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
 3. Select __ADD__ to add ALL the listed files to the database" 14 100
 
     local selected_dir
@@ -2522,6 +2541,8 @@ It involves the following steps:\n\
             -o -iname '*.epub' \
             -o -iname '*.mobi' \
             -o -iname '*.azw3' \
+            -o -iname '*.djvu' \
+            -o -iname '*.djv' \
         \) \
         ! -name '*|*' ! -path $'*\n*' \
         -print 2>/dev/null \
@@ -2550,7 +2571,7 @@ It involves the following steps:\n\
     EB_PROCEED_DESC="Add all matched files (@N@) to the database"
 
     local rc=0
-    ebooks_pick_file "Bulk Add eBooks" "New files under: ${selected_dir}. Select __ADD__ to add all listed files." || rc=$?
+    ebooks_pick_file "Bulk Add eBooks - Review New Files" "New files under: ${selected_dir}.\nNarrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
 
     local -a to_add=("${EB_FILTERED[@]}")
     EB_NO_TAGS=0
@@ -2793,7 +2814,7 @@ lookup_registered_files() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    while ebooks_pick_file "Lookup Registered Files" "Select a file to see its details"; do
+    while ebooks_pick_file "Lookup Files - Choose File" "Choose a registered file to see its details:"; do
         whiptail --scrolltext --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 155
     done
 }
@@ -2956,7 +2977,7 @@ assoc_tag_to_bulk() {
     EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Bulk Associate Tag: ${selected_tag}" "Select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+    ebooks_pick_file "Bulk Associate Tag - Review Files (tag: ${selected_tag})" "Select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     ebooks_filter_reset
@@ -3000,7 +3021,7 @@ dissoc_tag_to_bulk() {
     }
 
     local selected_tag
-    selected_tag="$(ebooks_choose_registered_tag "Choose a tag to dissociate from bulk")" || return 1
+    selected_tag="$(ebooks_choose_registered_tag "Bulk Dissociate Tag - Choose Tag to Remove")" || return 1
 
     local tmp
     tmp=$(mktemp) || return 1
@@ -3022,7 +3043,7 @@ dissoc_tag_to_bulk() {
     EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Bulk Dissociate Tag: ${selected_tag}" "Files carrying '${selected_tag}'. Select __PROCEED__ to remove it from ALL listed files." || rc=$?
+    ebooks_pick_file "Bulk Dissociate Tag - Review Files (tag: ${selected_tag})" "Files carrying '${selected_tag}'. Select __PROCEED__ to remove it from ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     EB_SRC_FILE=""
@@ -3071,7 +3092,7 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
     EB_PROCEED_DESC="Remove all matched files (@N@) from the database"
 
     local rc=0
-    ebooks_pick_file "DANGER: Bulk File Removal" "Select __PROCEED__ to remove ALL listed files from the database." || rc=$?
+    ebooks_pick_file "DANGER: Bulk File Removal - Review Files to Remove" "Select __PROCEED__ to remove ALL listed files from the database." || rc=$?
 
     local -a to_remove=("${EB_FILTERED[@]}")
     local no_filter=0
@@ -3196,7 +3217,7 @@ Use __RECURSIVE__ in the file list to include sub-directories." 20 155
     }
 
     local choice
-    choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
+    choice="$(ebooks_select_dir "Choose the directory whose registered files you want to look up:" "Lookup by Path - Choose Directory")" || return 1
 
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
@@ -3207,7 +3228,7 @@ Use __RECURSIVE__ in the file list to include sub-directories." 20 155
     EB_SCOPE_DIR="$choice"
     EB_RECURSIVE=0
 
-    while ebooks_pick_file "Matching files in ${choice}/" "Select a file to see its details"; do
+    while ebooks_pick_file "Lookup by Path - Choose File (in ${choice}/)" "Choose a file to see its details:"; do
         whiptail --scrolltext --title "Matching file in ${choice}/:" --msgbox "$(format_file_info "$EB_SELECTED_LINE")" 25 155
     done
 
@@ -3230,7 +3251,7 @@ Then, you can select to open a file item." 20 155
     }
 
     local choice
-    choice="$(ebooks_select_dir "Choose a directory for registered files:")" || return 1
+    choice="$(ebooks_select_dir "Choose the directory containing the file you want to open:" "Open by Path - Choose Directory")" || return 1
 
     EB_SRC_FILE="$EBOOKS_DB"
     EB_NO_TAGS=0
@@ -3242,7 +3263,7 @@ Then, you can select to open a file item." 20 155
     EB_RECURSIVE=0
 
     local file
-    while ebooks_pick_file "Open file in ${choice}/" "Select a file to open"; do
+    while ebooks_pick_file "Open by Path - Choose File (in ${choice}/)" "Choose the file to open:"; do
         file="${EB_SELECTED_LINE%%|*}"
         open_file "$file" || whiptail --msgbox "Error opening file: ${file}." 20 155
     done
@@ -3320,7 +3341,7 @@ add_ebooks_from_checklist() {
             # Show the checklist
             local result
             result=$(whiptail \
-                --title "Add eBooks: ${current_dir}" \
+                --title "Add eBooks - Choose Files (${current_dir})" \
                 --checklist "Page $((current_page+1))/$pages\nSelect files/directories or navigation action:" \
                 $(eb_menu_dims) \
                 "${choices[@]}" \
@@ -3682,8 +3703,8 @@ remove_ebooks_from_checklist() {
     EB_PATH_MAX=110
     EB_TAG_PICK=1
 
-    ebooks_pick_files_checklist "Remove Registered eBooks From DB" \
-        "Select entries to remove." "Proceed to remove selected entries" || return 1
+    ebooks_pick_files_checklist "Remove eBooks - Choose Entries to Remove" \
+        "Choose the registered eBook entries to remove from the database." "Proceed to remove selected entries" || return 1
 
     local -a selected_paths=()
     local p
@@ -3782,7 +3803,7 @@ dissociate_tag_from_checklist() {
     }
 
     local tag_to_remove
-    tag_to_remove="$(ebooks_choose_registered_tag "Select Tag to Dissociate")" || return 1
+    tag_to_remove="$(ebooks_choose_registered_tag "Dissociate Tag - Step 1: Choose Tag to Remove")" || return 1
 
     # the files that carry the chosen tag
     local tmp
@@ -3802,8 +3823,8 @@ dissociate_tag_from_checklist() {
     EB_NO_TAG_ITEM=1
 
     local rc=0
-    ebooks_pick_files_checklist "Dissociate Tag: ${tag_to_remove}" \
-        "Select e-Books to remove the tag '${tag_to_remove}' from." "Proceed to tag dissociation" || rc=1
+    ebooks_pick_files_checklist "Dissociate Tag - Step 2: Choose eBooks (tag: ${tag_to_remove})" \
+        "Choose the e-Books to remove the tag '${tag_to_remove}' from." "Proceed to tag dissociation" || rc=1
 
     EB_SRC_FILE=""
     rm -f "$tmp"
@@ -3878,8 +3899,8 @@ associate_tag_from_checklist() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_files_checklist "Associate Tag: ${selected_tag}" \
-        "Select e-Books to tag." "Proceed to tag association" || return 1
+    ebooks_pick_files_checklist "Associate Tag - Choose eBooks to Tag (tag: ${selected_tag})" \
+        "Choose the e-Books that will receive the tag '${selected_tag}'." "Proceed to tag association" || return 1
 
     local -a to_update=()
     local p
@@ -3960,7 +3981,7 @@ The matching files are listed with their tags before anything is changed." 12 80
     selected_tag="$(eb_paginate_tags_menu "Choose a tag to associate:" "${tag_menu_items[@]}")" || return 1
 
     local selected_dir
-    selected_dir="$(ebooks_select_dir "Choose directory to tag:")" || return 1
+    selected_dir="$(ebooks_select_dir "Choose the directory whose files will receive the tag:" "Associate Tag by Path - Choose Directory")" || return 1
     [[ -z "$selected_dir" ]] && return
 
     EB_SRC_FILE="$EBOOKS_DB"
@@ -3976,7 +3997,7 @@ The matching files are listed with their tags before anything is changed." 12 80
     EB_PROCEED_DESC="Associate tag '${selected_tag}' with all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Associate Tag By File Path" "Files in '${selected_dir}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
+    ebooks_pick_file "Associate Tag by Path - Review Files" "Files in '${selected_dir}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to associate '${selected_tag}' with ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     local scope_recursive="$EB_RECURSIVE"
@@ -4026,10 +4047,10 @@ The files carrying the tag are listed with their tags before anything is changed
     }
 
     local selected_tag
-    selected_tag="$(ebooks_choose_registered_tag "Choose a tag to remove:")" || return 1
+    selected_tag="$(ebooks_choose_registered_tag "Dissociate Tag by Path - Choose Tag to Remove")" || return 1
 
     local selected_dir
-    selected_dir="$(ebooks_select_dir "Choose directory to remove tag from:")" || return 1
+    selected_dir="$(ebooks_select_dir "Choose the directory whose files will lose the tag:" "Dissociate Tag by Path - Choose Directory")" || return 1
     [[ -z "$selected_dir" ]] && return 1  # User canceled
 
     local tmp
@@ -4054,7 +4075,7 @@ The files carrying the tag are listed with their tags before anything is changed
     EB_PROCEED_DESC="Remove tag '${selected_tag}' from all matched files (@N@)"
 
     local rc=0
-    ebooks_pick_file "Dissociate Tag By File Path" "Files in '${selected_dir}' carrying '${selected_tag}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to remove it from ALL listed files." || rc=$?
+    ebooks_pick_file "Dissociate Tag by Path - Review Files" "Files in '${selected_dir}' carrying '${selected_tag}'. Use __RECURSIVE__ to include sub-directories, then select __PROCEED__ to remove it from ALL listed files." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     local scope_recursive="$EB_RECURSIVE"
@@ -4105,7 +4126,7 @@ ebooks_remove_files_in_path() {
     EB_PROCEED_DESC="Remove the files without tags among the @N@ matched files"
 
     local rc=0
-    ebooks_pick_file "Files Under ${selected_dir}" \
+    ebooks_pick_file "Remove Files by Path - Review Files (under ${selected_dir})" \
         "Registered files under '${selected_dir}' with their tags. Use __RECURSIVE__ to include sub-directories; files with tags are never removed." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
@@ -4167,7 +4188,7 @@ remove_files_by_filepath() {
     }
 
     local selected_dir
-    selected_dir="$(ebooks_select_dir "Choose a directory to remove files from:")" || return 1
+    selected_dir="$(ebooks_select_dir "Choose the directory whose registered files you want to remove:" "Remove Files by Path - Choose Directory")" || return 1
     [[ -n "$selected_dir" ]] || return 1
 
     ebooks_remove_files_in_path "$selected_dir"
@@ -4178,7 +4199,7 @@ show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
 
     while true; do
-        SUBCHOICE=$(whiptail --title "Manage eBooks" --cancel-button "Back" --menu "Choose an option:" 15 50 6 \
+        SUBCHOICE=$(whiptail --title "Manage eBooks" --cancel-button "Back" --menu "Choose an area to work in (files, tags, searching, opening or maintenance):" 15 50 6 \
             "1" "File Management" \
             "2" "Tag Management" \
             "3" "Search & Lookup" \
@@ -4191,7 +4212,7 @@ show_ebooks_menu() {
         case "$SUBCHOICE" in
             "1")
                 # File Management submenu: Items 1, 3, and 13
-                FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Select an option" 20 50 8 \
+                FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 20 50 8 \
                     "1" "Add Files In Bulk" \
                     "2" "Register eBook" \
                     "3" "Register eBooks From Checklist" \
@@ -4213,7 +4234,7 @@ show_ebooks_menu() {
                 ;;
             "2")
                 # Tag Management submenu: Items 4, 7, 11, and 12
-                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Select an option" 20 50 10 \
+                TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 20 50 10 \
                     "1" "Register Tag" \
                     "2" "Associate Tag with eBook" \
                     "3" "Associate Tag from Checklist" \
@@ -4241,7 +4262,7 @@ show_ebooks_menu() {
                 ;;
             "3")
                 # Search & Lookup submenu: Items 2, 10, 8, and 9
-                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                SEARCH_OPTION=$(whiptail --title "Search & Lookup" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 3 \
                     "1" "Lookup Registered Files" \
                     "2" "Lookup By Filepath" \
                     "3" "View All Registered Tags" 3>&1 1>&2 2>&3)
@@ -4255,7 +4276,7 @@ show_ebooks_menu() {
                 ;;
             "4")
                 # Open & Read submenu: Open eBook by Search, Open File by File Path
-                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Select an option" 15 50 2 \
+                OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 2 \
                     "1" "Open eBook by Search" \
                     "2" "Open File by File Path" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
@@ -4267,7 +4288,7 @@ show_ebooks_menu() {
                 ;;
             "5")
                 # Open & Read submenu: Items 5 and 6
-                MAINTENANCE_OPTION=$(whiptail --title "Maintenance" --cancel-button "Back" --menu "Select an option" 15 50 3 \
+                MAINTENANCE_OPTION=$(whiptail --title "Maintenance" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 3 \
                     "1" "Find Remove Broken Entries" \
                     "2" "Rename and Reregister Illegal Filenames" \
                     "3" "Revert Renaming Illegal Filenames" 3>&1 1>&2 2>&3)
@@ -4623,7 +4644,7 @@ filter_by_filename() {
 
             # Show whiptail menu
             choice=$(whiptail --title "$title" \
-                --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                --menu "Highlight a tag and press OK (Back cancels).\nPage ${current_page}/${total_pages}" 20 60 12 \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -4674,7 +4695,7 @@ filter_by_filename() {
 
 #   # Present tag selection menu
 #   local selected_tag
-#   selected_tag=$(whiptail --title "Select Tag to Filter" --menu "Choose a tag to filter by (or select ANY TAG):" 20 150 10 "${tag_options[@]}" 3>&1 1>&2 2>&3 </dev/tty)
+#   selected_tag=$(whiptail --title "Filter eBooks - Choose Tag" --menu "Choose a tag to filter by (or select ANY TAG):" 20 150 10 "${tag_options[@]}" 3>&1 1>&2 2>&3 </dev/tty)
 #   if [ $? -ne 0 ]; then
 #     return 1
 #   fi
@@ -5026,7 +5047,7 @@ add_chapters() {
         menu_options+=("Save and return" "")
 
 	# If added lot of chapters menu gets broken so increase dimensions!
-        choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Choose an option:" \
+        choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Add a chapter, pick an existing chapter to edit or delete it, or save your changes:" \
             22 150 15 "${menu_options[@]}" 3>&1 1>&2 2>&3)
         
         [[ $? -ne 0 ]] && choice="Save and return"  # Handle ESC/Cancel as Save
@@ -5080,7 +5101,7 @@ add_chapters() {
             old_name="${chapter_entry%%:*}"
             old_pages="${chapter_entry#*:}"
             
-            action=$(whiptail --menu "Chapter: $chapter_entry" 15 50 5 \
+            action=$(whiptail --title "Chapter - Edit or Delete" --menu "Chapter: $chapter_entry\nChoose what to do with this chapter:" 15 60 5 \
                 "Edit pages" "" \
                 "Delete chapter" "" \
                 3>&1 1>&2 2>&3)
@@ -5178,7 +5199,7 @@ paginate_n_checklist() {
 
         # 3. Display Checklist
         local choices
-        choices=$(whiptail --title "Ebook asset files to add" \
+        choices=$(whiptail --title "Add eBook Assets - Choose Files" \
             --separate-output \
             --checklist "Select items (Page $((CURRENT_PAGE + 1))/$total_pages)" \
             25 155 15 \
@@ -5382,7 +5403,7 @@ manage_ebooks() {
                 generate_trunc_manage_ebooks_remove_ebook "${remove_options[@]}"
 
                 local to_remove to_remove_tr
-                to_remove_tr=$(whiptail --title "Remove Ebook" --menu "Select ebook to remove:" \
+                to_remove_tr=$(whiptail --title "Remove eBook - Choose eBook to Remove" --menu "Select ebook to remove:" \
                     20 155 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
                 [ $? -eq 0 ] || continue
 
@@ -5816,7 +5837,7 @@ list_notes() {
     NP_SRC_FILE="$NOTES_DB"
 
     local selected_path
-    while np_pick_note "Edit Note" "Choose a note to edit"; do
+    while np_pick_note "Edit Note - Choose Note to Edit" "Choose the note whose properties you want to edit:"; do
         IFS='|' read -r _ selected_path _ <<< "$NP_SELECTED_LINE"
         [[ -z "$selected_path" ]] && continue
 
@@ -5854,7 +5875,7 @@ get_notes() {
                 menu_items+=("Next Page >>" "")
             fi
 
-            choice=$(whiptail --title "Filter by Tag (Page $((page + 1))/$total_pages)" \
+            choice=$(whiptail --title "Filter Linked Notes - Choose Tag (Page $((page + 1))/$total_pages)" \
                             --menu "Choose a tag to find linked notes:" 20 60 12 \
                             "${menu_items[@]}" \
                             3>&1 1>&2 2>&3)
@@ -5909,7 +5930,7 @@ get_notes() {
 
         # # Show menu and let user choose a tag
         # local selected_tag
-        # selected_tag=$(whiptail --title "Filter by Tag" \
+        # selected_tag=$(whiptail --title "Filter Linked Notes - Choose Tag" \
         #                         --menu "Choose a tag to find linked notes:" 20 60 10 \
         #                         "${TAG_OPTIONS[@]}" \
         #                         3>&1 1>&2 2>&3) || return 1
@@ -5966,7 +5987,7 @@ get_notes() {
     done
 
     #local selected_line_tag
-    #selected_line_tag=$(whiptail --menu "Select a note" 20 100 10 "${options[@]}" 3>&1 1>&2 2>&3)
+    #selected_line_tag=$(whiptail --title "Open eBook - Choose Note" --menu "Choose a note that has an associated eBook:" 20 100 10 "${options[@]}" 3>&1 1>&2 2>&3)
     #[[ $? -ne 0 ]] && { echo ""; return 1; }
 
     # Paginate instead
@@ -6010,7 +6031,7 @@ get_ebooks() {
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --menu "Select an ebook" 20 155 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    selected_ebook_tag=$(whiptail --title "Open eBook - Choose eBook" --menu "Choose the eBook associated with this note to open:" 20 155 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
@@ -6039,7 +6060,7 @@ get_chapters() {
     done
 
     local selected_chapter_tag
-    selected_chapter_tag=$(whiptail --menu "Select a chapter" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
+    selected_chapter_tag=$(whiptail --title "Open eBook - Choose Chapter" --menu "Choose the chapter to open the eBook at:" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     if [[ "$selected_chapter_tag" == ">> Just open" ]]; then
@@ -6075,6 +6096,8 @@ open_evince() {
 
     # extract extension then get viewer accordingly.
     local ext="${ebook_path##*.}"
+    ext="${ext,,}"
+    [[ "$ext" == "djv" ]] && ext="djvu"
     local viewer="${EXTENSION_COMMANDS[$ext]}"
 
     # check viewer is installed in system
@@ -6083,29 +6106,30 @@ open_evince() {
         return 1
     fi
 
-    #evince -p "$page" "$ebook_path" &> /dev/null & disown
+    ebook_open_at "$viewer" "$ebook_path" "$page"
+}
 
-    if [ -z "$page" ]; then
-        #evince "$ebook_path" &> /dev/null & disown
-	    #"$DEFAULT_VIEWER" "$ebook_path" &> /dev/null & disown
-        "$viewer" "$ebook_path" &> /dev/null & disown
+# Open FILE with VIEWER (a key of VIEWER_COMMANDS), optionally at PAGE.
+# Each viewer has its own syntax for jumping to a page, handled here so every
+# workflow (notes, goals, chapters, bookmarks) opens files the same way.
+ebook_open_at() {
+    local viewer="$1" file="$2" page="${3:-}"
+    local -a cmd
+
+    if [[ -z "$page" ]]; then
+        cmd=("$viewer" "$file")
     else
-        if [[ "$viewer" == "mupdf" ]]; then
-            local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
-            "${cmd_and_option[@]}" "$ebook_path" "$page" &> /dev/null & disown
-            return
-        elif [[ "$viewer" == "qpdfview" ]]; then
-            local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
-            "${cmd_and_option[@]}" "${ebook_path}#${page}" &> /dev/null & disown
-            return                    
-        fi
-        #evince -p "$page" "$ebook_path" &> /dev/null & disown
-	    #"$DEFAULT_VIEWER" -p "$page" "$ebook_path" &> /dev/null & disown        
-        
-        local cmd_and_option=(${VIEWER_COMMANDS[$viewer]})
-        "${cmd_and_option[@]}" "$page" "$ebook_path" &> /dev/null & disown
-
+        local -a base=(${VIEWER_COMMANDS[$viewer]:-$viewer})
+        case "$viewer" in
+            mupdf)          cmd=("${base[@]}" "$file" "$page") ;;
+            qpdfview)       cmd=("${base[@]}" "${file}#${page}") ;;
+            djview4|djview) cmd=("${base[@]}" "-page=${page}" "$file") ;;   # DjVu viewers (1-based page)
+            *)              cmd=("${base[@]}" "$page" "$file") ;;
+        esac
     fi
+
+    nohup "${cmd[@]}" >/dev/null 2>&1 </dev/null &
+    disown 2>/dev/null || true
 }
 
 handle_no_chapters() {
@@ -6161,7 +6185,7 @@ open_note_ebook_page() {
 
     np_reset
     NP_SRC_FILE="$ebook_src"
-    np_pick_note "Open Associated eBook" "Choose a note to open its associated ebook"
+    np_pick_note "Open eBook - Choose Note" "Choose a note to open the eBook associated with it:"
     local pick_rc=$?
     rm -f "$ebook_src"
     (( pick_rc == 0 )) || return 1
@@ -6222,7 +6246,7 @@ get_note_tag_from_global_list_old() {
 
     # Use whiptail to display menu
     local selected_tag
-    selected_tag=$(whiptail --title "Do stuff by Tag" --menu "Choose a tag" 20 40 10 "${tags[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
+    selected_tag=$(whiptail --title "Do Stuff by Tag - Choose Tag" --menu "Choose a tag" 20 40 10 "${tags[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
 
     # Check if selection was cancelled
     if [[ $? -ne 0 ]]; then
@@ -6347,7 +6371,7 @@ nt_pick_tag() {
             menu+=("${shown[k]}" "")
         done
 
-        local status="${prompt}\n\nFilter: ${NT_TAG_FILTER:-(none)}  |  ${matched}/${#all_tags[@]} tag(s)"
+        local status="${prompt}\nHighlight a tag and press OK. Use __FILTER__ to narrow a long list; Back cancels.\n\nFilter: ${NT_TAG_FILTER:-(none)}  |  ${matched}/${#all_tags[@]} tag(s)"
         (( matched == 0 )) && status+="  |  No tags match the filter."
 
         # Large box: 50 tags + [NO TAG] + filter items + 2 navigation items
@@ -6421,7 +6445,7 @@ nt_pick_note_line() {
             menu+=("$i" "${ntitle:0:80} $(truncate_note_tags_by_tag "$ntags")")
         done
 
-        local status="Tag: ${NT_CURRENT_TAG:-?}  |  Glob: ${NT_NOTE_GLOB:-(none)}  |  ${matched}/${total} note(s)  |  Page $((page + 1))/${pages}"
+        local status="${NT_PICK_PROMPT:-Choose a note, then press OK.}\nHighlight a note and press OK. Use __APPLY_GLOB__ to narrow a long list; Back cancels.\n\nTag: ${NT_CURRENT_TAG:-?}  |  Glob: ${NT_NOTE_GLOB:-(none)}  |  ${matched}/${total} note(s)  |  Page $((page + 1))/${pages}"
         (( matched == 0 )) && status+="\n\nNo notes match the glob. Use __APPLY_GLOB__ or __RESET_GLOB__."
 
         local choice
@@ -6501,7 +6525,7 @@ nt_pick_notes_checklist() {
 
         local result
         result=$(whiptail --title "$title (Page $((page + 1))/${pages})" \
-            --checklist "Tag: ${NT_CURRENT_TAG:-?}  |  Glob: ${NT_NOTE_GLOB:-(none)}  |  ${matched}/${total} note(s) shown  |  Selected: ${#selected[@]}" \
+            --checklist "${NT_PICK_PROMPT:-Choose one or more notes.}\nTick notes with SPACE (ticks are kept across pages), then tick '${submit_label}' and press OK to continue.\n\nTag: ${NT_CURRENT_TAG:-?}  |  Glob: ${NT_NOTE_GLOB:-(none)}  |  ${matched}/${total} note(s) shown  |  Selected: ${#selected[@]}" \
             35 155 25 "${opts[@]}" 3>&1 1>&2 2>&3) || return 1
 
         result=${result//\"/}
@@ -6575,7 +6599,7 @@ nt_pick_notes_checklist() {
 # paths_only=1: show just the project paths (no titles). The glob always filters by title.
 # On success sets SELECTED_ITEM_PROJECT (project file path) and returns 0.
 nt_pick_project() {
-    local title="$1" paths_only="${2:-0}"
+    local title="$1" paths_only="${2:-0}" instruction="${3:-Choose a project, then press OK.}"
     SELECTED_ITEM_PROJECT=""
     local page=0 page_size=100
     local -a mt=() mp=()
@@ -6619,7 +6643,7 @@ nt_pick_project() {
             fi
         done
 
-        local status="Glob: ${NT_PROJECT_GLOB:-(none)}  |  ${matched}/${total} project(s)  |  Page $((page + 1))/${pages}"
+        local status="${instruction}\nHighlight a project and press OK. Use __APPLY_GLOB__ to narrow a long list; Back cancels.\n\nGlob: ${NT_PROJECT_GLOB:-(none)}  |  ${matched}/${total} project(s)  |  Page $((page + 1))/${pages}"
         (( matched == 0 )) && status+="\n\nNo projects match the glob. Use __APPLY_GLOB__ or __RESET_GLOB__."
 
         local choice
@@ -6686,7 +6710,7 @@ nt_filter_notes_with_urls() {
 get_note_tag_from_global_list() {
     # $1 (optional): prompt text. Thin wrapper kept for compatibility; the
     # tag list (with [NO TAG], __FILTER__ / __RESET_FILTER__) is nt_pick_tag.
-    nt_pick_tag "Do stuff by Tag" "${1:-Choose a tag}" 1 || return 1
+    nt_pick_tag "Do Stuff by Tag - Choose Tag" "${1:-Choose the tag whose notes you want to work with (or [NO TAG] for untagged notes).}" 1 || return 1
     echo "$NT_PICKED_TAG"
 }
 
@@ -6729,7 +6753,7 @@ list_notes_from_filtered() {
     local selected_path
     while true; do
         # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
-        nt_pick_note_line "Edit Note" "$@" || break
+        NT_PICK_PROMPT="Choose the note you want to edit." nt_pick_note_line "Edit Note - Choose Note to Edit" "$@" || break
         IFS='|' read -r _ selected_path _ <<< "$NT_PICKED_LINE"
         [[ -z "$selected_path" ]] && break
 
@@ -6749,7 +6773,7 @@ get_notes_from_filtered() {
         return 1
     fi
 
-    nt_pick_note_line "Open Associated eBook" "${NT_EBOOK_NOTE_LINES[@]}"
+    NT_PICK_PROMPT="Choose a note to open the eBook associated with it (only notes with an eBook are listed)." nt_pick_note_line "Open eBook - Choose Note" "${NT_EBOOK_NOTE_LINES[@]}"
 }
 
 open_note_ebook_page_from_filtered() {
@@ -6791,8 +6815,8 @@ open_note_ebook_page_from_filtered() {
 associate_new_note_to_project() {
     ask() {
         local choice exit_status
-        choice=$(whiptail --title "Next action" \
-                        --menu "Choose an option:" \
+        choice=$(whiptail --title "New Note - Associate with Project?" \
+                        --menu "The note has been created.\nChoose what to do next:" \
                         15 60 2 \
                         "associate" "Associate this note with project file" \
                         "continue"  "Do nothing further" \
@@ -6837,7 +6861,7 @@ associate_new_note_to_project() {
     fi
 
     # Project selection: list has __APPLY_GLOB__ / __RESET_GLOB__ items.
-    nt_pick_project "Select Project" || { rm -f "$temp_file"; return 1; }
+    nt_pick_project "Associate Note with Project - Choose Target Project" 0 "Choose the project the new note will be associated with." || { rm -f "$temp_file"; return 1; }
     local selected_project_path
     selected_project_path="$SELECTED_ITEM_PROJECT"
     [[ -z "$selected_project_path" ]] && { rm -f "$temp_file"; return 1; }
@@ -6989,7 +7013,7 @@ associate_notes_by_tag_to_project() {
 
     # let user select notes from whiptai checklist.
     # Checklist of notes with __APPLY_GLOB__ / __RESET_GLOB__ items.
-    nt_pick_notes_checklist "Select Notes" "SUBMIT" "Finish selection" "$@" || return 1
+    NT_PICK_PROMPT="Step 1 of 2: choose the notes to associate with a project." nt_pick_notes_checklist "Associate Notes with Project - Step 1: Choose Notes" "SUBMIT" "Finish selection" "$@" || return 1
     local selected_notes_chk=("${NT_CHECKED_PATHS[@]}")
     [[ ${#selected_notes_chk[@]} -eq 0 ]] && return 1
 
@@ -7012,7 +7036,7 @@ associate_notes_by_tag_to_project() {
     while :; do
         # Project selection
         # Projects list with __APPLY_GLOB__ / __RESET_GLOB__ items.
-        nt_pick_project "Select Project to Associate With" 1 || { rm -f "$temp_file"; return 1; }
+        nt_pick_project "Associate Notes with Project - Step 2: Choose Target Project" 1 "Step 2 of 2: choose the project the selected notes will be associated with." || { rm -f "$temp_file"; return 1; }
         local selected_project_path
         selected_project_path="$SELECTED_ITEM_PROJECT"
         [[ -z "$selected_project_path" ]] && { rm -f "$temp_file"; return 1; }
@@ -7091,7 +7115,7 @@ do_note_filter_by_tag() {
 
         # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
         local title
-        nt_pick_note_line "Select Note to Associate URL to" "${lines[@]}" || return 1
+        NT_PICK_PROMPT="Choose the note that the URL(s) will be associated with." nt_pick_note_line "Associate URL - Choose Note" "${lines[@]}" || return 1
         local selected_path
         IFS='|' read -r _ selected_path _ <<< "$NT_PICKED_LINE"
 
@@ -7124,7 +7148,7 @@ do_note_filter_by_tag() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+            choice=$(whiptail --title "Associate URL - Manage URLs of Note" --menu "Manage URLs for ${selected_path}\nChoose 'Register URL' to add a URL, pick an existing URL to change or delete it, or 'Save and return' to store your changes." 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && return 1
 
             case "$choice" in
@@ -7187,7 +7211,7 @@ do_note_filter_by_tag() {
 
                     # Submenu for edit/delete
                     local sub_choice
-                    sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
+                    sub_choice=$(whiptail --title "Associate URL - Edit or Delete URL" --menu "Manage URL\nChoose what to do with the selected URL:" 20 60 10 \
                         "Change values" "" \
                         "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                     [[ -z "$sub_choice" ]] && continue
@@ -7251,7 +7275,7 @@ do_note_filter_by_tag() {
         fi
 
         # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
-        nt_pick_note_line "Select Note to Dissociate URL" "${NT_URL_NOTE_LINES[@]}" || return 1
+        NT_PICK_PROMPT="Choose the note you want to remove URL(s) from (only notes with URLs are listed)." nt_pick_note_line "Dissociate URL - Choose Note" "${NT_URL_NOTE_LINES[@]}" || return 1
         local selected_path
         IFS='|' read -r _ selected_path _ <<< "$NT_PICKED_LINE"
         [[ -z "$selected_path" ]] && return 1
@@ -7279,7 +7303,7 @@ do_note_filter_by_tag() {
             done
 
             local choice
-            choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
+            choice=$(whiptail --title "Dissociate URL - Manage URLs of Note" --menu "Manage URLs for ${selected_path}\nChoose 'Remove URL' to pick a URL to remove, or 'Save and return' to store your changes." 20 155 10 \
                 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
             [[ -z "$choice" ]] && continue
 
@@ -7297,7 +7321,7 @@ do_note_filter_by_tag() {
                     done
 
                     local remove_index
-                    remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
+                    remove_index=$(whiptail --title "Dissociate URL - Choose URL to Remove" --menu "Choose the URL to remove from this note, then press OK:" 20 155 10 \
                         "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                     [[ -z "$remove_index" ]] && continue
 
@@ -7370,7 +7394,7 @@ do_note_filter_by_tag() {
             fi
 
             # Notes list with __APPLY_GLOB__ / __RESET_GLOB__ (Back returns)
-            nt_pick_note_line "Select Note to Open URL" "${NT_URL_NOTE_LINES[@]}" || return 0
+            NT_PICK_PROMPT="Choose a note to see and open its URLs (only notes with URLs are listed)." nt_pick_note_line "Open URL - Choose Note" "${NT_URL_NOTE_LINES[@]}" || return 0
             local selected_path
             IFS='|' read -r _ selected_path _ <<< "$NT_PICKED_LINE"
             [[ -z "$selected_path" ]] && return 1
@@ -7410,7 +7434,7 @@ do_note_filter_by_tag() {
                 done
 
                 local choice
-                choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+                choice=$(whiptail --title "Open URL - Choose URL" --menu "Choose the URL to open in your browser, then press OK:" \
                     20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
                 [[ -z "$choice" ]] && break
 
@@ -7432,7 +7456,7 @@ do_note_filter_by_tag() {
             return 1
         fi
 
-        nt_pick_note_line "Select note file to copy to clipboard" "$@"
+        NT_PICK_PROMPT="Choose the note whose content will be copied to the clipboard." nt_pick_note_line "Copy Note - Choose Note to Copy" "$@"
     }
 
     print_note_from_filtered() {
@@ -7466,8 +7490,8 @@ do_note_filter_by_tag() {
 
                 # Show whiptail menu to select printer
                 local selected_printer
-                selected_printer=$(whiptail --title "Select Printer" \
-                    --menu "Choose a printer:" 20 60 10 \
+                selected_printer=$(whiptail --title "Print - Choose Printer" \
+                    --menu "Choose the printer to send the print job to, then press OK:" 20 60 10 \
                     "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
                 # Check if user cancelled
@@ -7499,7 +7523,7 @@ do_note_filter_by_tag() {
         fi
 
         # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
-        nt_pick_note_line "Select note file to print using printer" "$@" || return 1
+        NT_PICK_PROMPT="Choose the note to print." nt_pick_note_line "Print Note - Choose Note to Print" "$@" || return 1
 
         local line___
         line___="$NT_PICKED_LINE"
@@ -7569,7 +7593,7 @@ Tag you have chosen will be added to the selected notes." 10 60
         # Tag list with __FILTER__ / __RESET_FILTER__ (same large box as __CHANGE_TAG__).
         # [NO TAG] is not offered: it is not a real tag that could be added to notes.
         local selected_tag
-        nt_pick_tag "Choose Tag" "Choose the tag to add to the selected notes" 0 || return 1
+        nt_pick_tag "Add Tag to Notes - Step 1: Choose Tag" "Choose the tag that will be added to the notes you select next." 0 || return 1
         selected_tag="$NT_PICKED_TAG"
 
         local -A selected_paths=()
@@ -7577,7 +7601,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
         while :; do
             # Notes checklist with __APPLY_GLOB__ / __RESET_GLOB__ items.
-            nt_pick_notes_checklist "Select notes" "add_tag" "Add tag to selected notes" "${all_notes[@]}" || return 1
+            NT_PICK_PROMPT="Step 2: choose the notes that should receive the tag." nt_pick_notes_checklist "Add Tag to Notes - Step 2: Choose Notes" "add_tag" "Add tag to selected notes" "${all_notes[@]}" || return 1
 
             selected_paths=()
             for p in "${NT_CHECKED_PATHS[@]}"; do
@@ -7659,7 +7683,7 @@ Tag you have chosen will be added to the selected notes." 10 60
         local picked_title picked_path picked_tags selected_tags
         while true; do
             # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
-            nt_pick_note_line "Lookup notes" "$@" || return 1
+            NT_PICK_PROMPT="Choose a note to see its details." nt_pick_note_line "Lookup Note - Choose Note" "$@" || return 1
             IFS='|' read -r picked_title picked_path picked_tags _ <<< "$NT_PICKED_LINE"
 
             # Remove the display brackets.
@@ -7685,7 +7709,7 @@ In the filtered view, __CHANGE_TAG__ filters the notes by a different tag and __
 After creating a new note, you can choose to associate it to a project file. Afterwards, you can do stuff with it from Manage Goals section such as View Note or Open ebooks." 22 76
 
     local chosen_tag original_tag
-    nt_pick_tag "Do stuff by Tag" "Choose a tag" 1 || return 1
+    nt_pick_tag "Do Stuff by Tag - Step 1: Choose Tag" "Choose the tag whose notes you want to work with\n(or [NO TAG] for notes without any tag)." 1 || return 1
     chosen_tag="$NT_PICKED_TAG"
     original_tag="$chosen_tag"
 
@@ -7713,7 +7737,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
         status_text+="   |   ${#FILTERED_NOTES_BY_TAG[@]} note(s)"
 
         local choice
-        choice=$(whiptail --title "Filtered by tag: $chosen_tag" --menu "${status_text}\n\nSelect action:" \
+        choice=$(whiptail --title "Do Stuff by Tag - Step 2: Choose Action" --menu "${status_text}\n\nChoose what to do with the notes carrying this tag:" \
             24 100 13 \
             "__CHANGE_TAG__" "Filter the notes by a different tag" \
             "__REVERT_TAG__" "Filter by the original tag again (${original_tag})" \
@@ -7736,7 +7760,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
         case "$choice" in
             "__CHANGE_TAG__")
                 local new_tag
-                nt_pick_tag "Do stuff by Tag" "Choose a different tag to filter the notes by (current: ${chosen_tag})" 1 || continue
+                nt_pick_tag "Do Stuff by Tag - Choose Different Tag" "Choose a different tag to filter the notes by\n(current tag: ${chosen_tag})." 1 || continue
                 new_tag="$NT_PICKED_TAG"
                 chosen_tag="$new_tag"
                 ;;
@@ -7816,7 +7840,7 @@ open_ebook_note_from_global_list() {
     EB_PATH_MAX=120
 
     local rc=0
-    ebooks_pick_file "Open eBook File From Global List" "Choose an eBook to open" || rc=1
+    ebooks_pick_file "Open eBook - Choose eBook From Global List" "Choose the registered eBook to open:" || rc=1
     EB_NO_TAGS=0
     (( rc == 0 )) || return 1
 
@@ -7842,7 +7866,7 @@ delete_notes() {
     NP_PATH_MAX=110
     NP_PROCEED="__proceed__"
 
-    np_pick_notes_checklist "Delete Notes" "Select notes to delete" "Proceed to deletion (@N@ note(s) listed)" || return 1
+    np_pick_notes_checklist "Delete Notes - Choose Notes to Delete" "Choose the notes to delete." "Proceed to deletion (@N@ note(s) listed)" || return 1
 
     # Selected notes, in database order.
     local -a del_paths=()
@@ -7987,7 +8011,7 @@ delete_global_tag_of_notes() {
 
         # Show tag selection menu
         local selected_tag
-        selected_tag=$(whiptail --menu "Choose a tag to delete (Page $((current_page + 1))/${total_pages})\n\nFilter: ${tag_filter:-(none)}  |  ${#shown_tags[@]}/${#all_tags[@]} tag(s)" \
+        selected_tag=$(whiptail --title "Delete Note Tag - Choose Tag" --menu "Choose a tag to delete from the global note tag list (Page $((current_page + 1))/${total_pages})\n\nFilter: ${tag_filter:-(none)}  |  ${#shown_tags[@]}/${#all_tags[@]} tag(s)" \
             "$dlg_h" 100 "$dlg_l" "${menu_options[@]}" 3>&1 1>&2 2>&3 >/dev/tty)
 
         [[ $? -ne 0 ]] && return 1  # User canceled
@@ -8099,13 +8123,13 @@ assoc_url_to_note() {
 
     # Notes list: shortened tags, 155 wide, 50 notes per page.
     np_reset
-    np_pick_note_for_tag "Select Note to Associate URL to" "Choose the note to associate URLs to" 0 "$NP_START_TAG" || return 1
+    np_pick_note_for_tag "Associate URL - Choose Note" "Choose the note that the URL(s) will be associated with:" 0 "$NP_START_TAG" || return 1
     local selected_path
     IFS='|' read -r _ selected_path _ <<< "$NP_SELECTED_LINE"
     [[ -z "$selected_path" ]] && return 1
 
     #local selected_path
-    #selected_path=$(whiptail --menu "Select a note" 20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+    #selected_path=$(whiptail --title "Open eBook - Choose Note" --menu "Choose a note that has an associated eBook:" 20 150 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     #[[ -z "$selected_path" ]] && return 1
 
     # Load existing URLs
@@ -8135,7 +8159,7 @@ assoc_url_to_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
+        choice=$(whiptail --title "Associate URL - Manage URLs of Note" --menu "Manage URLs for ${selected_path}\nChoose 'Register URL' to add a URL, pick an existing URL to change or delete it, or 'Save and return' to store your changes." 20 155 10 "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && return 1
 
         case "$choice" in
@@ -8198,7 +8222,7 @@ assoc_url_to_note() {
 
                 # Submenu for edit/delete
                 local sub_choice
-                sub_choice=$(whiptail --menu "Manage URL" 20 60 10 \
+                sub_choice=$(whiptail --title "Associate URL - Edit or Delete URL" --menu "Manage URL\nChoose what to do with the selected URL:" 20 60 10 \
                     "Change values" "" \
                     "Delete URL" "" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                 [[ -z "$sub_choice" ]] && continue
@@ -8260,13 +8284,13 @@ dissoc_url_from_note() {
     # Notes list (only notes with at least one URL): shortened tags, 155 wide,
     # 50 notes per page.
     np_reset
-    np_pick_note_for_tag "Select Note to Dissociate URL" "Choose the note to remove URLs from" 1 "$NP_START_TAG" || return 1
+    np_pick_note_for_tag "Dissociate URL - Choose Note" "Choose the note you want to remove URL(s) from:" 1 "$NP_START_TAG" || return 1
     local selected_path
     IFS='|' read -r _ selected_path _ <<< "$NP_SELECTED_LINE"
     [[ -z "$selected_path" ]] && return 1
 
     #local selected_path
-    #selected_path=$(whiptail --menu "Select a note to dissociate URLs" 20 150 10 \
+    #selected_path=$(whiptail --title "Dissociate URL - Choose Note" --menu "Choose the note you want to remove URL(s) from:" 20 150 10 \
     #    "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
     #[[ -z "$selected_path" ]] && return 1
 
@@ -8293,7 +8317,7 @@ dissoc_url_from_note() {
         done
 
         local choice
-        choice=$(whiptail --menu "Manage URLs for ${selected_path}" 20 155 10 \
+        choice=$(whiptail --title "Dissociate URL - Manage URLs of Note" --menu "Manage URLs for ${selected_path}\nChoose 'Remove URL' to pick a URL to remove, or 'Save and return' to store your changes." 20 155 10 \
             "${menu_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         [[ -z "$choice" ]] && continue
 
@@ -8311,7 +8335,7 @@ dissoc_url_from_note() {
                 done
 
                 local remove_index
-                remove_index=$(whiptail --menu "Select URL to remove" 20 155 10 \
+                remove_index=$(whiptail --title "Dissociate URL - Choose URL to Remove" --menu "Choose the URL to remove from this note, then press OK:" 20 155 10 \
                     "${remove_menu[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || continue
                 [[ -z "$remove_index" ]] && continue
 
@@ -8382,7 +8406,7 @@ open_url_assoc_to_note() {
     while true; do
         # Notes list (only notes with at least one URL): shortened tags,
         # 155 wide, 50 notes per page. Back leaves.
-        np_pick_note_for_tag "Select Note to Open URL" "Choose a note to open its URLs" 1 "$NP_START_TAG" || return 1
+        np_pick_note_for_tag "Open URL - Choose Note" "Choose a note to see and open its URLs:" 1 "$NP_START_TAG" || return 1
         local selected_path
         IFS='|' read -r _ selected_path _ <<< "$NP_SELECTED_LINE"
         [[ -z "$selected_path" ]] && return 1
@@ -8416,7 +8440,7 @@ open_url_assoc_to_note() {
             done
 
             local choice
-            choice=$(whiptail --title "URLs for $selected_path" --menu "Choose URL to open:" \
+            choice=$(whiptail --title "Open URL - Choose URL" --menu "Choose the URL to open in your browser, then press OK:" \
                 20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
@@ -8461,8 +8485,8 @@ print_notes() {
 
         # Show whiptail menu to select printer
         local selected_printer
-        selected_printer=$(whiptail --title "Select Printer" \
-            --menu "Choose a printer:" 20 60 10 \
+        selected_printer=$(whiptail --title "Print - Choose Printer" \
+            --menu "Choose the printer to send the print job to, then press OK:" 20 60 10 \
             "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
         # Check if user cancelled
@@ -8509,14 +8533,14 @@ print_notes() {
     NP_SRC_FILE="$NOTES_DB"
 
     while true; do
-        np_pick_note "Print Note" "Choose a note to view or print" || break
+        np_pick_note "Print Note - Choose Note" "Choose the note you want to view or print:" || break
 
         local selected_path
         IFS='|' read -r _ selected_path _ <<< "$NP_SELECTED_LINE"
         [[ -z "$selected_path" ]] && continue
         
         local action
-        action=$(whiptail --title "Actions" --menu "Choose an action:" 10 40 2 \
+        action=$(whiptail --title "Print Note - Choose Action" --menu "Choose what to do with the selected note:" 10 60 2 \
                 "View Note" "" \
                 "Print Note" "" \
                 3>&1 1>&2 2>&3) || :        
@@ -8546,7 +8570,7 @@ print_notes() {
 
 add_note_tag_main() {
     local new_tag
-    new_tag=$(whiptail --title "Add New Note Tag" --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty) || return 1
+    new_tag=$(whiptail --title "Add Note Tag - Enter Tag Name" --inputbox "Enter new tag:" 8 40 3>&1 1>&2 2>&3 </dev/tty) || return 1
 
     # ANY TAG is banned word - ban it case-insensitive?
     [[ "$new_tag" == "ANY TAG" ]] && whiptail --title "Invalid Tag" --msgbox "'ANY TAG' is not allowed as a tag name. Try again." 8 40 && return 1
@@ -8592,8 +8616,8 @@ add_note_tag_menu() {
 
         choice=$(
             whiptail \
-                --title "Add Note Tag" \
-                --menu "Create a new tag (formatted 'subject->topic'):" \
+                --title "Add Note Tag - Set Subject and Topic" \
+                --menu "Create a new tag (formatted \'subject->topic\').\nSet Subject and Topic, then choose Save to store the tag:" \
                 18 70 8 \
                 "Subject" "${subject:-<not set>}" \
                 "Topic" "${topic:-<not set>}" \
@@ -8606,7 +8630,7 @@ add_note_tag_menu() {
             Subject)
                 subject=$(
                     whiptail \
-                        --title "Subject" \
+                        --title "Add Note Tag - Enter Subject" \
                         --inputbox "Enter subject:" \
                         10 60 "$subject" \
                         3>&1 1>&2 2>&3
@@ -8616,7 +8640,7 @@ add_note_tag_menu() {
             Topic)
                 topic=$(
                     whiptail \
-                        --title "Topic" \
+                        --title "Add Note Tag - Enter Topic" \
                         --inputbox "Enter topic (optional):" \
                         10 60 "$topic" \
                         3>&1 1>&2 2>&3
@@ -8704,7 +8728,7 @@ lookup_note_tags() {
     NP_CHANGE_TAG=1
 
     while true; do
-        if np_tag_menu "Lookup Note Tag" "Choose a tag to look up notes" 150 pinned all_tags 1 tag_menu_filter; then
+        if np_tag_menu "Lookup Note Tag - Choose Tag" "Choose a tag to list the notes that carry it:" 150 pinned all_tags 1 tag_menu_filter; then
             chosen_tag="$NP_PICKED_TAG"
         else
             # Back leaves when there is no usable tag (start, or the last tag
@@ -8734,7 +8758,7 @@ lookup_note_tags() {
             fi
             tag_ok=1
 
-            np_pick_note "Lookup notes" "Select a note to see its details"
+            np_pick_note "Lookup Note Tag - Choose Note" "Choose a note to see its details:"
             rc=$?
             case $rc in
                 0)
@@ -8786,7 +8810,7 @@ dissociate_note_tag_from_checklist() {
     NP_PATH_MAX=110
     NP_PROCEED="__submit__"
 
-    if ! np_pick_notes_checklist "Dissociate Note Tag" "Select notes to remove a tag from" "Finish Selection (@N@ note(s) listed)"; then
+    if ! np_pick_notes_checklist "Dissociate Note Tag - Step 1: Choose Notes" "Step 1 of 2: choose the notes you want to remove a tag from." "Finish Selection (@N@ note(s) listed)"; then
         rm -f "$src"
         return 1
     fi
@@ -8831,7 +8855,7 @@ dissociate_note_tag_from_checklist() {
     # Tag' (__FILTER__ / __RESET_FILTER__, 50 tags per page), without
     # [NO TAG] / [ANY TAG].
     local -a no_pinned=()
-    np_tag_menu "Remove Tag" "Select tag to remove" 155 no_pinned menu_items 1 || return 1
+    np_tag_menu "Dissociate Note Tag - Step 2: Choose Tag to Remove" "Step 2 of 2: choose the tag to remove from the selected notes:" 155 no_pinned menu_items 1 || return 1
     removal_tag="$NP_PICKED_TAG"
 
     #
@@ -9147,7 +9171,7 @@ np_pick_tag_filter() {
     pinned+=("[ANY TAG]" "Show notes with any tag (remove the tag filter)")
 
     # __FILTER__ / __RESET_FILTER__ narrow the tag list by a literal substring.
-    np_tag_menu "Select a Tag to Filter By" "Choose a tag to filter the notes by" "$NP_WIDTH" pinned matches 1 || return 1
+    np_tag_menu "Filter Notes - Choose Tag" "Choose a tag to filter the notes by:" "$NP_WIDTH" pinned matches 1 || return 1
     case "$NP_PICKED_TAG" in
         "[NO TAG]")  NP_TAGF="$NP_NO_TAG_VALUE" ;;
         "[ANY TAG]") NP_TAGF="" ;;
@@ -9397,7 +9421,7 @@ np_choose_start_tag() {
         done < "$NOTES_TAGS_DB"
     fi
     # NP_START_TAG keeps its value when the user goes Back.
-    np_tag_menu "Select Tag" "Choose a tag to find notes" 150 pinned all_tags 1 || return 1
+    np_tag_menu "Find Notes - Choose Tag" "Choose a tag to find notes (or [NO TAG] / [ANY TAG]):" 150 pinned all_tags 1 || return 1
     NP_START_TAG="$NP_PICKED_TAG"
 }
 
@@ -9473,7 +9497,7 @@ np_pick_note_for_tag() {
 manage_notes() {
     while true; do
         local option
-        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose an option:" 23 70 14 \
+        option=$(whiptail --title "Manage Notes" --cancel-button "Back" --menu "Choose what you want to do with your notes:" 23 70 14 \
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Print Note Using Printer" \
@@ -9688,7 +9712,7 @@ GOALS_MENU_CHOICE=""
 #   GOALS_SELECTED_PROJECT_TITLE / _PATH / _NOTES / _LINE
 # Returns 1 when the user goes Back.
 goals_select_project() {
-    local menu_title="${1:-Select Project}"
+    local menu_title="${1:-Choose Project}" purpose="${2:-}"
     local -a rows_lineno=() rows_title=() rows_path=() rows_notes=() rows_line=()
     local -a order=() menu_items=()
     local row lineno=0 t p n base choice new_glob
@@ -9781,7 +9805,7 @@ goals_select_project() {
         done
         (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
-        prompt="Choose a project${restrict_note} (page $page/$total_pages, $total shown)\n${what^} glob: ${GOALS_PROJECT_GLOB:-none (showing all projects)}"
+        prompt="${purpose:-Choose a project}${restrict_note} (page $page/$total_pages, $total shown)\nHighlight a project and press OK. Use __APPLY_GLOB__ to narrow the list; Back cancels.\n${what^} glob: ${GOALS_PROJECT_GLOB:-none (showing all projects)}"
         (( total == 0 )) && prompt+="\nNo project ${what}s match the current glob."
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
@@ -9897,8 +9921,8 @@ goals_paged_menu() {
 # __FILTER__ narrows the tag list by a literal (case-insensitive) substring;
 # __RESET_FILTER__ clears it. Result in GOALS_SELECTED_NOTE_TAG.
 goals_select_note_tag_filter() {
-    local menu_title="Select Note Tag to Filter Notes"
-    local base_prompt="Choose a tag to filter notes by"
+    local menu_title="Filter Notes - Choose Tag"
+    local base_prompt="Choose a tag to narrow down the notes"
     local pins="NO,ANY"
     local no_tag_desc="Notes that have no tag"
     local any_tag_desc="All notes, with or without tags"
@@ -10270,7 +10294,7 @@ goals_pick_note() {
         (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
         tag_label="${GOALS_NOTE_TAGFILTER:-none}"
-        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\n${glob_label}: ${GOALS_NOTE_GLOB:-none}\nTag filter: $tag_label"
+        prompt="$purpose (page $page/$total_pages, $total of ${#cand_paths[@]} notes shown)\nHighlight a note and press OK. Use the glob/tag rows to narrow the list; Back cancels.\n${glob_label}: ${GOALS_NOTE_GLOB:-none}\nTag filter: $tag_label"
         (( total == 0 )) && prompt+="\nNo notes match the current glob and tag filter."
 
         choice=$(whiptail --title "$menu_title" --cancel-button "Back" \
@@ -10338,7 +10362,7 @@ goals_pick_note() {
                     done < <(printf '%s\n' "${seen_tags[@]}" | sort -f)
                 fi
                 if (( ${#tag_items[@]} == 0 )); then
-                    whiptail --title "Filter by Tag" --msgbox \
+                    whiptail --title "Filter Linked Notes - Choose Tag" --msgbox \
                         "No tags are available among the notes matching the current glob." 8 70
                 elif goals_paged_menu "Filter Notes by Tag" "Choose a tag" "${tag_items[@]}"; then
                     GOALS_NOTE_TAGFILTER="$GOALS_MENU_CHOICE"
@@ -10408,7 +10432,7 @@ add_project() {
         (( ${#project_path} > 80 )) && project_path_tr="${project_path:0:40}...${project_path: -40}"
 
 		local project_action
-        project_action=$(whiptail --menu "Project Configuration" 15 150 3 \
+        project_action=$(whiptail --title "Add Project - Configure Project" --menu "Project Configuration\nSet the project title and path, then choose Proceed to create the project file:" 15 150 3 \
             "Project title" "Current: ${project_title_tr:-<not set>}" \
             "Project path" "Status: ${project_path_tr:-(will be generated)}" \
             "Proceed" "" 3>&1 1>&2 2>&3) || return 1
@@ -10981,8 +11005,8 @@ add_project() {
         local current="$1"
 
         whiptail \
-            --title "Change Status" \
-            --menu "Select status:" \
+            --title "Change Status - Choose New Status" \
+            --menu "Choose the new status for this item.\nPress OK to apply it, or Cancel to leave the status unchanged." \
             15 60 6 \
             "NS" "Not started" \
             "IP" "In progress" \
@@ -10994,8 +11018,8 @@ add_project() {
 
     select_importance() {
         whiptail \
-            --title "Change Importance" \
-            --menu "Select importance:" \
+            --title "Change Importance - Choose New Level" \
+            --menu "Choose the new importance level for this item.\nPress OK to apply it, or Cancel to leave it unchanged." \
             15 60 6 \
             "VI" "Very important" \
             "I"  "Important" \
@@ -11015,8 +11039,8 @@ add_project() {
 
         text="$(
             whiptail \
-                --title "Add Heading" \
-                --inputbox "Heading name:" \
+                --title "Add Heading - Enter Name" \
+                --inputbox "Enter the name of the new heading:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -11052,8 +11076,8 @@ add_project() {
 
         task="$(
             whiptail \
-                --title "Add Task" \
-                --inputbox "Task:" \
+                --title "Add Task - Enter Description" \
+                --inputbox "Enter the task description:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -11063,8 +11087,8 @@ add_project() {
 
         plan="$(
             whiptail \
-                --title "Add Task Plan" \
-                --inputbox "Plan for:\n\n$task" \
+                --title "Add Task - Enter Plan" \
+                --inputbox "Enter the plan for this task:\n\n$task" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -11193,8 +11217,8 @@ add_project() {
 
         task="$(
             whiptail \
-                --title "Add TODO Item" \
-                --inputbox "TODO item for $todo_date:" \
+                --title "Add TODO Item - Enter Text" \
+                --inputbox "Enter the TODO item for $todo_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -11330,8 +11354,8 @@ add_project() {
 
         task="$(
             whiptail \
-                --title "Add Rule for Today" \
-                --inputbox "Rule for $rules_date:" \
+                --title "Add Rule for Today - Enter Text" \
+                --inputbox "Enter the rule for $rules_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -11416,9 +11440,9 @@ add_project() {
 
         new_text="$(
             whiptail \
-                --title "Edit Text" \
+                --title "Edit Heading Text" \
                 --inputbox \
-                "Current text:" \
+                "Edit the heading text, then press OK:" \
                 10 80 \
                 "${item_content[index]}" \
                 3>&1 1>&2 2>&3
@@ -11451,8 +11475,8 @@ add_project() {
 
         task="$(
             whiptail \
-                --title "Edit Task" \
-                --inputbox "Task:" \
+                --title "Edit Task - Change Description" \
+                --inputbox "Edit the task description, then press OK:" \
                 10 70 \
                 "$task" \
                 3>&1 1>&2 2>&3
@@ -11469,8 +11493,8 @@ add_project() {
 
         plan="$(
             whiptail \
-                --title "Edit Plan" \
-                --inputbox "Plan:" \
+                --title "Edit Task - Change Plan" \
+                --inputbox "Edit the plan for this task, then press OK:" \
                 10 70 \
                 "$plan" \
                 3>&1 1>&2 2>&3
@@ -11563,8 +11587,8 @@ add_project() {
 
         comment="$(
             whiptail \
-                --title "Comment: ${item_content[index]}" \
-                --inputbox "Comment (optional):" \
+                --title "Add / Edit Comment" \
+                --inputbox "Comment for '${item_content[index]}' (optional, leave empty for none):" \
                 14 90 \
                 "${item_comment[index]}" \
                 3>&1 1>&2 2>&3
@@ -11586,7 +11610,7 @@ add_project() {
         [[ -n "$comment" ]] || comment="No comment has been added."
 
         whiptail \
-            --title "Comment: ${item_content[index]}" \
+            --title "View Comment" \
             --msgbox "$comment" \
             16 90
     }
@@ -11605,8 +11629,8 @@ add_project() {
 
     #     task="$(
     #         whiptail \
-    #             --title "Edit Task" \
-    #             --inputbox "Task:" \
+    #             --title "Edit Task - Change Description" \
+    #             --inputbox "Edit the task description, then press OK:" \
     #             10 70 \
     #             "$task" \
     #             3>&1 1>&2 2>&3
@@ -11614,8 +11638,8 @@ add_project() {
 
     #     plan="$(
     #         whiptail \
-    #             --title "Edit Plan" \
-    #             --inputbox "Plan:" \
+    #             --title "Edit Task - Change Plan" \
+    #             --inputbox "Edit the plan for this task, then press OK:" \
     #             10 70 \
     #             "$plan" \
     #             3>&1 1>&2 2>&3
@@ -11694,9 +11718,9 @@ add_project() {
         (( ${#options[@]} == 0 )) && return 1
 
         whiptail \
-            --title "Move Item" \
+            --title "Move Item - Choose New Parent Heading" \
             --menu \
-            "Move '${item_content[moving_index]}' under:" \
+            "Choose the heading that '${item_content[moving_index]}' will be moved under.\nThe item is placed inside the heading you pick:" \
             22 90 15 \
             "${options[@]}" \
             3>&1 1>&2 2>&3
@@ -11770,10 +11794,10 @@ add_project() {
 
             action="$(
                 whiptail \
-                    --title "Move: ${item_content[index]}" \
+                    --title "Move Item - Choose How to Move" \
                     --cancel-button "Back" \
                     --menu \
-                    "Choose how to move this $kind:" \
+                    "Choose how to move this $kind:\n'${item_content[index]}'" \
                     18 78 10 \
                     "BEFORE" "Move before another $kind on this level" \
                     "AFTER"  "Move after another $kind on this level" \
@@ -11857,10 +11881,10 @@ add_project() {
 
         target="$(
             whiptail \
-                --title "Move $mode" \
+                --title "Move Item - Choose Reference Item" \
                 --cancel-button "Back" \
                 --menu \
-                "Move '${item_content[index]}' $mode which item?" \
+                "Choose the item that '${item_content[index]}' should be placed $mode.\n(Only items on the same level are listed.)" \
                 18 180 10 \
                 "${candidates[@]}" \
                 3>&1 1>&2 2>&3
@@ -12165,10 +12189,10 @@ add_project() {
 
         selected_id="$(
             whiptail \
-                --title "Project Goals" \
+                --title "Project Goals - Choose an Item" \
                 --cancel-button "Back" \
                 --menu \
-                "Select an item:" \
+                "Choose a heading or task to open its actions\n(change text/status, add, move, delete ...):" \
                 24 110 17 \
                 "${TREE_OPTIONS[@]}" \
                 3>&1 1>&2 2>&3
@@ -12195,9 +12219,9 @@ add_project() {
 
         destination="$(
             whiptail \
-                --title "Add" \
+                --title "Add to Project - Choose Item Type" \
                 --menu \
-                "What would you like to add?" \
+                "Choose what to add:\nHeading = a section that can hold tasks and sub-headings.\nTask = a single item that is placed under a heading." \
                 12 60 4 \
                 "H" "Heading" \
                 "T" "Task" \
@@ -12233,9 +12257,9 @@ add_project() {
 
         SELECTED_HEADING_ID="$(
             whiptail \
-                --title "Select Heading" \
+                --title "Add Task - Choose Parent Heading" \
                 --menu \
-                "Select the heading:" \
+                "Choose the heading that will contain the new task:" \
                 22 90 15 \
                 "${HEADING_OPTIONS[@]}" \
                 3>&1 1>&2 2>&3
@@ -12410,7 +12434,7 @@ add_project() {
                         --title "${item_content[index]}" \
                         --cancel-button "Back" \
                         --menu \
-                        "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                        "Choose an action for this heading (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         24 80 12 \
                         "TEXT" "Change text" \
                         "STATUS" "Change status" \
@@ -12433,7 +12457,7 @@ add_project() {
                         --title "${item_content[index]}" \
                         --cancel-button "Back" \
                         --menu \
-                        "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                        "Choose an action for this task (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         20 75 8 \
                         "TEXT" "Change task / plan" \
                         "STATUS" "Change status" \
@@ -12529,9 +12553,9 @@ add_project() {
 
             new_status="$(
                 whiptail \
-                    --title "Container Heading" \
+                    --title "Change Status of Container Heading" \
                     --menu \
-                    "'${item_content[index]}' is a container heading.\n\nSelect an operation:" \
+                    "'${item_content[index]}' is a container heading, so its status follows its children.\n\nChoose an operation to apply to all unfinished descendants:" \
                     16 75 5 \
                     "C" "Complete entire goal" \
                     "PA" "Pause unfinished descendants" \
@@ -12664,10 +12688,10 @@ add_project() {
 
             choice="$(
                 whiptail \
-                    --title "Manage Goals" \
+                    --title "Manage Goals - Edit Project Tree" \
                     --cancel-button "Back" \
                     --menu \
-                    "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)" \
+                    "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)\nChoose an action from the top rows (add, save, discard) or pick a heading/task from the tree to work with it:" \
                     45 180 37 \
                     -- \
                     "${menu_items[@]}" \
@@ -12792,7 +12816,7 @@ add_project_old() {
     # Main project menu
     while true; do
 		local project_action
-        project_action=$(whiptail --menu "Project Configuration" 15 150 3 \
+        project_action=$(whiptail --title "Add Project - Configure Project" --menu "Project Configuration\nSet the project title and path, then choose Proceed to create the project file:" 15 150 3 \
             "Project title" "Current: ${project_title:-<not set>}" \
             "Project path" "Status: ${project_path:-(will be generated)}" \
             "Proceed" "" 3>&1 1>&2 2>&3) || return 1
@@ -12969,7 +12993,7 @@ edit_project() {
     # Pick a project by full path. __APPLY_GLOB__ matches the project file
     # name and __RESET_GLOB__ clears the glob.
     GOALS_PROJECT_GLOB=""
-    goals_select_project "Edit Project" || return 1
+    goals_select_project "Edit Project - Choose Project to Edit" "Choose the project you want to edit." || return 1
 
     local -a lines=()
     local selected_index=$(( GOALS_SELECTED_PROJECT_LINENO - 1 ))
@@ -13512,8 +13536,8 @@ edit_project() {
         local current="$1"
 
         whiptail \
-            --title "Change Status" \
-            --menu "Select status:" \
+            --title "Change Status - Choose New Status" \
+            --menu "Choose the new status for this item.\nPress OK to apply it, or Cancel to leave the status unchanged." \
             15 60 6 \
             "NS" "Not started" \
             "IP" "In progress" \
@@ -13525,8 +13549,8 @@ edit_project() {
 
     select_importance() {
         whiptail \
-            --title "Change Importance" \
-            --menu "Select importance:" \
+            --title "Change Importance - Choose New Level" \
+            --menu "Choose the new importance level for this item.\nPress OK to apply it, or Cancel to leave it unchanged." \
             15 60 6 \
             "VI" "Very important" \
             "I"  "Important" \
@@ -13546,8 +13570,8 @@ edit_project() {
 
         text="$(
             whiptail \
-                --title "Add Heading" \
-                --inputbox "Heading name:" \
+                --title "Add Heading - Enter Name" \
+                --inputbox "Enter the name of the new heading:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13583,8 +13607,8 @@ edit_project() {
 
         task="$(
             whiptail \
-                --title "Add Task" \
-                --inputbox "Task:" \
+                --title "Add Task - Enter Description" \
+                --inputbox "Enter the task description:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13594,8 +13618,8 @@ edit_project() {
 
         plan="$(
             whiptail \
-                --title "Add Task Plan" \
-                --inputbox "Plan for:\n\n$task" \
+                --title "Add Task - Enter Plan" \
+                --inputbox "Enter the plan for this task:\n\n$task" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13781,8 +13805,8 @@ edit_project() {
 
         task="$(
             whiptail \
-                --title "Add Rule for Today" \
-                --inputbox "Rule for $rules_date:" \
+                --title "Add Rule for Today - Enter Text" \
+                --inputbox "Enter the rule for $rules_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13857,8 +13881,8 @@ edit_project() {
 
         task="$(
             whiptail \
-                --title "Add TODO Item" \
-                --inputbox "TODO item for $todo_date:" \
+                --title "Add TODO Item - Enter Text" \
+                --inputbox "Enter the TODO item for $todo_date:" \
                 10 70 \
                 "" \
                 3>&1 1>&2 2>&3
@@ -13946,9 +13970,9 @@ edit_project() {
 
         new_text="$(
             whiptail \
-                --title "Edit Text" \
+                --title "Edit Heading Text" \
                 --inputbox \
-                "Current text:" \
+                "Edit the heading text, then press OK:" \
                 10 80 \
                 "${item_content[index]}" \
                 3>&1 1>&2 2>&3
@@ -13981,8 +14005,8 @@ edit_project() {
 
         task="$(
             whiptail \
-                --title "Edit Task" \
-                --inputbox "Task:" \
+                --title "Edit Task - Change Description" \
+                --inputbox "Edit the task description, then press OK:" \
                 10 70 \
                 "$task" \
                 3>&1 1>&2 2>&3
@@ -13999,8 +14023,8 @@ edit_project() {
 
         plan="$(
             whiptail \
-                --title "Edit Plan" \
-                --inputbox "Plan:" \
+                --title "Edit Task - Change Plan" \
+                --inputbox "Edit the plan for this task, then press OK:" \
                 10 70 \
                 "$plan" \
                 3>&1 1>&2 2>&3
@@ -14093,8 +14117,8 @@ edit_project() {
 
         comment="$(
             whiptail \
-                --title "Comment: ${item_content[index]}" \
-                --inputbox "Comment (optional):" \
+                --title "Add / Edit Comment" \
+                --inputbox "Comment for '${item_content[index]}' (optional, leave empty for none):" \
                 14 90 \
                 "${item_comment[index]}" \
                 3>&1 1>&2 2>&3
@@ -14116,7 +14140,7 @@ edit_project() {
         [[ -n "$comment" ]] || comment="No comment has been added."
 
         whiptail \
-            --title "Comment: ${item_content[index]}" \
+            --title "View Comment" \
             --msgbox "$comment" \
             16 90
     }
@@ -14135,8 +14159,8 @@ edit_project() {
 
     #     task="$(
     #         whiptail \
-    #             --title "Edit Task" \
-    #             --inputbox "Task:" \
+    #             --title "Edit Task - Change Description" \
+    #             --inputbox "Edit the task description, then press OK:" \
     #             10 70 \
     #             "$task" \
     #             3>&1 1>&2 2>&3
@@ -14144,8 +14168,8 @@ edit_project() {
 
     #     plan="$(
     #         whiptail \
-    #             --title "Edit Plan" \
-    #             --inputbox "Plan:" \
+    #             --title "Edit Task - Change Plan" \
+    #             --inputbox "Edit the plan for this task, then press OK:" \
     #             10 70 \
     #             "$plan" \
     #             3>&1 1>&2 2>&3
@@ -14224,9 +14248,9 @@ edit_project() {
         (( ${#options[@]} == 0 )) && return 1
 
         whiptail \
-            --title "Move Item" \
+            --title "Move Item - Choose New Parent Heading" \
             --menu \
-            "Move '${item_content[moving_index]}' under:" \
+            "Choose the heading that '${item_content[moving_index]}' will be moved under.\nThe item is placed inside the heading you pick:" \
             22 90 15 \
             "${options[@]}" \
             3>&1 1>&2 2>&3
@@ -14300,10 +14324,10 @@ edit_project() {
 
             action="$(
                 whiptail \
-                    --title "Move: ${item_content[index]}" \
+                    --title "Move Item - Choose How to Move" \
                     --cancel-button "Back" \
                     --menu \
-                    "Choose how to move this $kind:" \
+                    "Choose how to move this $kind:\n'${item_content[index]}'" \
                     18 78 10 \
                     "BEFORE" "Move before another $kind on this level" \
                     "AFTER"  "Move after another $kind on this level" \
@@ -14387,10 +14411,10 @@ edit_project() {
 
         target="$(
             whiptail \
-                --title "Move $mode" \
+                --title "Move Item - Choose Reference Item" \
                 --cancel-button "Back" \
                 --menu \
-                "Move '${item_content[index]}' $mode which item?" \
+                "Choose the item that '${item_content[index]}' should be placed $mode.\n(Only items on the same level are listed.)" \
                 18 180 10 \
                 "${candidates[@]}" \
                 3>&1 1>&2 2>&3
@@ -14695,10 +14719,10 @@ edit_project() {
 
         selected_id="$(
             whiptail \
-                --title "Project Goals" \
+                --title "Project Goals - Choose an Item" \
                 --cancel-button "Back" \
                 --menu \
-                "Select an item:" \
+                "Choose a heading or task to open its actions\n(change text/status, add, move, delete ...):" \
                 24 110 17 \
                 "${TREE_OPTIONS[@]}" \
                 3>&1 1>&2 2>&3
@@ -14725,9 +14749,9 @@ edit_project() {
 
         destination="$(
             whiptail \
-                --title "Add" \
+                --title "Add to Project - Choose Item Type" \
                 --menu \
-                "What would you like to add?" \
+                "Choose what to add:\nHeading = a section that can hold tasks and sub-headings.\nTask = a single item that is placed under a heading." \
                 12 60 4 \
                 "H" "Heading" \
                 "T" "Task" \
@@ -14763,9 +14787,9 @@ edit_project() {
 
         SELECTED_HEADING_ID="$(
             whiptail \
-                --title "Select Heading" \
+                --title "Add Task - Choose Parent Heading" \
                 --menu \
-                "Select the heading:" \
+                "Choose the heading that will contain the new task:" \
                 22 90 15 \
                 "${HEADING_OPTIONS[@]}" \
                 3>&1 1>&2 2>&3
@@ -14940,7 +14964,7 @@ edit_project() {
                         --title "${item_content[index]}" \
                         --cancel-button "Back" \
                         --menu \
-                        "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                        "Choose an action for this heading (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         24 80 12 \
                         "TEXT" "Change text" \
                         "STATUS" "Change status" \
@@ -14963,7 +14987,7 @@ edit_project() {
                         --title "${item_content[index]}" \
                         --cancel-button "Back" \
                         --menu \
-                        "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                        "Choose an action for this task (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                         20 75 8 \
                         "TEXT" "Change task / plan" \
                         "STATUS" "Change status" \
@@ -15060,9 +15084,9 @@ edit_project() {
 
             new_status="$(
                 whiptail \
-                    --title "Container Heading" \
+                    --title "Change Status of Container Heading" \
                     --menu \
-                    "'${item_content[index]}' is a container heading.\n\nSelect an operation:" \
+                    "'${item_content[index]}' is a container heading, so its status follows its children.\n\nChoose an operation to apply to all unfinished descendants:" \
                     16 75 5 \
                     "C" "Complete entire goal" \
                     "PA" "Pause unfinished descendants" \
@@ -15195,10 +15219,10 @@ edit_project() {
 
             choice="$(
                 whiptail \
-                    --title "Manage Goals" \
+                    --title "Manage Goals - Edit Project Tree" \
                     --cancel-button "Back" \
                     --menu \
-                    "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)" \
+                    "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)\nChoose an action from the top rows (add, save, discard) or pick a heading/task from the tree to work with it:" \
                     45 180 37 \
                     -- \
                     "${menu_items[@]}" \
@@ -15395,7 +15419,7 @@ edit_project_old() {
     local project_path="$old_path"
     local new_title project_action
     while true; do
-        project_action=$(whiptail --menu "Project Configuration" 15 150 3 \
+        project_action=$(whiptail --title "Add Project - Configure Project" --menu "Project Configuration\nSet the project title and path, then choose Proceed to create the project file:" 15 150 3 \
             "Project title" "Current: ${project_title:-<not set>}" \
             "Project path" "Status: ${project_path}" \
             "Proceed" "" 3>&1 1>&2 2>&3) || return 1
@@ -15583,7 +15607,7 @@ print_project() {
 
     # Continuous selection loop
     while true; do
-        goals_select_project "View Project Content" || return 1
+        goals_select_project "View Project - Choose Project to View" "Choose the project whose content you want to view." || return 1
         line_="$GOALS_SELECTED_PROJECT_LINE"
 
         local title_ path_
@@ -15622,7 +15646,7 @@ delete_project() {
     GOALS_PROJECT_GLOB=""
 
     while :; do
-        goals_select_project "Delete Project" || return 1
+        goals_select_project "Delete Project - Choose Project to Delete" "Choose the project you want to delete." || return 1
 
         local line_to_delete="$GOALS_SELECTED_PROJECT_LINE"
         local project_path="$GOALS_SELECTED_PROJECT_PATH"
@@ -15678,7 +15702,7 @@ associate_note_to_project() {
     # Select Project: __APPLY_GLOB__ matches the project file name,
     # __RESET_GLOB__ clears the glob.
     GOALS_PROJECT_GLOB=""
-    goals_select_project "Select Project" || return 1
+    goals_select_project "Associate Note with Project - Step 1: Choose Project" "Step 1: choose the project the note will be associated with." || return 1
     local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
 
     # Select Note Tag to Filter Notes: [NO TAG], [ANY TAG] or a tag.
@@ -15688,7 +15712,7 @@ associate_note_to_project() {
     local selected_note_tag note_title note_path note_tags rest
     local -a note_candidates=() all_note_paths=()
     while :; do
-        goals_select_note_tag_filter || return 1
+        goals_select_note_tag_filter --title "Associate Note with Project - Step 2: Filter Notes by Tag" --prompt "Step 2: choose a tag to narrow down the notes you can associate" || return 1
         selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
         # Collect the notes that satisfy the chosen tag filter.
@@ -15734,7 +15758,7 @@ associate_note_to_project() {
     GOALS_NOTE_TAGFILTER="$selected_note_tag"   # shown as the starting tag filter
 
     while :; do
-        goals_pick_note "Choose Note to Associate" "Choose a note to associate with the project" \
+        goals_pick_note "Associate Note with Project - Step 3: Choose Note" "Step 3: choose the note to associate with the project" \
             "${all_note_paths[@]}" || return 1
         local selected_note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -15826,7 +15850,7 @@ dissociate_note_from_project() {
     # Select Project: __APPLY_GLOB__ matches the project file name,
     # __RESET_GLOB__ clears the glob.
     GOALS_PROJECT_GLOB=""
-    goals_select_project "Select Project" || return 1
+    goals_select_project "Dissociate Note from Project - Step 1: Choose Project" "Step 1: choose the project you want to remove a note from." || return 1
 
     # Load full DB lines for editing later
     local lines=()
@@ -15894,7 +15918,7 @@ dissociate_note_from_project() {
 
         # Choose Note to Dissociate: full note paths plus their tags.
         # __APPLY_GLOB__ matches note file names; __FILTER_BY_TAG__ filters by tag.
-        goals_pick_note "Choose Note to Dissociate" "Choose a note to dissociate from the project" \
+        goals_pick_note "Dissociate Note from Project - Step 2: Choose Note" "Step 2: choose the note to remove from the project" \
             "${notes_arr[@]}" || break
         local selected_note="$GOALS_PICKED_NOTE_INDEX"
         local note_index
@@ -16069,7 +16093,7 @@ goals_open_url_for_note() {
         return 1
     fi
 
-    goals_pick_url_index "Choose URL to open" "Choose URL to open:" urls titles || return 1
+    goals_pick_url_index "Open URL - Choose URL" "Choose the URL to open in your browser:" urls titles || return 1
     selected_index="$GOALS_URL_PICKED_INDEX"
     nohup "$URL_BROWSER" "${urls[selected_index]}" >/dev/null 2>&1 &
 }
@@ -16110,7 +16134,7 @@ goals_manage_urls_for_note() {
         # This is a full-width content menu with a 50-row list capacity.
         # The colon prevents the shared wrapper from classifying it as a
         # compact navigation menu.
-        choice=$(whiptail --title "URL Associations" --cancel-button "Back" \
+        choice=$(whiptail --title "Associate URL - Manage URLs of Note" --cancel-button "Back" \
             --menu "$prompt" 35 155 25 \
             "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
 
@@ -16154,7 +16178,7 @@ goals_manage_urls_for_note() {
                     [[ "$visible_index" == "$index" ]] && { is_visible=1; break; }
                 done
                 (( is_visible )) || continue
-                sub_choice=$(whiptail --title "Manage URL" --menu "Choose an action:" 12 60 2 \
+                sub_choice=$(whiptail --title "Associate URL - Edit or Delete" --menu "Choose what to do with the selected URL:" 12 60 2 \
                     "Change values" "Edit URL and title" \
                     "Delete URL" "Delete this association" 3>&1 1>&2 2>&3) || continue
                 case "$sub_choice" in
@@ -16192,7 +16216,7 @@ goals_dissociate_urls_from_note() {
     touch "$URLS_DB"
     goals_load_note_urls "$selected_path" urls titles
     if ((${#urls[@]} == 0)); then
-        whiptail --title "Dissociate URL from note" --msgbox \
+        whiptail --title "Dissociate URL - Choose URL to Remove" --msgbox \
             "No URLs are associated with this note. Associate a URL and try again." 9 70
         return 1
     fi
@@ -16201,11 +16225,11 @@ goals_dissociate_urls_from_note() {
         menu_items=("Remove URL" "Choose a URL to remove" "Save and return" "Save URL changes")
         # Blank prompt avoids compact-navigation sizing: full terminal width and
         # the shared 50-row content-list capacity are used.
-        choice=$(whiptail --title "Dissociate URL from note" --cancel-button "Back" \
+        choice=$(whiptail --title "Dissociate URL - Choose URL to Remove" --cancel-button "Back" \
             --menu "" 35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
         case "$choice" in
             "Remove URL")
-                goals_pick_url_index "Select URL to remove" "Select a URL to remove:" urls titles || continue
+                goals_pick_url_index "Dissociate URL - Choose URL to Remove" "Choose the URL to remove from this note:" urls titles || continue
                 selected_index="$GOALS_URL_PICKED_INDEX"
                 unset 'urls[selected_index]' 'titles[selected_index]'
                 urls=("${urls[@]}")
@@ -16253,7 +16277,7 @@ goals_add_tag_to_note() {
         return 1
     fi
 
-    goals_select_note_tag_filter --title "Add tag" --prompt "Select a tag to add" \
+    goals_select_note_tag_filter --title "Add Tag to Note - Choose Tag" --prompt "Choose the tag to add to this note" \
         --pins "" --tags "${candidates[@]}" || return 1
     selected_tag="$GOALS_SELECTED_NOTE_TAG"
     if [[ -n "$note_tags" ]]; then note_tags+=",$selected_tag"; else note_tags="$selected_tag"; fi
@@ -16271,7 +16295,7 @@ goals_remove_tag_from_note() {
     fi
 
     IFS=',' read -r -a note_tag_array <<< "$note_tags"
-    goals_select_note_tag_filter --title "Remove tag" --prompt "Select a tag to remove" \
+    goals_select_note_tag_filter --title "Remove Tag from Note - Choose Tag" --prompt "Choose the tag to remove from this note" \
         --pins "" --tags "${note_tag_array[@]}" || return 1
     selected_tag="$GOALS_SELECTED_NOTE_TAG"
 
@@ -16500,7 +16524,7 @@ do_stuff_with_project_file() {
         local GOALS_PROJECT_RESTRICT_FILE=""
         local GOALS_PROJECT_TITLE_MODE=""
         GOALS_PROJECT_GLOB=""
-        goals_select_project "Select Project" || { rm -f -- "$temp_file"; return 1; }
+        goals_select_project "Associate Note with Project - Choose Target Project" "Choose the project the new note will be associated with." || { rm -f -- "$temp_file"; return 1; }
         local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
         [[ -n "$selected_project_path" ]] || { rm -f -- "$temp_file"; return 1; }
 
@@ -16617,8 +16641,8 @@ do_stuff_with_project_file() {
 
             # Show whiptail menu to select printer
             local selected_printer
-            selected_printer=$(whiptail --title "Select Printer" \
-                --menu "Choose a printer:" 20 60 10 \
+            selected_printer=$(whiptail --title "Print - Choose Printer" \
+                --menu "Choose the printer to send the print job to, then press OK:" 20 60 10 \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             # Check if user cancelled
@@ -16779,7 +16803,7 @@ do_stuff_with_project_file() {
         local selected_note_tag note_title note_path note_tags rest
         local -a note_candidates=() all_note_paths=()
         while :; do
-            goals_select_note_tag_filter || return 1
+            goals_select_note_tag_filter --title "Associate Note with Project - Step 2: Filter Notes by Tag" --prompt "Step 2: choose a tag to narrow down the notes you can associate" || return 1
             selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
             note_candidates=()
@@ -16812,8 +16836,8 @@ do_stuff_with_project_file() {
         local temp_file project_found line_updated added_count line title path notes np new_notes
         local -A already=()
         while :; do
-            goals_pick_notes_multi "Choose Note to Associate" \
-                "Choose notes to link to the project" \
+            goals_pick_notes_multi "Associate Notes with Project - Choose Notes to Link" \
+                "Choose the notes to link to the project" \
                 "__add__" "Link the selected notes to the project" top \
                 "${all_note_paths[@]}" || return 1
             selected_note_paths=("${GOALS_PICKED_PATHS[@]}")
@@ -16932,7 +16956,7 @@ do_stuff_with_project_file() {
                 return 1
             fi
 
-            goals_pick_notes_multi "Choose Note to Dissociate" \
+            goals_pick_notes_multi "Dissociate Notes from Project - Choose Notes to Unlink" \
                 "Choose notes to unlink from the project" \
                 "__remove__" "Unlink the selected notes from the project" top \
                 "${candidates[@]}" || return 1
@@ -17505,8 +17529,8 @@ do_stuff_with_project_file() {
             local current="$1"
 
             whiptail \
-                --title "Change Status" \
-                --menu "Select status:" \
+                --title "Change Status - Choose New Status" \
+                --menu "Choose the new status for this item.\nPress OK to apply it, or Cancel to leave the status unchanged." \
                 15 60 6 \
                 "NS" "Not started" \
                 "IP" "In progress" \
@@ -17518,8 +17542,8 @@ do_stuff_with_project_file() {
 
         select_importance() {
             whiptail \
-                --title "Change Importance" \
-                --menu "Select importance:" \
+                --title "Change Importance - Choose New Level" \
+                --menu "Choose the new importance level for this item.\nPress OK to apply it, or Cancel to leave it unchanged." \
                 15 60 6 \
                 "VI" "Very important" \
                 "I"  "Important" \
@@ -17539,8 +17563,8 @@ do_stuff_with_project_file() {
 
             text="$(
                 whiptail \
-                    --title "Add Heading" \
-                    --inputbox "Heading name:" \
+                    --title "Add Heading - Enter Name" \
+                    --inputbox "Enter the name of the new heading:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -17576,8 +17600,8 @@ do_stuff_with_project_file() {
 
             task="$(
                 whiptail \
-                    --title "Add Task" \
-                    --inputbox "Task:" \
+                    --title "Add Task - Enter Description" \
+                    --inputbox "Enter the task description:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -17587,8 +17611,8 @@ do_stuff_with_project_file() {
 
             plan="$(
                 whiptail \
-                    --title "Add Task Plan" \
-                    --inputbox "Plan for:\n\n$task" \
+                    --title "Add Task - Enter Plan" \
+                    --inputbox "Enter the plan for this task:\n\n$task" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -17774,8 +17798,8 @@ do_stuff_with_project_file() {
 
             task="$(
                 whiptail \
-                    --title "Add Rule for Today" \
-                    --inputbox "Rule for $rules_date:" \
+                    --title "Add Rule for Today - Enter Text" \
+                    --inputbox "Enter the rule for $rules_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -17850,8 +17874,8 @@ do_stuff_with_project_file() {
 
             task="$(
                 whiptail \
-                    --title "Add TODO Item" \
-                    --inputbox "TODO item for $todo_date:" \
+                    --title "Add TODO Item - Enter Text" \
+                    --inputbox "Enter the TODO item for $todo_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -17940,9 +17964,9 @@ do_stuff_with_project_file() {
 
             new_text="$(
                 whiptail \
-                    --title "Edit Text" \
+                    --title "Edit Heading Text" \
                     --inputbox \
-                    "Current text:" \
+                    "Edit the heading text, then press OK:" \
                     10 80 \
                     "${item_content[index]}" \
                     3>&1 1>&2 2>&3
@@ -17975,8 +17999,8 @@ do_stuff_with_project_file() {
 
         task="$(
             whiptail \
-                --title "Edit Task" \
-                --inputbox "Task:" \
+                --title "Edit Task - Change Description" \
+                --inputbox "Edit the task description, then press OK:" \
                 10 70 \
                 "$task" \
                 3>&1 1>&2 2>&3
@@ -17993,8 +18017,8 @@ do_stuff_with_project_file() {
 
         plan="$(
             whiptail \
-                --title "Edit Plan" \
-                --inputbox "Plan:" \
+                --title "Edit Task - Change Plan" \
+                --inputbox "Edit the plan for this task, then press OK:" \
                 10 70 \
                 "$plan" \
                 3>&1 1>&2 2>&3
@@ -18087,8 +18111,8 @@ do_stuff_with_project_file() {
 
             comment="$(
                 whiptail \
-                    --title "Comment: ${item_content[index]}" \
-                    --inputbox "Comment (optional):" \
+                    --title "Add / Edit Comment" \
+                    --inputbox "Comment for '${item_content[index]}' (optional, leave empty for none):" \
                     14 90 \
                     "${item_comment[index]}" \
                     3>&1 1>&2 2>&3
@@ -18110,7 +18134,7 @@ do_stuff_with_project_file() {
             [[ -n "$comment" ]] || comment="No comment has been added."
 
             whiptail \
-                --title "Comment: ${item_content[index]}" \
+                --title "View Comment" \
                 --msgbox "$comment" \
                 16 90
         }
@@ -18129,8 +18153,8 @@ do_stuff_with_project_file() {
 
         #     task="$(
         #         whiptail \
-        #             --title "Edit Task" \
-        #             --inputbox "Task:" \
+        #             --title "Edit Task - Change Description" \
+        #             --inputbox "Edit the task description, then press OK:" \
         #             10 70 \
         #             "$task" \
         #             3>&1 1>&2 2>&3
@@ -18138,8 +18162,8 @@ do_stuff_with_project_file() {
 
         #     plan="$(
         #         whiptail \
-        #             --title "Edit Plan" \
-        #             --inputbox "Plan:" \
+        #             --title "Edit Task - Change Plan" \
+        #             --inputbox "Edit the plan for this task, then press OK:" \
         #             10 70 \
         #             "$plan" \
         #             3>&1 1>&2 2>&3
@@ -18218,9 +18242,9 @@ do_stuff_with_project_file() {
             (( ${#options[@]} == 0 )) && return 1
 
             whiptail \
-                --title "Move Item" \
+                --title "Move Item - Choose New Parent Heading" \
                 --menu \
-                "Move '${item_content[moving_index]}' under:" \
+                "Choose the heading that '${item_content[moving_index]}' will be moved under.\nThe item is placed inside the heading you pick:" \
                 22 90 15 \
                 "${options[@]}" \
                 3>&1 1>&2 2>&3
@@ -18294,10 +18318,10 @@ do_stuff_with_project_file() {
 
                 action="$(
                     whiptail \
-                        --title "Move: ${item_content[index]}" \
+                        --title "Move Item - Choose How to Move" \
                         --cancel-button "Back" \
                         --menu \
-                        "Choose how to move this $kind:" \
+                        "Choose how to move this $kind:\n'${item_content[index]}'" \
                         18 78 10 \
                         "BEFORE" "Move before another $kind on this level" \
                         "AFTER"  "Move after another $kind on this level" \
@@ -18381,10 +18405,10 @@ do_stuff_with_project_file() {
 
             target="$(
                 whiptail \
-                    --title "Move $mode" \
+                    --title "Move Item - Choose Reference Item" \
                     --cancel-button "Back" \
                     --menu \
-                    "Move '${item_content[index]}' $mode which item?" \
+                    "Choose the item that '${item_content[index]}' should be placed $mode.\n(Only items on the same level are listed.)" \
                     18 180 10 \
                     "${candidates[@]}" \
                     3>&1 1>&2 2>&3
@@ -18690,10 +18714,10 @@ do_stuff_with_project_file() {
 
             selected_id="$(
                 whiptail \
-                    --title "Project Goals" \
+                    --title "Project Goals - Choose an Item" \
                     --cancel-button "Back" \
                     --menu \
-                    "Select an item:" \
+                    "Choose a heading or task to open its actions\n(change text/status, add, move, delete ...):" \
                     24 110 17 \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
@@ -18720,9 +18744,9 @@ do_stuff_with_project_file() {
 
             destination="$(
                 whiptail \
-                    --title "Add" \
+                    --title "Add to Project - Choose Item Type" \
                     --menu \
-                    "What would you like to add?" \
+                    "Choose what to add:\nHeading = a section that can hold tasks and sub-headings.\nTask = a single item that is placed under a heading." \
                     12 60 4 \
                     "H" "Heading" \
                     "T" "Task" \
@@ -18758,9 +18782,9 @@ do_stuff_with_project_file() {
 
             SELECTED_HEADING_ID="$(
                 whiptail \
-                    --title "Select Heading" \
+                    --title "Add Task - Choose Parent Heading" \
                     --menu \
-                    "Select the heading:" \
+                    "Choose the heading that will contain the new task:" \
                     22 90 15 \
                     "${HEADING_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
@@ -18935,7 +18959,7 @@ do_stuff_with_project_file() {
                             --title "${item_content[index]}" \
                             --cancel-button "Back" \
                             --menu \
-                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            "Choose an action for this heading (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             24 80 12 \
                             "TEXT" "Change text" \
                             "STATUS" "Change status" \
@@ -18958,7 +18982,7 @@ do_stuff_with_project_file() {
                             --title "${item_content[index]}" \
                             --cancel-button "Back" \
                             --menu \
-                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            "Choose an action for this task (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             20 75 8 \
                             "TEXT" "Change task / plan" \
                             "STATUS" "Change status" \
@@ -19055,9 +19079,9 @@ do_stuff_with_project_file() {
 
                 new_status="$(
                     whiptail \
-                        --title "Container Heading" \
+                        --title "Change Status of Container Heading" \
                         --menu \
-                        "'${item_content[index]}' is a container heading.\n\nSelect an operation:" \
+                        "'${item_content[index]}' is a container heading, so its status follows its children.\n\nChoose an operation to apply to all unfinished descendants:" \
                         16 75 5 \
                         "C" "Complete entire goal" \
                         "PA" "Pause unfinished descendants" \
@@ -19190,10 +19214,10 @@ do_stuff_with_project_file() {
 
                 choice="$(
                     whiptail \
-                        --title "Manage Goals" \
+                        --title "Manage Goals - Edit Project Tree" \
                         --cancel-button "Back" \
                         --menu \
-                        "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)" \
+                        "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)\nChoose an action from the top rows (add, save, discard) or pick a heading/task from the tree to work with it:" \
                         45 180 37 \
                         -- \
                         "${menu_items[@]}" \
@@ -19340,7 +19364,7 @@ do_stuff_with_project_file() {
     local -a projects=()
     GOALS_PROJECT_GLOB=""
     local GOALS_PROJECT_TITLE_MODE=1
-    goals_select_project "Select Project" || return 1
+    goals_select_project "Do Stuff with Project - Choose Project" "Choose the project you want to work with." || return 1
     GOALS_PROJECT_TITLE_MODE=""
     local selected_project_tag="$GOALS_SELECTED_PROJECT_LINENO"
     mapfile -t projects < "$PROJECTS_DB"
@@ -19625,7 +19649,7 @@ do_stuff_with_project_file() {
 
                 # Show whiptail menu
                 choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    --menu "Highlight a tag and press OK (Back cancels).\nPage ${current_page}/${total_pages}" 20 60 12 \
                     "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
                 [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -19649,7 +19673,7 @@ do_stuff_with_project_file() {
         choose_tag_goal() {
             # Choose Tag: [NO TAG] creates the note without a tag. __FILTER__
             # narrows the tag list by a literal substring; __RESET_FILTER__ clears it.
-            goals_select_note_tag_filter --title "Choose Tag" \
+            goals_select_note_tag_filter --title "New Linked Note - Choose Tag" \
                 --prompt "Choose a tag for the new linked note" --pins "NO" \
                 --no-tag-desc "Create the note without any tag" || return 1
             printf '%s' "$GOALS_SELECTED_NOTE_TAG"
@@ -19719,8 +19743,8 @@ Tag you have chosen will be added to the selected notes." 10 60
             for (( tk = 0; tk < ${#tag_menu[@]}; tk += 2 )); do
                 tag_list+=("${tag_menu[tk]}")
             done
-            goals_select_note_tag_filter --title "Select tag" \
-                --prompt "Choose the tag to add to the notes" --pins "" \
+            goals_select_note_tag_filter --title "Add Tag to Linked Notes - Step 1: Choose Tag" \
+                --prompt "Step 1: choose the tag to add to the notes" --pins "" \
                 --tags "${tag_list[@]}" || return 1
             selected_tag="$GOALS_SELECTED_NOTE_TAG"
 
@@ -19737,7 +19761,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local -A selected_paths=()
             local sp_
             while :; do
-                goals_pick_notes_multi "Select notes" "Tag to add: $selected_tag" \
+                goals_pick_notes_multi "Add Tag to Linked Notes - Step 2: Choose Notes" "Step 2: choose the notes that will receive the tag '$selected_tag'" \
                     "__add_tag__" "Add tag to selected notes" top \
                     "${all_paths[@]}" || return 1
 
@@ -19989,8 +20013,8 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                 choice=$(
                     whiptail \
-                        --title "Add Note Tag" \
-                        --menu "Create a new tag (formatted 'subject->topic'):" \
+                        --title "Add Note Tag - Set Subject and Topic" \
+                        --menu "Create a new tag (formatted \'subject->topic\').\nSet Subject and Topic, then choose Save to store the tag:" \
                         18 70 8 \
                         "Subject" "${subject:-<not set>}" \
                         "Topic" "${topic:-<not set>}" \
@@ -20003,7 +20027,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     Subject)
                         subject=$(
                             whiptail \
-                                --title "Subject" \
+                                --title "Add Note Tag - Enter Subject" \
                                 --inputbox "Enter subject:" \
                                 10 60 "$subject" \
                                 3>&1 1>&2 2>&3
@@ -20013,7 +20037,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     Topic)
                         topic=$(
                             whiptail \
-                                --title "Topic" \
+                                --title "Add Note Tag - Enter Topic" \
                                 --inputbox "Enter topic (optional):" \
                                 10 60 "$topic" \
                                 3>&1 1>&2 2>&3
@@ -20189,7 +20213,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                 # Select Note: titles with tags; glob matches note titles;
                 # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
-                goals_pick_note "Select Note" "Choose a linked note" \
+                goals_pick_note "Open URL - Choose Linked Note" "Choose a linked note to open its URL" \
                     "${url_note_paths[@]}" || return 1
                 note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -20258,7 +20282,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     selected_url=$(
                         whiptail \
-                            --title "Select URL" \
+                            --title "Open URL - Choose URL" \
                             --cancel-button "Back" \
                             --menu "Choose a URL to open:\nGlob: ${url_glob:-none}   ($shown_urls of $(( ${#url_items[@]} / 2 )) URLs shown)" \
                             20 155 10 \
@@ -20417,7 +20441,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             GOALS_NOTE_TAGFILTER=""
             local GOALS_NOTE_TITLE_MODE=1
             local GOALS_NOTE_TAGMENU_FULL=1
-            goals_pick_note "Select Note" "Choose a linked note" \
+            goals_pick_note "Open eBook - Choose Linked Note" "Choose a linked note to open its eBook" \
                 "${ebook_note_paths[@]}" || return 1
             note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -20477,9 +20501,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             selected_ebook=$(
                 whiptail \
-                    --title "Select Ebook" \
+                    --title "Open eBook - Choose eBook" \
                     --cancel-button "Back" \
-                    --menu "Choose an ebook to open in zathura:" \
+                    --menu "Choose an ebook to open with its configured viewer:" \
                     22 100 14 \
                     "${ebook_items[@]}" \
                     3>&1 1>&2 2>&3
@@ -20499,9 +20523,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             action=$(
                 whiptail \
-                    --title "Open Ebook" \
+                    --title "Open eBook - Choose How to Open" \
                     --cancel-button "Back" \
-                    --menu "How should zathura open this ebook?" \
+                    --menu "How should the configured viewer open this ebook?" \
                     15 90 4 \
                     "open"       "Just open" \
                     "bookmarks"  "Browse bookmarks" \
@@ -20513,7 +20537,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
-                    _spawn "$(get_open_command "$ebook")" -- "$ebook"
+                    ebook_open_at "$(get_open_command "$ebook")" "$ebook"
                     ;;
 
                 bookmarks)
@@ -20574,7 +20598,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     bookmark_selection=$(
                         whiptail \
-                            --title "Select Bookmark" \
+                            --title "Open eBook - Choose Bookmark" \
                             --cancel-button "Back" \
                             --menu "Choose a bookmark:" \
                             22 90 14 \
@@ -20589,14 +20613,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     [[ -n $page ]] || return 1
 
 
-                    local cmd__ vcmd__
-                    cmd__="$(get_open_command "$ebook")"
-                    vcmd__="${VIEWER_COMMANDS["$cmd__"]}"
-
-                    [[ -n "$vcmd__" ]] || return 1
-
-                    read -r -a viewer_cmd__ <<< "$vcmd__"
-                    _spawn "${viewer_cmd__[@]}" "$page" -- "$ebook"
+                    ebook_open_at "$(get_open_command "$ebook")" "$ebook" "$page" || return 1
 
                     #_spawn "$vcmd__" "$page" -- "$ebook"
                     ;;
@@ -20701,8 +20718,8 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             # Remove Linked Note Tag: __FILTER__ narrows the list by a literal
             # substring, __RESET_FILTER__ clears it.
-            goals_select_note_tag_filter --title "Remove Linked Note Tag" \
-                --prompt "Select a tag to remove" --pins "" \
+            goals_select_note_tag_filter --title "Remove Tag from Linked Notes - Step 1: Choose Tag" \
+                --prompt "Step 1: choose the tag to remove" --pins "" \
                 --tags "${note_tags[@]}" || continue
             chosen_tag_for_removal="$GOALS_SELECTED_NOTE_TAG"
 
@@ -20754,7 +20771,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local selected_notes_for_removal=()
             local rm_path_ matching_line__
             while :; do
-                goals_pick_notes_multi "Select Notes" \
+                goals_pick_notes_multi "Remove Tag from Linked Notes - Step 2: Choose Notes" \
                     "Select notes to remove the tag \"$chosen_tag_for_removal\" from" \
                     "__remove__" "Remove the tag from the selected notes" top \
                     "${notes_with_selected_tag[@]}" || break
@@ -20796,7 +20813,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     retrieve_linked_note_tags "${linked_notes_array[@]}" | sed '/^$/d'
                 )
             fi
-            if goals_select_note_tag_filter --title "Filter Linked Notes" \
+            if goals_select_note_tag_filter --title "Filter Linked Notes - Choose Tag" \
                 --prompt "Choose a tag to filter the linked notes by" \
                 --no-tag-desc "Show only linked notes that have no tag" \
                 --any-tag-desc "Show linked notes with or without tags" \
@@ -20860,7 +20877,7 @@ Leave the pattern non-empty; use * to match all titles." \
 
         # Action selection
         local action
-        action=$(whiptail --menu "Note Action" 24 60 11 \
+        action=$(whiptail --title "Linked Note - Choose Action" --menu "Note Action\nChoose what to do with the selected note:" 24 70 11 \
             "1" "View Note" \
             "2" "Copy note content to clipboard" \
             "3" "Open ebooks linked to note" \
@@ -20960,7 +20977,7 @@ open_url_assoc_to_note_from_project() {
     GOALS_PROJECT_GLOB=""
 
     while true; do
-        goals_select_project "Choose Project to Open URL from Associated Note" || return 1
+        goals_select_project "Open URL - Choose Project" "Choose the project whose associated notes contain the URL." || return 1
         chosen_project="$GOALS_SELECTED_PROJECT_PATH"
         notes_field="$GOALS_SELECTED_PROJECT_NOTES"
 
@@ -20979,7 +20996,7 @@ open_url_assoc_to_note_from_project() {
         # __FILTER_BY_TAG__ filters by the notes' tags.
         GOALS_NOTE_GLOB=""
         GOALS_NOTE_TAGFILTER=""
-        goals_pick_note "Select Note" "Choose a note to open URLs" \
+        goals_pick_note "Open URL - Choose Note" "Choose a note to see and open its URLs" \
             "${note_paths_array[@]}" || continue
         selected_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -21018,7 +21035,7 @@ open_url_assoc_to_note_from_project() {
             done
 
             choice=$(whiptail --title "URLs for $selected_path" --cancel-button "Back" \
-                --menu "Choose URL to open:\nGlob: ${url_glob:-none} ($shown of ${#urls[@]} URLs shown)" \
+                --menu "Choose the URL to open in your browser, then press OK.\nGlob: ${url_glob:-none} ($shown of ${#urls[@]} URLs shown)" \
                 20 155 10 "${url_menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty) || break
             [[ -z "$choice" ]] && break
 
@@ -21076,8 +21093,8 @@ print_project_to_printer_from_main() {
 
         # Show whiptail menu to select printer
         local selected_printer
-        selected_printer=$(whiptail --title "Select Printer" \
-            --menu "Choose a printer:" 20 60 10 \
+        selected_printer=$(whiptail --title "Print - Choose Printer" \
+            --menu "Choose the printer to send the print job to, then press OK:" 20 60 10 \
             "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
         # Check if user cancelled
@@ -21129,7 +21146,7 @@ print_project_to_printer_from_main() {
 
     # Continuous selection loop
     while true; do
-        goals_select_project "Print Project using Printer" || return 1
+        goals_select_project "Print Project - Choose Project to Print" "Choose the project you want to print." || return 1
         line_="$GOALS_SELECTED_PROJECT_LINE"
 
         local title_ path_
@@ -21147,7 +21164,7 @@ print_project_to_printer_from_main() {
         fi
 
         local action
-        action=$(whiptail --title "Actions" --menu "Choose an action:" 10 40 2 \
+        action=$(whiptail --title "Print Project - Choose Action" --menu "Choose what to do with the selected project:" 10 60 2 \
                 "View Project" "" \
                 "Print Project" "" \
                 3>&1 1>&2 2>&3) || :        
@@ -21203,7 +21220,7 @@ add_to_shortlist() {
         local GOALS_PROJECT_RESTRICT_FILE=""
         local GOALS_PROJECT_TITLE_MODE=""
         GOALS_PROJECT_GLOB=""
-        goals_select_project "Select Project" || return 1
+        goals_select_project "Shortlist - Choose Project to Add" "Choose the project to add to the shortlist." || return 1
         printf '%s\n' "$GOALS_SELECTED_PROJECT_PATH"
     }
 
@@ -21243,7 +21260,7 @@ add_to_shortlist() {
         done
 
         choice=$(whiptail \
-            --title "Shortlisted Projects" \
+            --title "Shortlisted Projects - Choose Project" \
             --cancel-button "Back" \
             --menu "Page $((page+1)) of $((max_page+1))" \
             20 155 10 \
@@ -21285,7 +21302,7 @@ add_to_shortlist() {
 remove_from_shortlist() {
     touch "$PROJECTS_DB_SHORTLISTED"
     [[ -s "$PROJECTS_DB_SHORTLISTED" ]] || {
-        whiptail --title "Shortlisted Projects" --msgbox "There are no projects in the shortlist." 8 60
+        whiptail --title "Shortlisted Projects - Choose Project" --msgbox "There are no projects in the shortlist." 8 60
         return 1
     }
 
@@ -21297,7 +21314,7 @@ remove_from_shortlist() {
     GOALS_PROJECT_GLOB=""
 
     while :; do
-        goals_select_project "Select Project to Remove from Shortlist" || return 1
+        goals_select_project "Shortlist - Choose Project to Remove" "Choose the project to remove from the shortlist." || return 1
         selected_path="$GOALS_SELECTED_PROJECT_PATH"
         [[ -n "$selected_path" ]] || continue
 
@@ -21315,7 +21332,7 @@ remove_from_shortlist() {
         fi
 
         [[ -s "$PROJECTS_DB_SHORTLISTED" ]] || {
-            whiptail --title "Shortlisted Projects" --msgbox "The shortlist is now empty." 8 60
+            whiptail --title "Shortlisted Projects - Choose Project" --msgbox "The shortlist is now empty." 8 60
             return 0
         }
     done
@@ -21477,7 +21494,7 @@ do_stuff_shortlisted() {
         local GOALS_PROJECT_RESTRICT_FILE=""
         local GOALS_PROJECT_TITLE_MODE=""
         GOALS_PROJECT_GLOB=""
-        goals_select_project "Select Project" || { rm -f -- "$temp_file"; return 1; }
+        goals_select_project "Associate Note with Project - Choose Target Project" "Choose the project the new note will be associated with." || { rm -f -- "$temp_file"; return 1; }
         local selected_project_path="$GOALS_SELECTED_PROJECT_PATH"
         [[ -n "$selected_project_path" ]] || { rm -f -- "$temp_file"; return 1; }
 
@@ -21594,8 +21611,8 @@ do_stuff_shortlisted() {
 
             # Show whiptail menu to select printer
             local selected_printer
-            selected_printer=$(whiptail --title "Select Printer" \
-                --menu "Choose a printer:" 20 60 10 \
+            selected_printer=$(whiptail --title "Print - Choose Printer" \
+                --menu "Choose the printer to send the print job to, then press OK:" 20 60 10 \
                 "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
             # Check if user cancelled
@@ -21756,7 +21773,7 @@ do_stuff_shortlisted() {
         local selected_note_tag note_title note_path note_tags rest
         local -a note_candidates=() all_note_paths=()
         while :; do
-            goals_select_note_tag_filter || return 1
+            goals_select_note_tag_filter --title "Associate Note with Project - Step 2: Filter Notes by Tag" --prompt "Step 2: choose a tag to narrow down the notes you can associate" || return 1
             selected_note_tag="$GOALS_SELECTED_NOTE_TAG"
 
             note_candidates=()
@@ -21789,8 +21806,8 @@ do_stuff_shortlisted() {
         local temp_file project_found line_updated added_count line title path notes np new_notes
         local -A already=()
         while :; do
-            goals_pick_notes_multi "Choose Note to Associate" \
-                "Choose notes to link to the project" \
+            goals_pick_notes_multi "Associate Notes with Project - Choose Notes to Link" \
+                "Choose the notes to link to the project" \
                 "__add__" "Link the selected notes to the project" top \
                 "${all_note_paths[@]}" || return 1
             selected_note_paths=("${GOALS_PICKED_PATHS[@]}")
@@ -21909,7 +21926,7 @@ do_stuff_shortlisted() {
                 return 1
             fi
 
-            goals_pick_notes_multi "Choose Note to Dissociate" \
+            goals_pick_notes_multi "Dissociate Notes from Project - Choose Notes to Unlink" \
                 "Choose notes to unlink from the project" \
                 "__remove__" "Unlink the selected notes from the project" top \
                 "${candidates[@]}" || return 1
@@ -22482,8 +22499,8 @@ do_stuff_shortlisted() {
             local current="$1"
 
             whiptail \
-                --title "Change Status" \
-                --menu "Select status:" \
+                --title "Change Status - Choose New Status" \
+                --menu "Choose the new status for this item.\nPress OK to apply it, or Cancel to leave the status unchanged." \
                 15 60 6 \
                 "NS" "Not started" \
                 "IP" "In progress" \
@@ -22495,8 +22512,8 @@ do_stuff_shortlisted() {
 
         select_importance() {
             whiptail \
-                --title "Change Importance" \
-                --menu "Select importance:" \
+                --title "Change Importance - Choose New Level" \
+                --menu "Choose the new importance level for this item.\nPress OK to apply it, or Cancel to leave it unchanged." \
                 15 60 6 \
                 "VI" "Very important" \
                 "I"  "Important" \
@@ -22516,8 +22533,8 @@ do_stuff_shortlisted() {
 
             text="$(
                 whiptail \
-                    --title "Add Heading" \
-                    --inputbox "Heading name:" \
+                    --title "Add Heading - Enter Name" \
+                    --inputbox "Enter the name of the new heading:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -22553,8 +22570,8 @@ do_stuff_shortlisted() {
 
             task="$(
                 whiptail \
-                    --title "Add Task" \
-                    --inputbox "Task:" \
+                    --title "Add Task - Enter Description" \
+                    --inputbox "Enter the task description:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -22564,8 +22581,8 @@ do_stuff_shortlisted() {
 
             plan="$(
                 whiptail \
-                    --title "Add Task Plan" \
-                    --inputbox "Plan for:\n\n$task" \
+                    --title "Add Task - Enter Plan" \
+                    --inputbox "Enter the plan for this task:\n\n$task" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -22751,8 +22768,8 @@ do_stuff_shortlisted() {
 
             task="$(
                 whiptail \
-                    --title "Add Rule for Today" \
-                    --inputbox "Rule for $rules_date:" \
+                    --title "Add Rule for Today - Enter Text" \
+                    --inputbox "Enter the rule for $rules_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -22827,8 +22844,8 @@ do_stuff_shortlisted() {
 
             task="$(
                 whiptail \
-                    --title "Add TODO Item" \
-                    --inputbox "TODO item for $todo_date:" \
+                    --title "Add TODO Item - Enter Text" \
+                    --inputbox "Enter the TODO item for $todo_date:" \
                     10 70 \
                     "" \
                     3>&1 1>&2 2>&3
@@ -22917,9 +22934,9 @@ do_stuff_shortlisted() {
 
             new_text="$(
                 whiptail \
-                    --title "Edit Text" \
+                    --title "Edit Heading Text" \
                     --inputbox \
-                    "Current text:" \
+                    "Edit the heading text, then press OK:" \
                     10 80 \
                     "${item_content[index]}" \
                     3>&1 1>&2 2>&3
@@ -22952,8 +22969,8 @@ do_stuff_shortlisted() {
 
         task="$(
             whiptail \
-                --title "Edit Task" \
-                --inputbox "Task:" \
+                --title "Edit Task - Change Description" \
+                --inputbox "Edit the task description, then press OK:" \
                 10 70 \
                 "$task" \
                 3>&1 1>&2 2>&3
@@ -22970,8 +22987,8 @@ do_stuff_shortlisted() {
 
         plan="$(
             whiptail \
-                --title "Edit Plan" \
-                --inputbox "Plan:" \
+                --title "Edit Task - Change Plan" \
+                --inputbox "Edit the plan for this task, then press OK:" \
                 10 70 \
                 "$plan" \
                 3>&1 1>&2 2>&3
@@ -23064,8 +23081,8 @@ do_stuff_shortlisted() {
 
             comment="$(
                 whiptail \
-                    --title "Comment: ${item_content[index]}" \
-                    --inputbox "Comment (optional):" \
+                    --title "Add / Edit Comment" \
+                    --inputbox "Comment for '${item_content[index]}' (optional, leave empty for none):" \
                     14 90 \
                     "${item_comment[index]}" \
                     3>&1 1>&2 2>&3
@@ -23087,7 +23104,7 @@ do_stuff_shortlisted() {
             [[ -n "$comment" ]] || comment="No comment has been added."
 
             whiptail \
-                --title "Comment: ${item_content[index]}" \
+                --title "View Comment" \
                 --msgbox "$comment" \
                 16 90
         }
@@ -23106,8 +23123,8 @@ do_stuff_shortlisted() {
 
         #     task="$(
         #         whiptail \
-        #             --title "Edit Task" \
-        #             --inputbox "Task:" \
+        #             --title "Edit Task - Change Description" \
+        #             --inputbox "Edit the task description, then press OK:" \
         #             10 70 \
         #             "$task" \
         #             3>&1 1>&2 2>&3
@@ -23115,8 +23132,8 @@ do_stuff_shortlisted() {
 
         #     plan="$(
         #         whiptail \
-        #             --title "Edit Plan" \
-        #             --inputbox "Plan:" \
+        #             --title "Edit Task - Change Plan" \
+        #             --inputbox "Edit the plan for this task, then press OK:" \
         #             10 70 \
         #             "$plan" \
         #             3>&1 1>&2 2>&3
@@ -23195,9 +23212,9 @@ do_stuff_shortlisted() {
             (( ${#options[@]} == 0 )) && return 1
 
             whiptail \
-                --title "Move Item" \
+                --title "Move Item - Choose New Parent Heading" \
                 --menu \
-                "Move '${item_content[moving_index]}' under:" \
+                "Choose the heading that '${item_content[moving_index]}' will be moved under.\nThe item is placed inside the heading you pick:" \
                 22 90 15 \
                 "${options[@]}" \
                 3>&1 1>&2 2>&3
@@ -23271,10 +23288,10 @@ do_stuff_shortlisted() {
 
                 action="$(
                     whiptail \
-                        --title "Move: ${item_content[index]}" \
+                        --title "Move Item - Choose How to Move" \
                         --cancel-button "Back" \
                         --menu \
-                        "Choose how to move this $kind:" \
+                        "Choose how to move this $kind:\n'${item_content[index]}'" \
                         18 78 10 \
                         "BEFORE" "Move before another $kind on this level" \
                         "AFTER"  "Move after another $kind on this level" \
@@ -23358,10 +23375,10 @@ do_stuff_shortlisted() {
 
             target="$(
                 whiptail \
-                    --title "Move $mode" \
+                    --title "Move Item - Choose Reference Item" \
                     --cancel-button "Back" \
                     --menu \
-                    "Move '${item_content[index]}' $mode which item?" \
+                    "Choose the item that '${item_content[index]}' should be placed $mode.\n(Only items on the same level are listed.)" \
                     18 180 10 \
                     "${candidates[@]}" \
                     3>&1 1>&2 2>&3
@@ -23667,10 +23684,10 @@ do_stuff_shortlisted() {
 
             selected_id="$(
                 whiptail \
-                    --title "Project Goals" \
+                    --title "Project Goals - Choose an Item" \
                     --cancel-button "Back" \
                     --menu \
-                    "Select an item:" \
+                    "Choose a heading or task to open its actions\n(change text/status, add, move, delete ...):" \
                     24 110 17 \
                     "${TREE_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
@@ -23697,9 +23714,9 @@ do_stuff_shortlisted() {
 
             destination="$(
                 whiptail \
-                    --title "Add" \
+                    --title "Add to Project - Choose Item Type" \
                     --menu \
-                    "What would you like to add?" \
+                    "Choose what to add:\nHeading = a section that can hold tasks and sub-headings.\nTask = a single item that is placed under a heading." \
                     12 60 4 \
                     "H" "Heading" \
                     "T" "Task" \
@@ -23735,9 +23752,9 @@ do_stuff_shortlisted() {
 
             SELECTED_HEADING_ID="$(
                 whiptail \
-                    --title "Select Heading" \
+                    --title "Add Task - Choose Parent Heading" \
                     --menu \
-                    "Select the heading:" \
+                    "Choose the heading that will contain the new task:" \
                     22 90 15 \
                     "${HEADING_OPTIONS[@]}" \
                     3>&1 1>&2 2>&3
@@ -23912,7 +23929,7 @@ do_stuff_shortlisted() {
                             --title "${item_content[index]}" \
                             --cancel-button "Back" \
                             --menu \
-                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            "Choose an action for this heading (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             24 80 12 \
                             "TEXT" "Change text" \
                             "STATUS" "Change status" \
@@ -23935,7 +23952,7 @@ do_stuff_shortlisted() {
                             --title "${item_content[index]}" \
                             --cancel-button "Back" \
                             --menu \
-                            "Status: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
+                            "Choose an action for this task (its text is shown in the title bar).\n\nStatus: $(status_name "${effective_status[index]}")\nImportance: $(importance_name "${item_importance[index]}")" \
                             20 75 8 \
                             "TEXT" "Change task / plan" \
                             "STATUS" "Change status" \
@@ -24032,9 +24049,9 @@ do_stuff_shortlisted() {
 
                 new_status="$(
                     whiptail \
-                        --title "Container Heading" \
+                        --title "Change Status of Container Heading" \
                         --menu \
-                        "'${item_content[index]}' is a container heading.\n\nSelect an operation:" \
+                        "'${item_content[index]}' is a container heading, so its status follows its children.\n\nChoose an operation to apply to all unfinished descendants:" \
                         16 75 5 \
                         "C" "Complete entire goal" \
                         "PA" "Pause unfinished descendants" \
@@ -24167,10 +24184,10 @@ do_stuff_shortlisted() {
 
                 choice="$(
                     whiptail \
-                        --title "Manage Goals" \
+                        --title "Manage Goals - Edit Project Tree" \
                         --cancel-button "Back" \
                         --menu \
-                        "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)" \
+                        "Project: $project_file_tr (Page $((tree_page + 1))/$tree_pages)\nChoose an action from the top rows (add, save, discard) or pick a heading/task from the tree to work with it:" \
                         45 180 37 \
                         -- \
                         "${menu_items[@]}" \
@@ -24319,7 +24336,7 @@ do_stuff_shortlisted() {
     GOALS_PROJECT_GLOB=""
     local GOALS_PROJECT_TITLE_MODE=1
     local GOALS_PROJECT_RESTRICT_FILE="$PROJECTS_DB_SHORTLISTED"
-    goals_select_project "Select Project" || return 1
+    goals_select_project "Do Stuff with Shortlisted Project - Choose Project" "Choose the shortlisted project you want to work with." || return 1
     GOALS_PROJECT_TITLE_MODE=""
     local selected_project_tag="$GOALS_SELECTED_PROJECT_LINENO"
     mapfile -t projects < "$PROJECTS_DB"
@@ -24604,7 +24621,7 @@ do_stuff_shortlisted() {
 
                 # Show whiptail menu
                 choice=$(whiptail --title "$title" \
-                    --menu "Page ${current_page}/${total_pages}" 20 60 12 \
+                    --menu "Highlight a tag and press OK (Back cancels).\nPage ${current_page}/${total_pages}" 20 60 12 \
                     "${menu_items[@]}" 3>&1 1>&2 2>&3)
 
                 [[ $? -ne 0 ]] && return 1  # Cancel pressed
@@ -24628,7 +24645,7 @@ do_stuff_shortlisted() {
         choose_tag_goal() {
             # Choose Tag: [NO TAG] creates the note without a tag. __FILTER__
             # narrows the tag list by a literal substring; __RESET_FILTER__ clears it.
-            goals_select_note_tag_filter --title "Choose Tag" \
+            goals_select_note_tag_filter --title "New Linked Note - Choose Tag" \
                 --prompt "Choose a tag for the new linked note" --pins "NO" \
                 --no-tag-desc "Create the note without any tag" || return 1
             printf '%s' "$GOALS_SELECTED_NOTE_TAG"
@@ -24698,8 +24715,8 @@ Tag you have chosen will be added to the selected notes." 10 60
             for (( tk = 0; tk < ${#tag_menu[@]}; tk += 2 )); do
                 tag_list+=("${tag_menu[tk]}")
             done
-            goals_select_note_tag_filter --title "Select tag" \
-                --prompt "Choose the tag to add to the notes" --pins "" \
+            goals_select_note_tag_filter --title "Add Tag to Linked Notes - Step 1: Choose Tag" \
+                --prompt "Step 1: choose the tag to add to the notes" --pins "" \
                 --tags "${tag_list[@]}" || return 1
             selected_tag="$GOALS_SELECTED_NOTE_TAG"
 
@@ -24716,7 +24733,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local -A selected_paths=()
             local sp_
             while :; do
-                goals_pick_notes_multi "Select notes" "Tag to add: $selected_tag" \
+                goals_pick_notes_multi "Add Tag to Linked Notes - Step 2: Choose Notes" "Step 2: choose the notes that will receive the tag '$selected_tag'" \
                     "__add_tag__" "Add tag to selected notes" top \
                     "${all_paths[@]}" || return 1
 
@@ -24968,8 +24985,8 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                 choice=$(
                     whiptail \
-                        --title "Add Note Tag" \
-                        --menu "Create a new tag (formatted 'subject->topic'):" \
+                        --title "Add Note Tag - Set Subject and Topic" \
+                        --menu "Create a new tag (formatted \'subject->topic\').\nSet Subject and Topic, then choose Save to store the tag:" \
                         18 70 8 \
                         "Subject" "${subject:-<not set>}" \
                         "Topic" "${topic:-<not set>}" \
@@ -24982,7 +24999,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     Subject)
                         subject=$(
                             whiptail \
-                                --title "Subject" \
+                                --title "Add Note Tag - Enter Subject" \
                                 --inputbox "Enter subject:" \
                                 10 60 "$subject" \
                                 3>&1 1>&2 2>&3
@@ -24992,7 +25009,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     Topic)
                         topic=$(
                             whiptail \
-                                --title "Topic" \
+                                --title "Add Note Tag - Enter Topic" \
                                 --inputbox "Enter topic (optional):" \
                                 10 60 "$topic" \
                                 3>&1 1>&2 2>&3
@@ -25168,7 +25185,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                 # Select Note: titles with tags; glob matches note titles;
                 # __FILTER_BY_TAG__ offers [ANY TAG], [NO TAG] and the tags.
-                goals_pick_note "Select Note" "Choose a linked note" \
+                goals_pick_note "Open URL - Choose Linked Note" "Choose a linked note to open its URL" \
                     "${url_note_paths[@]}" || return 1
                 note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -25237,7 +25254,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     selected_url=$(
                         whiptail \
-                            --title "Select URL" \
+                            --title "Open URL - Choose URL" \
                             --cancel-button "Back" \
                             --menu "Choose a URL to open:\nGlob: ${url_glob:-none}   ($shown_urls of $(( ${#url_items[@]} / 2 )) URLs shown)" \
                             20 155 10 \
@@ -25396,7 +25413,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             GOALS_NOTE_TAGFILTER=""
             local GOALS_NOTE_TITLE_MODE=1
             local GOALS_NOTE_TAGMENU_FULL=1
-            goals_pick_note "Select Note" "Choose a linked note" \
+            goals_pick_note "Open eBook - Choose Linked Note" "Choose a linked note to open its eBook" \
                 "${ebook_note_paths[@]}" || return 1
             note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -25456,9 +25473,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             selected_ebook=$(
                 whiptail \
-                    --title "Select Ebook" \
+                    --title "Open eBook - Choose eBook" \
                     --cancel-button "Back" \
-                    --menu "Choose an ebook to open in zathura:" \
+                    --menu "Choose an ebook to open with its configured viewer:" \
                     22 100 14 \
                     "${ebook_items[@]}" \
                     3>&1 1>&2 2>&3
@@ -25478,9 +25495,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             action=$(
                 whiptail \
-                    --title "Open Ebook" \
+                    --title "Open eBook - Choose How to Open" \
                     --cancel-button "Back" \
-                    --menu "How should zathura open this ebook?" \
+                    --menu "How should the configured viewer open this ebook?" \
                     15 90 4 \
                     "open"       "Just open" \
                     "bookmarks"  "Browse bookmarks" \
@@ -25492,7 +25509,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
-                    _spawn "$(get_open_command "$ebook")" -- "$ebook"
+                    ebook_open_at "$(get_open_command "$ebook")" "$ebook"
                     ;;
 
                 bookmarks)
@@ -25553,7 +25570,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     bookmark_selection=$(
                         whiptail \
-                            --title "Select Bookmark" \
+                            --title "Open eBook - Choose Bookmark" \
                             --cancel-button "Back" \
                             --menu "Choose a bookmark:" \
                             22 90 14 \
@@ -25568,14 +25585,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     [[ -n $page ]] || return 1
 
 
-                    local cmd__ vcmd__
-                    cmd__="$(get_open_command "$ebook")"
-                    vcmd__="${VIEWER_COMMANDS["$cmd__"]}"
-
-                    [[ -n "$vcmd__" ]] || return 1
-
-                    read -r -a viewer_cmd__ <<< "$vcmd__"
-                    _spawn "${viewer_cmd__[@]}" "$page" -- "$ebook"
+                    ebook_open_at "$(get_open_command "$ebook")" "$ebook" "$page" || return 1
 
                     #_spawn "$vcmd__" "$page" -- "$ebook"
                     ;;
@@ -25680,8 +25690,8 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             # Remove Linked Note Tag: __FILTER__ narrows the list by a literal
             # substring, __RESET_FILTER__ clears it.
-            goals_select_note_tag_filter --title "Remove Linked Note Tag" \
-                --prompt "Select a tag to remove" --pins "" \
+            goals_select_note_tag_filter --title "Remove Tag from Linked Notes - Step 1: Choose Tag" \
+                --prompt "Step 1: choose the tag to remove" --pins "" \
                 --tags "${note_tags[@]}" || continue
             chosen_tag_for_removal="$GOALS_SELECTED_NOTE_TAG"
 
@@ -25733,7 +25743,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             local selected_notes_for_removal=()
             local rm_path_ matching_line__
             while :; do
-                goals_pick_notes_multi "Select Notes" \
+                goals_pick_notes_multi "Remove Tag from Linked Notes - Step 2: Choose Notes" \
                     "Select notes to remove the tag \"$chosen_tag_for_removal\" from" \
                     "__remove__" "Remove the tag from the selected notes" top \
                     "${notes_with_selected_tag[@]}" || break
@@ -25775,7 +25785,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     retrieve_linked_note_tags "${linked_notes_array[@]}" | sed '/^$/d'
                 )
             fi
-            if goals_select_note_tag_filter --title "Filter Linked Notes" \
+            if goals_select_note_tag_filter --title "Filter Linked Notes - Choose Tag" \
                 --prompt "Choose a tag to filter the linked notes by" \
                 --no-tag-desc "Show only linked notes that have no tag" \
                 --any-tag-desc "Show linked notes with or without tags" \
@@ -25839,7 +25849,7 @@ Leave the pattern non-empty; use * to match all titles." \
 
         # Action selection
         local action
-        action=$(whiptail --menu "Note Action" 24 60 11 \
+        action=$(whiptail --title "Linked Note - Choose Action" --menu "Note Action\nChoose what to do with the selected note:" 24 70 11 \
             "1" "View Note" \
             "2" "Copy note content to clipboard" \
             "3" "Open ebooks linked to note" \
@@ -25918,8 +25928,8 @@ do_stuff_with_shortlisted() {
 
     while true; do
         local choice
-        choice=$(whiptail --title "Shortlisted Projects Menu" \
-            --menu "Choose an action:" 15 50 6 \
+        choice=$(whiptail --title "Shortlisted Projects - Choose Action" \
+            --menu "Choose what to do with the shortlist:" 15 60 6 \
             "1" "Do stuff" \
             "2" "Add to shortlist" \
             "3" "Remove from shortlist" \
@@ -26488,7 +26498,7 @@ babyrus_book_pick_note() {
         [[ -n "$BOOK_GLOB_FILTER_BY" ]] && \
             filter_status+=$'\nActive title glob: '"$BOOK_GLOB_FILTER_BY"
 
-        choice=$(whiptail --title "Choose Note for Book Section" --cancel-button "Back" \
+        choice=$(whiptail --title "Add Book Section - Choose Note" --cancel-button "Back" \
             --menu "Choose a note to add as a section (page $page/$total_pages, ${#visible_notes[@]} notes).\n$filter_status\n\nOnly associated notes are listed." \
             "$box_h" "$box_w" "$list_h" "${menu_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
 
@@ -26545,7 +26555,7 @@ babyrus_book_choose_tag_filter() {
 
     mapfile -t glob_notes < <(babyrus_book_get_glob_notes)
     if ((${#glob_notes[@]} == 0)); then
-        whiptail --title "Filter by Tag" --msgbox \
+        whiptail --title "Filter Linked Notes - Choose Tag" --msgbox \
             "No associated notes match the current title glob." 8 65
         return 1
     fi
@@ -26571,7 +26581,7 @@ babyrus_book_choose_tag_filter() {
     fi
 
     if ((${#tag_menu_items[@]} == 0)); then
-        whiptail --title "Filter by Tag" --msgbox \
+        whiptail --title "Filter Linked Notes - Choose Tag" --msgbox \
             "No tags are available among notes matching the current title glob." 9 75
         return 1
     fi
@@ -26589,7 +26599,7 @@ babyrus_book_choose_tag_filter() {
             page_items+=("${tag_menu_items[j]}" "${tag_menu_items[j+1]}")
         done
         (( page < total_pages )) && page_items+=("__NEXT_PAGE__" "Next page >>")
-        choice=$(whiptail --title "Filter Associated Notes by Tag" --cancel-button "Back" \
+        choice=$(whiptail --title "Add Book Section - Filter Notes by Tag" --cancel-button "Back" \
             --menu "Choose a tag (page $page/$total_pages). The current title glob remains active." \
             42 80 30 "${page_items[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty) || return 1
         case "$choice" in
@@ -27279,7 +27289,7 @@ babyrus_book_select_existing_path() {
         (( page > 0 )) && menu_items+=("__PREVIOUS_PAGE__" "Previous page")
         (( page + 1 < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page")
 
-        choice=$(whiptail --title "Load Existing Book to Edit" \
+        choice=$(whiptail --title "Edit Book - Choose Saved Book" \
             --menu "Select a saved book (page $((page + 1)) of $total_pages)." \
             22 100 12 "${menu_items[@]}" 3>&1 1>&2 2>&3 >/dev/tty </dev/tty) || return 1
         case "$choice" in
@@ -27537,7 +27547,7 @@ BABYRUS_PANDOC_HEADER
 show_projects_menu() {
     while true; do
 	local choice
-        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose an option:" 22 68 13 \
+        choice=$(whiptail --title "Goals Management" --cancel-button "Back" --menu "Choose what you want to do with your projects and goals:" 22 68 13 \
             "0" "Symbol Help" \
             "1" "Add New Project" \
             "2" "Edit Existing Project" \
@@ -27685,7 +27695,7 @@ restore_db() {
             (( end < total_items )) && menu_list+=(">> Next" "")
             (( page > 0 )) && menu_list+=("<< Prev" "")
 
-            choice=$(whiptail --title "Restore Database (Page $((page+1))/$total_pages)" \
+            choice=$(whiptail --title "Restore Database - Choose Archive (Page $((page+1))/$total_pages)" \
                 --menu "Choose an archive to restore:" 20 78 12 \
                 "${menu_list[@]}" \
                 3>&1 1>&2 2>&3) || return 1            
@@ -27863,7 +27873,7 @@ babyrus_help_configure() {
     cat <<'BABYRUS_HELP_CONFIGURE'
 CONFIGURE — CHOOSE THE APPLICATIONS BABYRUS USES
 
-BABYRUS can launch external applications to edit text files, view ebooks and PDFs, and open URLs. Configure lets you choose the default command for each supported file type, as well as the general text editor and web browser.
+BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, and open URLs. Configure lets you choose the default command for each supported file type, as well as the general text editor and web browser.
 
 To change a setting:
 
@@ -27936,7 +27946,7 @@ show_help() {
     while true; do
         local CHOICE
         CHOICE=$(whiptail --title "Babyrus Help Menu" --cancel-button "Back" \
-            --menu "Select a help topic:" 20 60 10 \
+            --menu "Choose a help topic to read, then press OK:" 20 60 10 \
             "1" "Help: Manage eBooks" \
             "2" "Help: Manage Notes" \
             "3" "Help: Manage Goals" \
