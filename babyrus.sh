@@ -224,7 +224,7 @@ whiptail() {
     # Identify navigation/action menus rather than content pickers.
     case "$title" in
         "BABYRUS "*" Main Menu"|"Babyrus Help Menu") is_navigation=1 ;;
-        "Manage eBooks"|"Manage Ebooks"|"File Management"|\
+        "Manage eBooks"|"File Management"|\
         "Tag Management"|"Search & Lookup"|"Open & Read"|"Maintenance"|\
         "Manage Notes"|"Goals Management"|"Chapter Management"|\
         "Heading Operations"|"Project Configuration"|"Manage Tags"|\
@@ -1158,6 +1158,7 @@ EB_PROCEED=""            # name of an extra "proceed" item of a menu (e.g. __ADD
 EB_PROCEED_DESC=""       # its description (@N@ = number of listed files)
 EB_NO_TAG_ITEM=0         # 1 = the tag picker also offers [NO TAG] (only files without tags)
 EB_NO_TAG_VALUE="__NO_TAG__"   # value of EB_TAGF while the [NO TAG] filter is active
+EB_ANY_TAG_VALUE="__ANY_TAG__" # value of EB_TAGF while the [ANY TAG] filter is active
 EB_SCOPE_DIR=""           # restrict a file list to this directory
 EB_RECURSIVE=0             # include sub-directories when EB_SCOPE_DIR is set
 
@@ -1309,6 +1310,10 @@ ebooks_filter_apply() {
                     x = $2
                     gsub(/^[ \t,]+|[ \t,]+$/, "", x)
                     if (x != "") next
+                } else if (t == "__any_tag__") {
+                    # [ANY TAG] means all eBooks, whether tagged or untagged.
+                    # Therefore this special value deliberately adds no tag
+                    # restriction; the glob filter (if any) still applies.
                 } else if (exact) {
                     found = 0
                     n = split(tolower($2), a, ",")
@@ -1379,9 +1384,9 @@ ebooks_pick_tag_filter() {
     local -a matches=() pairs=()
 
     sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
-"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
-The matching tags are listed next and you can pick one of them.\n\
-Empty input lists ALL tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
+"Enter part of an eBook tag name (literal substring match, case insensitive; not a glob or regex).\n\
+The matching eBook tags are listed next and you can pick one of them.\n\
+Empty input lists ALL eBook tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
 
     # tags carried by the files that pass the glob filter
     saved="$EB_TAGF"
@@ -1402,18 +1407,19 @@ Empty input lists ALL tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
         END { for (x in seen) print x }' | sort
     )
 
-    # Always offer [NO TAG], even when no tagged files match the entered
-    # substring. Selecting it filters the current source to untagged files only.
-    pairs+=("[NO TAG]" "Only show files with no tags")
+    # Keep both special choices at the top of every page. These filters apply
+    # to the eBook tag field in EB_SRC_FILE (not to note tags).
+    pairs+=("[ANY TAG]" "Show all eBooks, tagged or untagged")
+    pairs+=("[NO TAG]" "Only show eBooks with no tags")
     for tag in "${matches[@]}"; do
         pairs+=("$tag" "")
     done
-    tag="$(eb_paginate_tags_menu "Select a Tag to Filter By" "${pairs[@]}")" || return 1
-    if [[ "$tag" == "[NO TAG]" ]]; then
-        EB_TAGF="$EB_NO_TAG_VALUE"
-    else
-        EB_TAGF="$tag"
-    fi
+    tag="$(eb_paginate_tags_menu "Select an eBook Tag to Filter By" "${pairs[@]}")" || return 1
+    case "$tag" in
+        "[ANY TAG]") EB_TAGF="$EB_ANY_TAG_VALUE" ;;
+        "[NO TAG]")  EB_TAGF="$EB_NO_TAG_VALUE" ;;
+        *)            EB_TAGF="$tag" ;;
+    esac
     EB_PAGE=0
 }
 
@@ -1427,8 +1433,11 @@ ebooks_action_items() {
         EB_ACTION_ITEMS+=("__APPLY_GLOB__" "Filter by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "${extra[@]}")
         EB_ACTION_ITEMS+=("__RESET_GLOB__" "Reset glob filter" "${extra[@]}")
         if (( EB_NO_TAGS == 0 )); then
-            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by tag${EB_TAGF:+   [tag filter: ${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}]}" "${extra[@]}")
-            EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset tag filter" "${extra[@]}")
+            local tag_filter_label="$EB_TAGF"
+            tag_filter_label="${tag_filter_label/$EB_NO_TAG_VALUE/[NO TAG]}"
+            tag_filter_label="${tag_filter_label/$EB_ANY_TAG_VALUE/[ANY TAG]}"
+            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by eBook tag${EB_TAGF:+   [tag filter: ${tag_filter_label}]}" "${extra[@]}")
+            EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset eBook tag filter" "${extra[@]}")
         fi
     fi
     if [[ -n "$EB_SCOPE_DIR" ]]; then
@@ -1462,8 +1471,10 @@ ebooks_list_status() {
     if (( EB_NO_FILTERS == 0 )); then
         s+="  |  glob: ${EB_GLOB:-(none)}"
         if (( EB_NO_TAGS == 0 )); then
-            local tf="${EB_TAGF/$EB_NO_TAG_VALUE/[NO TAG]}"
-            s+="  |  tag filter: ${tf:-(none)}"
+            local tf="$EB_TAGF"
+            tf="${tf/$EB_NO_TAG_VALUE/[NO TAG]}"
+            tf="${tf/$EB_ANY_TAG_VALUE/[ANY TAG]}"
+            s+="  |  eBook tag filter: ${tf:-(none)}"
         fi
     fi
     if [[ -n "$EB_SCOPE_DIR" ]]; then
@@ -1536,9 +1547,11 @@ ebooks_pick_file() {
 # Same as ebooks_pick_file() but multi-select (checklist). Selected files are
 # remembered in EB_SEL across pages and filter changes. Tick ONE action item
 # (e.g. __PROCEED__) and press OK to run it.
-# Returns 0 on __PROCEED__, 1 on Cancel / Esc.
+# Returns 0 when the configured proceed action is selected (defaults to
+# __PROCEED__), and 1 on Cancel / Esc.
 ebooks_pick_files_checklist() {
     local title="$1" prompt="$2" proceed_label="$3"
+    local proceed_action="${EB_PROCEED:-__PROCEED__}"
     local total pages start end i line path choice h w lh t result shown
     local -a items sel actions
 
@@ -1554,7 +1567,7 @@ ebooks_pick_files_checklist() {
         (( end > total )) && end=$total
 
         ebooks_action_items check "$pages"
-        items=("${EB_ACTION_ITEMS[@]}" "__PROCEED__" "$proceed_label" "OFF")
+        items=("${EB_ACTION_ITEMS[@]}" "$proceed_action" "$proceed_label" "OFF")
         for (( i=start; i<end; i++ )); do
             line="${EB_FILTERED[i]}"
             path="${line%%|*}"
@@ -1599,7 +1612,7 @@ ebooks_pick_files_checklist() {
         fi
         (( ${#actions[@]} == 0 )) && continue
 
-        if [[ "${actions[0]}" == "__PROCEED__" ]]; then
+        if [[ "${actions[0]}" == "$proceed_action" ]]; then
             return 0
         fi
         ebooks_do_action "${actions[0]}"
@@ -1646,21 +1659,28 @@ ebooks_select_dir() {
 }
 
 # Paginated tag picker. Args: title, then "tag" "desc" pairs.
-# When the first item is [NO TAG], pin it at the top of EVERY page so the
-# untagged-file filter remains available regardless of how many tags exist.
+# Pin leading [ANY TAG] / [NO TAG] choices at the top of EVERY page. Existing
+# callers that supply only [NO TAG] retain the previous one-item pinning.
 # Prints the chosen tag (first column).
 eb_paginate_tags_menu() {
     local title="$1"
     shift
     local items=("$@")
     local total_items=$(( ${#items[@]} / 2 ))
-    local pinned_no_tag=0 data_offset=0 page_size="$EB_PAGE_SIZE" data_items
-    if (( total_items > 0 )) && [[ "${items[0]}" == "[NO TAG]" ]]; then
-        pinned_no_tag=1
-        data_offset=2
-        (( page_size > 1 )) && (( page_size-- ))
+    local pinned_items=0 data_offset=0 page_size="$EB_PAGE_SIZE" data_items
+
+    if (( total_items > 0 )); then
+        if [[ "${items[0]}" == "[ANY TAG]" && "${items[2]:-}" == "[NO TAG]" ]]; then
+            pinned_items=2
+            data_offset=4
+        elif [[ "${items[0]}" == "[NO TAG]" ]]; then
+            pinned_items=1
+            data_offset=2
+        fi
     fi
-    data_items=$(( total_items - pinned_no_tag ))
+    (( page_size > pinned_items )) && page_size=$(( page_size - pinned_items ))
+    (( page_size < 1 )) && page_size=1
+    data_items=$(( total_items - pinned_items ))
     local total_pages=$(( (data_items + page_size - 1) / page_size ))
     (( total_pages < 1 )) && total_pages=1
     local current_page=1 choice start_index end_index i h w lh
@@ -1670,7 +1690,11 @@ eb_paginate_tags_menu() {
         start_index=$(( data_offset + (current_page - 1) * page_size * 2 ))
         end_index=$(( start_index + page_size * 2 ))
         menu_items=()
-        (( pinned_no_tag == 1 )) && menu_items+=("${items[0]}" "${items[1]}")
+        if (( pinned_items == 2 )); then
+            menu_items+=("${items[0]}" "${items[1]}" "${items[2]}" "${items[3]}")
+        elif (( pinned_items == 1 )); then
+            menu_items+=("${items[0]}" "${items[1]}")
+        fi
         (( current_page > 1 )) && menu_items+=("<< Prev" "")
         (( current_page < total_pages )) && menu_items+=(">> Next" "")
         for ((i = start_index; i < end_index && i < ${#items[@]}; i+=2)); do
@@ -5294,42 +5318,69 @@ paginate_n_checklist() {
 #exit
 
 manage_ebooks() {
-    # Load existing ebooks into ebook_entries if desired (remove if starting fresh)
-    # If you want to edit existing entries, uncomment the following lines:
-    # if [ -f "$NOTES_EBOOKS_DB" ]; then
-    #     while IFS= read -r line; do
-    #         [[ -n "$line" ]] && ebook_entries+=("$line")
-    #     done < "$NOTES_EBOOKS_DB"
-    # fi
+    # This is the note-level association editor. Available-file tags always
+    # come from EBOOKS_DB (path|ebook-tags), never from NOTES_TAGS_DB.
+    local rows cols
+    read -r rows cols < <(babyrus_terminal_size)
+    local EB_WIDTH="$cols"
+    # Reserve rows for the four filter controls, the proceed action and up to
+    # two page-navigation entries so the complete checklist stays within the
+    # shared 50-row Whiptail list capacity.
+    local EB_PAGE_SIZE=43
+    local entry ebook chapters selection_trunc selection
+    local n m idx current_page=0 assoc_total assoc_pages assoc_start
+    local assoc_end assoc_page_size=45
 
     while true; do
-        # Prepare menu options from ebook_entries
+        # Paginate associated eBooks too: up to 45 paths + three fixed choices
+        # + two page controls = 50 visible list rows, with no internal scrolling.
+        assoc_total=${#ebook_entries[@]}
+        assoc_pages=$(( (assoc_total + assoc_page_size - 1) / assoc_page_size ))
+        (( assoc_pages < 1 )) && assoc_pages=1
+        (( current_page >= assoc_pages )) && current_page=$(( assoc_pages - 1 ))
+        (( current_page < 0 )) && current_page=0
+        assoc_start=$(( current_page * assoc_page_size ))
+        assoc_end=$(( assoc_start + assoc_page_size ))
+        (( assoc_end > assoc_total )) && assoc_end=$assoc_total
+
+        # Prepare menu options from the eBooks on the current page.
         local menu_options=()
-        for entry in "${ebook_entries[@]}"; do
-            ebook=$(cut -d# -f1 <<< "$entry")
-            chapters=$(cut -d# -f2- <<< "$entry")
+        for (( idx=assoc_start; idx<assoc_end; idx++ )); do
+            entry="${ebook_entries[idx]}"
+            ebook="${entry%%#*}"
+            chapters="${entry#*#}"
             menu_options+=("$ebook" "$chapters")
         done
 
-        # Generate TRUNC_MANAGE_EBOOKS_MENU
-        generate_trunc_manage_ebooks_menu "${menu_options[@]}"
+        generate_trunc_manage_ebooks_menu "${menu_options[@]}" || :
+        local manage_menu_items=()
+        (( current_page > 0 )) && manage_menu_items+=("__PREV_PAGE__" "Previous page")
+        (( current_page < assoc_pages - 1 )) && manage_menu_items+=("__NEXT_PAGE__" "Next page")
+        manage_menu_items+=("${TRUNC_MANAGE_EBOOKS_MENU[@]}")
+        manage_menu_items+=("Add new ebook" "Associate another registered eBook with this note")
+        (( ${#ebook_entries[@]} > 0 )) && \
+            manage_menu_items+=("Remove ebook" "Remove eBook association(s) from this note")
+        manage_menu_items+=("Back" "Return to note properties")
 
-        TRUNC_MANAGE_EBOOKS_MENU+=("Add new ebook" "")
-        [ ${#ebook_entries[@]} -gt 0 ] && TRUNC_MANAGE_EBOOKS_MENU+=("Remove ebook" "")
-        TRUNC_MANAGE_EBOOKS_MENU+=("Back" "Return to previous menu")
+        # The shared Whiptail wrapper makes this menu terminal-width and gives
+        # it a 50-row list capacity (subject to the physical terminal height).
+        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" \
+            --menu "Choose an associated eBook to edit its chapters, add another eBook, or remove associations. Page $((current_page + 1))/${assoc_pages}:" \
+            20 155 10 "${manage_menu_items[@]}" \
+            3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+        [[ $? -eq 0 ]] || break
 
-        local selection_trunc
-        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" --menu "Manage ebook associations" 20 155 10 \
-            "${TRUNC_MANAGE_EBOOKS_MENU[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-        [ $? -eq 0 ] || break
+        case "$selection_trunc" in
+            __PREV_PAGE__) (( current_page-- )); continue ;;
+            __NEXT_PAGE__) (( current_page++ )); continue ;;
+        esac
 
-        # Get selection from TRUNC_MANAGE_EBOOKS_MENU
-        local n m selection
-
-        # Account for when selection_trunc is "Add new ebook" or "Remove ebook" or "Back"
-        if [[ "$selection_trunc" != "Add new ebook" && "$selection_trunc" != "Remove ebook" && "$selection_trunc" != "Back" ]]; then
-            n="$(echo "$selection_trunc" | cut -d':' -f1)"
-            m=$((2 * n - 1))
+        if [[ "$selection_trunc" != "Add new ebook" && \
+              "$selection_trunc" != "Remove ebook" && \
+              "$selection_trunc" != "Back" ]]; then
+            n="${selection_trunc%%:*}"
+            [[ "$n" =~ ^[0-9]+$ ]] || continue
+            m=$(( 2 * n - 1 ))
             selection="${menu_options[$((m - 1))]}"
         else
             selection="$selection_trunc"
@@ -5337,86 +5388,152 @@ manage_ebooks() {
 
         case "$selection" in
             "Add new ebook")
-                local new_ebooks=()
-                CURRENT_PAGE=0
-                SELECTED_ITEMS=""
-
-                ! filter_by_filename && continue
-
-                paginate_n_checklist
-
-                # Illegal file name
-                [[ $? -eq 2 ]] && {
-                    whiptail --title "Error" --msgbox "Some file names are illegal.  Contains | , # : ;. Rename file and try again." 10 60
-                    return 1
-                }
-
-                new_ebooks=("${SELECTED_ITEMS[@]}")
-
-                if (( ${#new_ebooks[@]} == 0 )); then
-                    whiptail --msgbox "No ebook selected. Operation cancelled." 8 60 >/dev/tty
+                if [[ ! -s "$EBOOKS_DB" ]]; then
+                    whiptail --title "eBook Database" --msgbox \
+                        "No registered eBooks are available. Register eBook files first, then add them to this note." \
+                        10 "$EB_WIDTH" >/dev/tty
                     continue
                 fi
 
-                # Iterate through each newly selected ebook
-                for new_ebook in "${new_ebooks[@]}"; do
-                    local exists=0
-                    
-                    # Check if this specific ebook already exists in ebook_entries
-                    for entry in "${ebook_entries[@]}"; do
-                        # Matches the ebook name followed by the # delimiter
-                        if [[ "$entry" == "${new_ebook}#"* ]]; then
-                            exists=1
-                            break
-                        fi
-                    done
+                # Start with every registered eBook. No tag or glob is requested
+                # up front: both filters are available as list actions.
+                ebooks_filter_reset
+                EB_SRC_FILE="$EBOOKS_DB"
+                EB_NO_TAGS=0
+                EB_PATH_MAX=120
+                EB_TAG_PICK=1
+                EB_PROCEED="__add__"
+                EB_PROCEED_DESC="Add the selected eBook(s) to this note"
 
-                    if [[ $exists -eq 1 ]]; then
-                        # Optional: Notify user, or simply skip to keep the UI clean
-                        :
-                    else
-                        # If unique, add it to the ebook_entries array with the # suffix
-                        local chapters=""
-                        ebook_entries+=("${new_ebook}#${chapters}")
+                local add_rc=0
+                ebooks_pick_files_checklist \
+                    "Add eBooks to Note - Choose eBooks" \
+                    "Select eBooks to associate with this note. Each row shows the eBook file path and its eBook tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for eBook tags and __APPLY_GLOB__ / __RESET_GLOB__ for the eBook path or file name, then select __add__." \
+                    "Add selected eBooks to this note" || add_rc=$?
+
+                local -a selected_add_paths=()
+                local -A add_set=()
+                local path
+                for path in "${!EB_SEL[@]}"; do
+                    [[ "${EB_SEL["$path"]:-0}" == "1" ]] && add_set["$path"]=1
+                done
+                while IFS='|' read -r path _ebook_tags; do
+                    [[ -n "$path" && "${add_set["$path"]:-0}" == "1" ]] && \
+                        selected_add_paths+=("$path")
+                done < "$EBOOKS_DB"
+                ebooks_filter_reset
+                EB_SRC_FILE=""
+                EB_NO_TAGS=0
+
+                (( add_rc == 0 )) || continue
+                if (( ${#selected_add_paths[@]} == 0 )); then
+                    whiptail --title "Add eBooks" --msgbox \
+                        "No eBooks were selected. Nothing has been added to this note." 9 "$EB_WIDTH" >/dev/tty
+                    continue
+                fi
+
+                local added_count=0 skipped_count=0 invalid_path=""
+                local new_ebook exists
+                for new_ebook in "${selected_add_paths[@]}"; do
+                    if ! illegal_filename "$new_ebook"; then
+                        invalid_path="$new_ebook"
+                        break
                     fi
                 done
-                (( $exists )) && whiptail --msgbox "Some ebook files were skipped because they are already registered." 8 60 >/dev/tty
+                if [[ -n "$invalid_path" ]]; then
+                    whiptail --title "Invalid eBook Path" --msgbox \
+                        "The selected path contains a character that cannot be stored in the note database (|, #, :, or ;):\n\n${invalid_path}\n\nRename the file and try again." \
+                        12 "$EB_WIDTH" >/dev/tty
+                    continue
+                fi
+
+                for new_ebook in "${selected_add_paths[@]}"; do
+                    exists=0
+                    for entry in "${ebook_entries[@]}"; do
+                        [[ "${entry%%#*}" == "$new_ebook" ]] && { exists=1; break; }
+                    done
+                    if (( exists )); then
+                        (( skipped_count++ ))
+                    else
+                        ebook_entries+=("${new_ebook}#")
+                        (( added_count++ ))
+                    fi
+                done
+
+                local add_message="Added ${added_count} eBook(s) to this note."
+                (( skipped_count > 0 )) && add_message+="\nSkipped ${skipped_count} eBook(s) that were already associated."
+                whiptail --title "Add eBooks" --msgbox "$add_message" 9 "$EB_WIDTH" >/dev/tty
                 ;;
 
             "Remove ebook")
-                # DEBUG
-                #echo Remove ebook: >&2
-                #echo ebook_entries: >&2
-                #declare -p ebook_entries >&2
+                if (( ${#ebook_entries[@]} == 0 )); then
+                    whiptail --title "Remove eBooks" --msgbox "This note has no associated eBooks to remove." 8 60 >/dev/tty
+                    continue
+                fi
 
-                local remove_options=()
+                # Build a temporary source containing only eBooks associated
+                # with this note, enriched with their eBook tags from EBOOKS_DB.
+                # Keep a path with an empty tag field if it is no longer in the
+                # global eBook database, so it can still be dissociated.
+                local remove_src
+                remove_src=$(mktemp) || {
+                    whiptail --title "Error" --msgbox "Could not create a temporary eBook list." 8 60 >/dev/tty
+                    continue
+                }
+                local associated_path
                 for entry in "${ebook_entries[@]}"; do
-                    remove_options+=("$(cut -d# -f1 <<< "$entry")" "")
+                    associated_path="${entry%%#*}"
+                    awk -F'|' -v target="$associated_path" '
+                        $1 == target { print; found = 1; exit }
+                        END { if (!found) print target "|" }
+                    ' "$EBOOKS_DB" >> "$remove_src"
                 done
+                sort -u "$remove_src" -o "$remove_src"
 
-                # DEBUG
-                #echo Remove ebook: >&2
-                #echo remove_options: >&2
-                #declare -p remove_options >&2
+                ebooks_filter_reset
+                EB_SRC_FILE="$remove_src"
+                EB_NO_TAGS=0
+                EB_PATH_MAX=120
+                EB_TAG_PICK=1
+                EB_PROCEED="__remove__"
+                EB_PROCEED_DESC="Remove the selected eBook association(s) from this note"
 
-                # Truncate remove_options
-                generate_trunc_manage_ebooks_remove_ebook "${remove_options[@]}"
+                local remove_rc=0
+                ebooks_pick_files_checklist \
+                    "Remove eBooks from Note - Choose eBooks" \
+                    "Select the eBook association(s) to remove. Each row shows the eBook file path and its eBook tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for eBook tags and __APPLY_GLOB__ / __RESET_GLOB__ for the eBook path or file name, then select __remove__." \
+                    "Remove selected eBook associations from this note" || remove_rc=$?
 
-                local to_remove to_remove_tr
-                to_remove_tr=$(whiptail --title "Remove eBook - Choose eBook to Remove" --menu "Select ebook to remove:" \
-                    20 155 10 "${TRUNC_FILTERED_EBOOKS_REMOVE[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
-                [ $? -eq 0 ] || continue
+                local -a selected_remove_paths=()
+                for path in "${!EB_SEL[@]}"; do
+                    [[ "${EB_SEL["$path"]:-0}" == "1" ]] && selected_remove_paths+=("$path")
+                done
+                rm -f "$remove_src"
+                ebooks_filter_reset
+                EB_SRC_FILE=""
+                EB_NO_TAGS=0
 
-                local n m
-                n="$(echo "$to_remove_tr" | cut -d':' -f1)"
-                m=$((2 * n - 1))
-                to_remove="${remove_options[$((m - 1))]}"
+                (( remove_rc == 0 )) || continue
+                if (( ${#selected_remove_paths[@]} == 0 )); then
+                    whiptail --title "Remove eBooks" --msgbox \
+                        "No eBooks were selected. No associations have been removed." 9 "$EB_WIDTH" >/dev/tty
+                    continue
+                fi
 
-                local new_entries=()
+                local -A remove_set=()
+                for path in "${selected_remove_paths[@]}"; do
+                    remove_set["$path"]=1
+                done
+                local -a remaining_entries=()
                 for entry in "${ebook_entries[@]}"; do
-                    [[ "$entry" != "${to_remove}#"* ]] && new_entries+=("$entry")
+                    associated_path="${entry%%#*}"
+                    [[ "${remove_set["$associated_path"]:-0}" == "1" ]] || \
+                        remaining_entries+=("$entry")
                 done
-                ebook_entries=("${new_entries[@]}")
+                ebook_entries=("${remaining_entries[@]}")
+                whiptail --title "Remove eBooks" --msgbox \
+                    "Removed ${#selected_remove_paths[@]} eBook association(s) from this note." \
+                    9 "$EB_WIDTH" >/dev/tty
                 ;;
 
             "Back")
@@ -5424,32 +5541,19 @@ manage_ebooks() {
                 ;;
 
             *)
-                # Edit existing entry
+                # Edit chapter/page information for an already-associated eBook.
                 local current_chapters=""
                 for idx in "${!ebook_entries[@]}"; do
-                    if [[ "${ebook_entries[idx]}" == "${selection}#"* ]]; then
-                        current_chapters=$(cut -d# -f2- <<< "${ebook_entries[idx]}")
+                    if [[ "${ebook_entries[idx]%%#*}" == "$selection" ]]; then
+                        current_chapters="${ebook_entries[idx]#*#}"
                         break
                     fi
                 done
 
-                #local new_chapters
-                #new_chapters=$(whiptail --inputbox "Edit chapter:page pairs for ${selection}:" 12 60 \
-                #    "$current_chapters" 3>&1 1>&2 2>&3 </dev/tty)
-                #[ $? -eq 0 ] || continue
-
-                # Get CHAPTER_PAGES
-                # Prefilled
                 add_chapters "$current_chapters"
-                #if [[ -z "$CHAPTER_PAGES" ]]; then
-                #    whiptail --title "Error" --msgbox "No chapter pages specified." 8 40
-                #    continue
-                #fi
                 local new_chapters="$CHAPTER_PAGES"
-
-                # Update the entry in ebook_entries
                 for idx in "${!ebook_entries[@]}"; do
-                    if [[ "${ebook_entries[idx]}" == "${selection}#"* ]]; then
+                    if [[ "${ebook_entries[idx]%%#*}" == "$selection" ]]; then
                         ebook_entries[idx]="${selection}#${new_chapters}"
                         break
                     fi
