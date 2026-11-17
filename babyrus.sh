@@ -441,6 +441,7 @@ declare -A EXTENSION_COMMANDS=(
 # Tweak these to set external apps for other sections.
 DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
 URL_BROWSER="firefox"
+PDF_CONVERTER="pandoc" # either "pandoc" or "libreoffice".
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -569,6 +570,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     # --- Also env variables ---
     local BACKUP_DE="$DEFAULT_EDITOR"
     local BACKUP_UB="$URL_BROWSER"
+    local BACKUP_PC="$PDF_CONVERTER"
 
     # Create ordered list of extensions for consistent display
     local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu")
@@ -581,6 +583,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
         done
         options+=("DEFAULT_EDITOR" "${DEFAULT_EDITOR}")
         options+=("URL_BROWSER" "${URL_BROWSER}")
+        options+=("PDF_CONVERTER" "${PDF_CONVERTER}")
         options+=("Save" "Save changes")
 
         local choice
@@ -595,6 +598,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
             done
             DEFAULT_EDITOR="$BACKUP_DE"            
             URL_BROWSER="$BACKUP_UB"
+            PDF_CONVERTER="$BACKUP_PC"
 
             [[ $FIRST_RUN -eq 0 ]] && exit
             return 1
@@ -606,6 +610,16 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
             DEFAULT_EDITOR|URL_BROWSER)
                 current_value="${!choice}"
                 new_value="$(avail_cmds_menu "$choice" "$current_value")" && [[ -n "$new_value" ]] && declare "${choice}=${new_value}"
+                ;;
+            PDF_CONVERTER)
+                new_value=$(whiptail --title "PDF Converter - Choose Application" \
+                    --default-item "$PDF_CONVERTER" \
+                    --menu "Choose the application BABYRUS will use to convert books to PDF:" \
+                    12 78 2 \
+                    "pandoc" "Pandoc with XeLaTeX and fvextra" \
+                    "libreoffice" "LibreOffice Writer" \
+                    3>&1 1>&2 2>&3) || continue
+                PDF_CONVERTER="$new_value"
                 ;;
             "Save")
                 break
@@ -639,6 +653,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
         done
         DEFAULT_EDITOR="$BACKUP_DE"            
         URL_BROWSER="$BACKUP_UB"       
+        PDF_CONVERTER="$BACKUP_PC"
 
         [[ $FIRST_RUN -eq 0 ]] && exit 
         return 1
@@ -662,6 +677,7 @@ declare -A EXTENSION_COMMANDS=(
 # Tweak these to set external apps for other sections.
 DEFAULT_EDITOR=\"${DEFAULT_EDITOR}\" # runs in the same terminal as babyrus.
 URL_BROWSER=\"${URL_BROWSER}\"
+PDF_CONVERTER=\"${PDF_CONVERTER}\" # either "pandoc" or "libreoffice".
 #+++ CONFIGURATION END +++#"
 
     # DEBUG
@@ -752,13 +768,49 @@ check_bash_ver() {
 
 check_bash_ver || exit 1
 
-# Check dependencies
+# Check core dependencies
 for cmd in whiptail wmctrl dialog xclip; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "Error: $cmd is required but not installed." >&2
         exit 1
     fi
 done
+
+# Check only the PDF conversion dependencies required by the user's
+# configured PDF_CONVERTER. Pandoc and LibreOffice are alternatives; both
+# do not need to be installed.
+case "${PDF_CONVERTER:-}" in
+    pandoc)
+        # Check required commands
+        for cmd in pandoc xelatex kpsewhich; do
+            if ! command -v "$cmd" >/dev/null 2>&1; then
+                echo "Error: $cmd is required for PDF_CONVERTER=pandoc but is not installed." >&2
+                exit 1
+            fi
+        done
+
+        # Check required LaTeX files
+        for tex_file in fvextra.sty lmodern.sty pzdr.tfm; do
+            if ! kpsewhich "$tex_file" >/dev/null 2>&1; then
+                echo "Error: $tex_file is required for PDF_CONVERTER=pandoc but is not installed." >&2
+                exit 1
+            fi
+        done
+        ;;
+
+    libreoffice)
+        if ! command -v libreoffice >/dev/null 2>&1; then
+            echo "Error: libreoffice is required for PDF_CONVERTER=libreoffice but is not installed." >&2
+            exit 1
+        fi
+        ;;
+
+    *)
+        echo "Error: Invalid PDF_CONVERTER value: '${PDF_CONVERTER:-<unset>}'" >&2
+        echo "Set PDF_CONVERTER to either 'pandoc' or 'libreoffice' in Set Default Apps." >&2
+        exit 1
+        ;;
+esac
 
 # old location for wmctrl resize terminal window.
 
@@ -27487,7 +27539,7 @@ babyrus_book_load_existing() {
 # Create a clean Markdown staging file containing only numbered headings and
 # note content. Metadata and manifest are intentionally excluded from the PDF.
 babyrus_book_convert_to_pdf() {
-    local destination destination_dir temp_md temp_pdf temp_txt temp_header i heading_marks heading_prefix converter max_backticks fence_length fence
+    local destination destination_dir temp_md temp_pdf temp_txt temp_header i heading_marks heading_prefix max_backticks fence_length fence
     if ((${#BOOK_SECTION_PATHS[@]} == 0)); then
         whiptail --title "Convert Book to PDF" --msgbox \
             "Add or load a book with at least one section first." 8 70
@@ -27505,14 +27557,23 @@ babyrus_book_convert_to_pdf() {
     if [[ -e "$destination" ]] && ! whiptail --title "Overwrite PDF" --yesno \
         "Replace this PDF?\n$destination" 9 75; then return 1; fi
 
-    converter=""
-    command -v pandoc >/dev/null 2>&1 && converter=pandoc
-    if [[ -z "$converter" ]] && command -v libreoffice >/dev/null 2>&1; then converter=libreoffice; fi
-    if [[ -z "$converter" ]]; then
-        whiptail --title "PDF Converter Missing" --msgbox \
-            "Install pandoc (recommended) or LibreOffice to convert the book to PDF." 9 78
-        return 1
-    fi
+    # PDF_CONVERTER is selected once during BABYRUS startup dependency checks.
+    # Use that global choice consistently instead of detecting a different
+    # converter independently inside this workflow.
+    case "${PDF_CONVERTER:-}" in
+        pandoc|libreoffice)
+            if ! command -v "$PDF_CONVERTER" >/dev/null 2>&1; then
+                whiptail --title "PDF Converter Missing" --msgbox \
+                    "The selected PDF converter ($PDF_CONVERTER) is no longer available." 9 80
+                return 1
+            fi
+            ;;
+        *)
+            whiptail --title "PDF Converter Missing" --msgbox \
+                "No valid PDF converter is configured. Install Pandoc with XeLaTeX and fvextra, or LibreOffice." 9 85
+            return 1
+            ;;
+    esac
 
     destination_dir=$(dirname -- "$destination")
     mkdir -p -- "$destination_dir" || return 1
@@ -27561,7 +27622,7 @@ babyrus_book_convert_to_pdf() {
         printf '\n%s\n\n' "$fence" >> "$temp_md"
     done
 
-    if [[ "$converter" == pandoc ]]; then
+    if [[ "$PDF_CONVERTER" == "pandoc" ]]; then
         # Pandoc normally renders fenced note text as LaTeX's verbatim
         # environment, which does not wrap long lines. Use fvextra to enable
         # wrapping at spaces and, for very long unbroken strings, anywhere.
@@ -27586,8 +27647,8 @@ BABYRUS_PANDOC_HEADER
             return 1
         fi
 
-        if ! pandoc "$temp_md" -o "$temp_pdf" --toc --pdf-engine=xelatex -H "$temp_header" 2>/dev/null; then
-            if ! pandoc "$temp_md" -o "$temp_pdf" --toc -H "$temp_header" 2>/dev/null; then
+        if ! "$PDF_CONVERTER" "$temp_md" -o "$temp_pdf" --toc --pdf-engine=xelatex -H "$temp_header" 2>/dev/null; then
+            if ! "$PDF_CONVERTER" "$temp_md" -o "$temp_pdf" --toc -H "$temp_header" 2>/dev/null; then
                 rm -f -- "$temp_md" "$temp_pdf" "$temp_header"
                 whiptail --title "PDF Conversion Failed" --msgbox \
                     "Pandoc could not create the PDF. Check that a PDF engine such as xelatex and the fvextra LaTeX package are installed." 10 85
@@ -27626,7 +27687,7 @@ BABYRUS_PANDOC_HEADER
             rm -f -- "$temp_md" "$temp_pdf" "$temp_txt"; return 1;
         }
         temp_pdf="${temp_txt%.txt}.pdf"
-        if ! libreoffice --headless --convert-to pdf --outdir "$destination_dir" "$temp_txt" >/dev/null 2>&1; then
+        if ! "$PDF_CONVERTER" --headless --convert-to pdf --outdir "$destination_dir" "$temp_txt" >/dev/null 2>&1; then
             rm -f -- "$temp_md" "$temp_pdf" "$temp_txt"
             whiptail --title "PDF Conversion Failed" --msgbox "LibreOffice could not create the PDF." 8 65
             return 1
@@ -27977,7 +28038,7 @@ babyrus_help_configure() {
     cat <<'BABYRUS_HELP_CONFIGURE'
 CONFIGURE — CHOOSE THE APPLICATIONS BABYRUS USES
 
-BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, and open URLs. Configure lets you choose the default command for each supported file type, as well as the general text editor and web browser.
+BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, and open URLs. Configure lets you choose the default command for each supported file type, the general text editor and web browser, and the PDF converter (Pandoc or LibreOffice) used by Build Book from Linked Notes.
 
 To change a setting:
 
