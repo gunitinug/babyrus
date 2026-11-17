@@ -9055,13 +9055,18 @@ babyrus_note_info_text() {
     local note_path="$1" note_title="$2" note_tags="$3" note_ebooks="$4"
     local GS=$'\x1D' US=$'\x1F' RS=$'\x1E'
     local ebook_list="" url_list="" e line entry url url_title
+    local eb_total=0 url_total=0
     local -a eb_entries=() url_entries=()
 
+    # At most 10 ebooks and 10 URLs are listed, followed by "(... N more)".
     if [[ -n "$note_ebooks" ]]; then
         IFS=';' read -ra eb_entries <<< "$note_ebooks"
         for e in "${eb_entries[@]}"; do
-            [[ -n "$e" ]] && ebook_list+="${e%%#*}"$'\n'
+            [[ -n "$e" ]] || continue
+            eb_total=$(( eb_total + 1 ))
+            (( eb_total <= 10 )) && ebook_list+="${e%%#*}"$'\n'
         done
+        (( eb_total > 10 )) && ebook_list+="(... $(( eb_total - 10 )) more)"$'\n'
     fi
     ebook_list="${ebook_list%$'\n'}"
 
@@ -9072,6 +9077,8 @@ babyrus_note_info_text() {
                 for entry in "${url_entries[@]}"; do
                     IFS="$US" read -r url url_title <<< "$entry"
                     [[ -z "$url" ]] && continue
+                    url_total=$(( url_total + 1 ))
+                    (( url_total > 10 )) && continue
                     if [[ -n "$url_title" ]]; then
                         url_list+="${url} - ${url_title}"$'\n'
                     else
@@ -9081,6 +9088,7 @@ babyrus_note_info_text() {
                 break
             fi
         done < "$URLS_DB"
+        (( url_total > 10 )) && url_list+="(... $(( url_total - 10 )) more)"$'\n'
         url_list="${url_list%$'\n'}"
     fi
 
