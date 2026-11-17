@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99x19'
+BABYRUS_VERSION='v.0.99x20'
 BABYRUS_AUTHOR='Logan Lee'
 
 # Shared Whiptail (libnewt) colour theme.
@@ -1266,7 +1266,7 @@ eb_trunc_path() {
 # include shortened tags beside each path; set it to "raw" for arbitrary text
 # such as old -> new rename pairs.
 ebooks_file_list_preview() {
-    local array_name="$1" mode="${2:-path}" total i line path tags
+    local array_name="$1" mode="${2:-path}" more_style="${3:-}" total i line path tags
     local -n entries="$array_name"
     total=${#entries[@]}
 
@@ -1288,7 +1288,11 @@ ebooks_file_list_preview() {
     done
 
     if (( total > 10 )); then
-        printf '  ... (%d more)\n' "$(( total - 10 ))"
+        if [[ "$more_style" == "paren" ]]; then
+            printf '  (... %d more)\n' "$(( total - 10 ))"
+        else
+            printf '  ... (%d more)\n' "$(( total - 10 ))"
+        fi
     fi
 }
 
@@ -2482,6 +2486,108 @@ delete_tag_from_global_list() {
     whiptail --msgbox "Tag '$selected_tag' deleted successfully!" 8 40
 }
 
+# ---------------------------------------------------------------------------
+# Notes protection for the eBook removal features (Manage eBooks -> File
+# Management -> items 4 to 7).
+# An eBook that is still referenced by a note must not be removed from
+# $EBOOKS_DB. A reference is either:
+#   - an entry in $NOTES_EBOOKS_DB (one ebook path per line), or
+#   - an entry in the 4th '|' field of $NOTES_DB, whose format is
+#       ebook_path1#chapter1:5,chapter3:10-15;ebook_path2#chapter1:2
+#     ie. entries separated by ';', each one being <path>#<chapters>.
+#     File names cannot contain | , # : ; (see illegal_filename), so the
+#     ebook path is everything before the first '#' of an entry.
+# ---------------------------------------------------------------------------
+
+# $1: file listing candidate ebook paths (one per line).
+# Prints one line per candidate path referenced by a note:
+#   <path><US><first 3 note titles, comma separated><US><total number of notes>
+# (US = 0x1f; the title part is empty and the count is 0 when the path is
+# only found in $NOTES_EBOOKS_DB.) Prints nothing when no candidate is
+# referenced.
+ebooks_notes_blocked() {
+    local list="$1" ndb="$NOTES_DB" nebdb="$NOTES_EBOOKS_DB"
+    [[ -f "$ndb" ]] || ndb=/dev/null
+    [[ -f "$nebdb" ]] || nebdb=/dev/null
+
+    awk -F'|' '
+        FILENAME == ARGV[1] { cand[$0] = 1; next }
+        FILENAME == ARGV[2] {
+            if ($4 == "") next
+            n = split($4, a, ";")
+            for (i = 1; i <= n; i++) {
+                p = a[i]
+                k = index(p, "#")
+                if (k > 0) p = substr(p, 1, k - 1)
+                if (p in cand) {
+                    blocked[p] = 1
+                    if (!((p SUBSEP $1) in seen)) {
+                        seen[p SUBSEP $1] = 1
+                        cnt[p]++
+                        if (cnt[p] <= 3)
+                            titles[p] = titles[p] (titles[p] == "" ? "" : ", ") $1
+                    }
+                }
+            }
+            next
+        }
+        FILENAME == ARGV[3] { if ($0 in cand) blocked[$0] = 1; next }
+        END { for (p in blocked) print p "\037" titles[p] "\037" (cnt[p] + 0) }
+    ' "$list" "$ndb" "$nebdb"
+}
+
+# $1: name of an array of ebook paths.
+# Sets these global arrays:
+#   EB_NOTES_ALLOWED         paths not referenced by any note (safe to remove)
+#   EB_NOTES_BLOCKED         paths referenced by a note (must be kept)
+#   EB_NOTES_BLOCKED_REPORT  display lines for the blocked paths
+ebooks_notes_partition() {
+    local -n _eb_np_in="$1"
+    EB_NOTES_ALLOWED=()
+    EB_NOTES_BLOCKED=()
+    EB_NOTES_BLOCKED_REPORT=()
+    (( ${#_eb_np_in[@]} == 0 )) && return 0
+
+    local _l _ln _p _t _r _c
+    local -A _eb_np_blocked=() _eb_np_count=()
+    _l=$(mktemp) || return 1
+    printf '%s\n' "${_eb_np_in[@]}" > "$_l"
+    while IFS= read -r _ln; do
+        [[ -n "$_ln" ]] || continue
+        _p="${_ln%%$'\037'*}"
+        _r="${_ln#*$'\037'}"
+        _eb_np_blocked["$_p"]="${_r%%$'\037'*}"
+        _eb_np_count["$_p"]="${_r#*$'\037'}"
+    done < <(ebooks_notes_blocked "$_l")
+    rm -f "$_l"
+
+    for _p in "${_eb_np_in[@]}"; do
+        if [[ -n "${_eb_np_blocked["$_p"]+x}" ]]; then
+            _t="${_eb_np_blocked["$_p"]}"
+            _c="${_eb_np_count["$_p"]:-0}"
+            (( _c > 3 )) && _t+=", +$(( _c - 3 ))"
+            EB_NOTES_BLOCKED+=("$_p")
+            if [[ -n "$_t" ]]; then
+                EB_NOTES_BLOCKED_REPORT+=("$(eb_trunc_path "$_p" 80)  [notes: $_t]")
+            else
+                EB_NOTES_BLOCKED_REPORT+=("$(eb_trunc_path "$_p" 80)  [listed in the notes ebooks database]")
+            fi
+        else
+            EB_NOTES_ALLOWED+=("$_p")
+        fi
+    done
+    return 0
+}
+
+# $1: dialog title, $2: intro text, $3: name of the array with the report lines
+# (EB_NOTES_BLOCKED_REPORT). Tells the user the ebook(s) are blocked from
+# removal and that they have to be dissociated from the notes first.
+ebooks_notes_blocked_msg() {
+    local title="$1" intro="$2" report_name="$3"
+    local msg="${intro}\n\n$(ebooks_file_list_preview "$report_name" raw paren)\nPlease dissociate these eBook file(s) from those notes first (Manage Notes), then try again."
+    whiptail --scrolltext --title "$title" --msgbox "$msg" 20 155
+}
+
 remove_registered_ebook() {
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
@@ -2497,6 +2603,16 @@ remove_registered_ebook() {
     ebooks_pick_file "Remove eBook - Choose eBook" "Choose the registered eBook to remove from the database:" || return 1
 
     local selected_path="${EB_SELECTED_LINE%%|*}"
+
+    # Block removal when a note still refers to this ebook.
+    local -a _one_path=("$selected_path")
+    ebooks_notes_partition _one_path
+    if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
+        ebooks_notes_blocked_msg "Cannot Remove eBook" \
+            "This eBook cannot be removed from the database because it is associated with notes:" \
+            EB_NOTES_BLOCKED_REPORT
+        return 1
+    fi
 
     whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 155 \
         --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
@@ -3182,6 +3298,19 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
         return 1
     fi
 
+    # Entries referenced by notes are kept; only the others are removed.
+    local -a to_remove_paths=("${to_remove[@]%%|*}")
+    ebooks_notes_partition to_remove_paths
+    if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
+        ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
+            "${#EB_NOTES_BLOCKED[@]} of the listed eBook(s) cannot be removed because they are associated with notes:" \
+            EB_NOTES_BLOCKED_REPORT
+        if (( ${#EB_NOTES_ALLOWED[@]} == 0 )); then
+            return 1
+        fi
+    fi
+    to_remove=("${EB_NOTES_ALLOWED[@]}")
+
     local warn=""
     (( no_filter == 1 )) && warn="NO FILTER IS ACTIVE: this removes EVERY registered file!\n\n"
 
@@ -3795,8 +3924,20 @@ remove_ebooks_from_checklist() {
 
     mapfile -t selected_paths < <(printf '%s\n' "${selected_paths[@]}" | sort)
 
+    # Entries referenced by notes are kept; only the others can be removed.
+    ebooks_notes_partition selected_paths
+    if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
+        ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
+            "${#EB_NOTES_BLOCKED[@]} selected eBook(s) cannot be removed because they are associated with notes:" \
+            EB_NOTES_BLOCKED_REPORT
+        if (( ${#EB_NOTES_ALLOWED[@]} == 0 )); then
+            return 1
+        fi
+        selected_paths=("${EB_NOTES_ALLOWED[@]}")
+    fi
+
     local msg="The following ${#selected_paths[@]} entries will be removed:\n\n"
-    msg+="$(ebooks_file_list_preview selected_paths)"
+    msg+="$(ebooks_file_list_preview selected_paths path paren)"
 
     if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Removal"; then
         local tmp_db list
@@ -4199,11 +4340,11 @@ ebooks_remove_files_in_path() {
     EB_SCOPE_DIR="$selected_dir"
     EB_RECURSIVE=0
     EB_PROCEED="__PROCEED__"
-    EB_PROCEED_DESC="Remove the files without tags among the @N@ matched files"
+    EB_PROCEED_DESC="Remove the matched files (@N@) not associated with notes"
 
     local rc=0
     ebooks_pick_file "Remove Files by Path - Review Files (under ${selected_dir})" \
-        "Registered files under '${selected_dir}' with their tags. Use __RECURSIVE__ to include sub-directories; files with tags are never removed." || rc=$?
+        "Registered files under '${selected_dir}' with their tags. Use __RECURSIVE__ to include sub-directories; files associated with notes are never removed." || rc=$?
 
     local -a matched=("${EB_FILTERED[@]}")
     local scope_recursive="$EB_RECURSIVE"
@@ -4212,25 +4353,32 @@ ebooks_remove_files_in_path() {
 
     (( rc != 2 )) && return 1
 
-    local -a files_to_delete=() tagged_files=()
+    local -a files_to_delete=() matched_paths=()
     local line
     for line in "${matched[@]}"; do
-        if [[ -z "${line#*|}" ]]; then
-            files_to_delete+=("${line%%|*}")
-        else
-            tagged_files+=("${line%%|*}")
-        fi
+        matched_paths+=("${line%%|*}")
     done
 
+    # Only files referenced by notes are kept (tags no longer block removal).
+    ebooks_notes_partition matched_paths
+    files_to_delete=("${EB_NOTES_ALLOWED[@]}")
+    local -a notes_blocked_report=("${EB_NOTES_BLOCKED_REPORT[@]}")
+
     if (( ${#files_to_delete[@]} == 0 )); then
-        whiptail --title "Information" --msgbox "None of the matched files is without tags. Nothing to remove." 10 100
+        if (( ${#notes_blocked_report[@]} > 0 )); then
+            ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
+                "The matched eBook(s) cannot be removed because they are associated with notes:" \
+                notes_blocked_report
+        else
+            whiptail --title "Information" --msgbox "No matched files. Nothing to remove." 10 100
+        fi
         return 1
     fi
 
     local scope_txt="(this directory only)"
     (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
 
-    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles with tags will not be deleted."
+    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles associated with notes will not be deleted."
     if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 155; then
         return 1
     fi
@@ -4241,22 +4389,23 @@ ebooks_remove_files_in_path() {
     local list
     list=$(mktemp) || return 1
     printf '%s\n' "${files_to_delete[@]}" > "$list"
-    awk -F'|' 'NR == FNR { m[$0] = 1; next } !(($1 in m) && $0 ~ /\|$/)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
+    awk -F'|' 'NR == FNR { m[$0] = 1; next } !($1 in m)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
     rm -f "$list"
 
-    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete)"
+    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete path paren)"
     whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 155
 
-    if (( ${#tagged_files[@]} > 0 )); then
-        local excluded_msg="The following matched files were not deleted because they have tag(s):\n\n$(ebooks_file_list_preview tagged_files)\nPlease dissociate tag(s) from these files first."
-        whiptail --scrolltext --title "Tagged Files Excluded" --msgbox "$excluded_msg" 20 155
+    if (( ${#notes_blocked_report[@]} > 0 )); then
+        ebooks_notes_blocked_msg "Files Associated With Notes Excluded" \
+            "The following matched files were not removed because they are associated with notes:" \
+            notes_blocked_report
     fi
 
     return 0
 }
 
 remove_files_by_filepath() {
-    whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If a file has a tag associated with it, it will not be removed. It does not delete files physically from the drive." 12 100 >/dev/tty
+    whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If a file is associated with a note, it will not be removed; dissociate it from the note first. It does not delete files physically from the drive." 12 100 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
