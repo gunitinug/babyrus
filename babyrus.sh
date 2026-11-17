@@ -1399,9 +1399,8 @@ Empty input removes the glob filter." 14 "$EB_WIDTH" "$EB_GLOB" 3>&1 1>&2 2>&3) 
 }
 
 ebooks_ask_tagfilter() {
-    # In substring mode, explicitly offer [NO TAG] alongside the existing
-    # substring-filter workflow. Exact-tag mode uses the tag picker below,
-    # which also offers [NO TAG].
+    # Exact-tag workflows open the tag picker directly. Its __FILTER__ action
+    # narrows the available tags without asking for a substring beforehand.
     if (( EB_TAG_PICK == 1 )); then
         ebooks_pick_tag_filter
         return
@@ -1410,73 +1409,115 @@ ebooks_ask_tagfilter() {
     local choice t current_filter="${EB_TAGF}"
     [[ "$current_filter" == "$EB_NO_TAG_VALUE" ]] && current_filter=""
 
-    choice=$(whiptail --title "__FILTER_BY_TAG__" --menu \
-        "Choose how to filter the files by tag:" 12 "$EB_WIDTH" 2 \
-        "[NO TAG]" "Only show files with no tag associated" \
-        "__TAG_SUBSTRING__" "Filter by a tag-name substring" \
-        3>&1 1>&2 2>&3) || return 1
+    while :; do
+        choice=$(whiptail --title "__FILTER_BY_TAG__" --menu \
+            "Choose a tag-filter action:" 14 "$EB_WIDTH" 4 \
+            "[NO TAG]" "Only show files with no tag associated" \
+            "__FILTER__" "Filter files by a tag-name substring${current_filter:+   [filter: $current_filter]}" \
+            "__RESET_FILTER__" "Reset the tag substring filter" \
+            3>&1 1>&2 2>&3) || return 1
 
-    case "$choice" in
-        "[NO TAG]")
-            EB_TAGF="$EB_NO_TAG_VALUE"
-            ;;
-        "__TAG_SUBSTRING__")
-            t=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
-"Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
-Only files having a tag that contains this text are listed.\n\
-Empty input removes the tag filter." 12 "$EB_WIDTH" "$current_filter" 3>&1 1>&2 2>&3) || return 1
-            EB_TAGF="$t"
-            ;;
-    esac
+        case "$choice" in
+            "[NO TAG]")
+                EB_TAGF="$EB_NO_TAG_VALUE"
+                break
+                ;;
+            "__FILTER__")
+                t=$(whiptail --title "__FILTER__" --inputbox \
+"Enter text to narrow the tag match.\n\
+Files with a tag containing this literal substring are shown (case insensitive; no wildcards).\n\
+Empty input removes the tag filter." 12 "$EB_WIDTH" "$current_filter" 3>&1 1>&2 2>&3) || continue
+                current_filter="$t"
+                EB_TAGF="$t"
+                break
+                ;;
+            "__RESET_FILTER__")
+                current_filter=""
+                EB_TAGF=""
+                break
+                ;;
+        esac
+    done
     EB_PAGE=0
 }
 
-# __FILTER_BY_TAG__ for lists that filter by ONE tag: ask for a literal
-# substring, list the tags (of the files currently listed, glob applied) that
-# contain it and let the user pick one tag. The list is then filtered by that
-# exact tag.
+# __FILTER_BY_TAG__ for lists that filter by ONE tag. The tag-selection screen
+# starts with all tags available; __FILTER__ narrows that list by a literal,
+# case-insensitive substring. The user then chooses one exact tag.
 ebooks_pick_tag_filter() {
-    local sub tag saved
-    local -a matches=() pairs=()
+    local tag saved filter="" page=0 per_page=50
+    local -a matches=() pairs=() shown=() menu=()
+    local total pages start end i choice h w lh
 
-    sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
-"Enter part of an eBook tag name (literal substring match, case insensitive; not a glob or regex).\n\
-The matching eBook tags are listed next and you can pick one of them.\n\
-Empty input lists ALL eBook tags." 12 "$EB_WIDTH" "" 3>&1 1>&2 2>&3) || return 1
-
-    # tags carried by the files that pass the glob filter
+    # Collect tags carried by files that pass the glob filter. The tag filter
+    # itself is temporarily cleared so it cannot hide candidate tags.
     saved="$EB_TAGF"
     EB_TAGF=""
     ebooks_filter_apply
     EB_TAGF="$saved"
     mapfile -t matches < <(
-        printf '%s\n' "${EB_FILTERED[@]}" | EB_SUB="$sub" awk -F'|' '
-        BEGIN { s = tolower(ENVIRON["EB_SUB"]) }
+        printf '%s\n' "${EB_FILTERED[@]}" | awk -F'|' '
         {
             n = split($2, a, ",")
             for (i = 1; i <= n; i++) {
                 x = a[i]
                 gsub(/^[ \t]+|[ \t]+$/, "", x)
-                if (x != "" && (s == "" || index(tolower(x), s))) seen[x] = 1
+                if (x != "") seen[x] = 1
             }
         }
         END { for (x in seen) print x }' | sort
     )
 
-    # Keep both special choices at the top of every page. These filters apply
-    # to the eBook tag field in EB_SRC_FILE (not to note tags).
-    pairs+=("[ANY TAG]" "Show all eBooks, tagged or untagged")
-    pairs+=("[NO TAG]" "Only show eBooks with no tags")
-    for tag in "${matches[@]}"; do
-        pairs+=("$tag" "")
+    while :; do
+        shown=()
+        for tag in "${matches[@]}"; do
+            [[ -z "$filter" || "${tag,,}" == *"${filter,,}"* ]] && shown+=("$tag")
+        done
+
+        total=${#shown[@]}
+        pages=$(( (total + per_page - 1) / per_page ))
+        (( pages < 1 )) && pages=1
+        (( page >= pages )) && page=$(( pages - 1 ))
+        (( page < 0 )) && page=0
+        start=$(( page * per_page ))
+        end=$(( start + per_page ))
+        (( end > total )) && end=$total
+
+        menu=(
+            "[ANY TAG]" "Show all eBooks, tagged or untagged"
+            "[NO TAG]" "Only show eBooks with no tags"
+            "__FILTER__" "Filter tags by literal substring${filter:+   [filter: $filter]}"
+            "__RESET_FILTER__" "Reset tag filter"
+        )
+        (( page > 0 )) && menu+=("__PREV_PAGE__" "Previous page")
+        (( page < pages - 1 )) && menu+=("__NEXT_PAGE__" "Next page")
+        for (( i=start; i<end; i++ )); do
+            menu+=("${shown[i]}" "")
+        done
+
+        read -r h w lh <<< "$(eb_menu_dims)"
+        choice=$(whiptail --title "Select an eBook Tag to Filter By" \
+            --menu "Choose a tag, or use __FILTER__ to narrow the tag list.\n\
+Matching tags: ${total}/${#matches[@]}  |  Page $((page + 1))/${pages}\n\
+Filter: ${filter:-(none)}" \
+            "$h" "$w" "$lh" "${menu[@]}" 3>&1 1>&2 2>&3) || return 1
+
+        case "$choice" in
+            "__FILTER__")
+                filter=$(whiptail --title "__FILTER__" --inputbox \
+"Enter text to narrow down the tag list.\n\
+Tags containing this literal substring are shown (case insensitive; no wildcards).\n\
+Empty input lists all matching tags." 12 "$EB_WIDTH" "$filter" 3>&1 1>&2 2>&3) || continue
+                page=0
+                ;;
+            "__RESET_FILTER__") filter=""; page=0 ;;
+            "__PREV_PAGE__") (( page-- )) ;;
+            "__NEXT_PAGE__") (( page++ )) ;;
+            "[ANY TAG]") EB_TAGF="$EB_ANY_TAG_VALUE"; EB_PAGE=0; return 0 ;;
+            "[NO TAG]") EB_TAGF="$EB_NO_TAG_VALUE"; EB_PAGE=0; return 0 ;;
+            *) EB_TAGF="$choice"; EB_PAGE=0; return 0 ;;
+        esac
     done
-    tag="$(eb_paginate_tags_menu "Select an eBook Tag to Filter By" "${pairs[@]}")" || return 1
-    case "$tag" in
-        "[ANY TAG]") EB_TAGF="$EB_ANY_TAG_VALUE" ;;
-        "[NO TAG]")  EB_TAGF="$EB_NO_TAG_VALUE" ;;
-        *)            EB_TAGF="$tag" ;;
-    esac
-    EB_PAGE=0
 }
 
 # Items shared by the menu and the checklist: filter actions + page navigation.
@@ -2279,7 +2320,7 @@ view_tags() {
         (( end > total )) && end=$total
 
         items=()
-        items+=("__FILTER_BY_TAG__" "Filter tags by literal substring${filter:+   [tag filter: $filter]}")
+        items+=("__FILTER__" "Filter tags by literal substring${filter:+   [tag filter: $filter]}")
         items+=("__RESET_FILTER__" "Reset tag filter")
         (( page > 0 )) && items+=("__PREV_PAGE__" "Previous page")
         (( page < pages - 1 )) && items+=("__NEXT_PAGE__" "Next page")
@@ -2293,8 +2334,8 @@ view_tags() {
             "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 0
 
         case "$choice" in
-            __FILTER_BY_TAG__)
-                sub=$(whiptail --title "__FILTER_BY_TAG__" --inputbox \
+            __FILTER__)
+                sub=$(whiptail --title "__FILTER__" --inputbox \
 "Enter part of a tag name (literal substring match, case insensitive; not a glob or regex).\n\
 Only the tags that contain this text are listed.\n\
 Empty input lists ALL tags." 12 "$EB_WIDTH" "$filter" 3>&1 1>&2 2>&3) && { filter="$sub"; page=0; }
