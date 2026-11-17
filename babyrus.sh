@@ -270,6 +270,13 @@ whiptail() {
         is_navigation=0
     fi
 
+    # "Dissociate URL - Manage URLs of Note" lists the URLs of the note, so it
+    # is a content menu: terminal width and 50 rows without scrolling. (The
+    # "Associate URL" menu with the same suffix stays a navigation menu.)
+    if [[ "$title" == "Dissociate URL - Manage URLs of Note" ]]; then
+        is_navigation=0
+    fi
+
     # Work out the longest text line across the title, prompt, and menu labels.
     line_len=$(babyrus_text_max_line_length "$title")
     (( line_len > max_text )) && max_text=$line_len
@@ -8026,25 +8033,17 @@ Tag you have chosen will be added to the selected notes." 10 60
 
         # Each argument has the format:
         # note title|/path/to/note/note.txt|tag1,tag2,another tag|rest
-        local picked_title picked_path picked_tags selected_tags
+        local picked_title picked_path picked_tags picked_ebooks selected_tags
         while true; do
             # Notes list with __APPLY_GLOB__ / __RESET_GLOB__
             NT_PICK_PROMPT="Choose a note to see its details." nt_pick_note_line "Lookup Note - Choose Note" "$@" || return 1
-            IFS='|' read -r picked_title picked_path picked_tags _ <<< "$NT_PICKED_LINE"
+            IFS='|' read -r picked_title picked_path picked_tags picked_ebooks _ <<< "$NT_PICKED_LINE"
 
             # Remove the display brackets.
             selected_tags="${picked_tags#[}"
             selected_tags="${selected_tags%]}"
 
-            whiptail \
-                --title "Note Information" \
-                --msgbox "$(printf \
-                    'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s' \
-                    "$picked_path" \
-                    "$picked_title" \
-                    "$selected_tags"
-                )" \
-                20 90
+            babyrus_show_note_info "$picked_path" "$picked_title" "$selected_tags" "$picked_ebooks"
         done
     }
 
@@ -8405,7 +8404,7 @@ delete_global_tag_of_notes() {
                     conflict_msg+="- $title\n"
                 done
 
-                (( ${#conflicts[@]} > 10 )) && conflict_msg+="and more..."
+                (( ${#conflicts[@]} > 10 )) && conflict_msg+="(... $(( ${#conflicts[@]} - 10 )) more)"
 
                 conflict_msg+="\n\nPlease dissociate the tag from these notes first."
                 whiptail --msgbox "$conflict_msg" 20 80
@@ -9048,6 +9047,65 @@ add_note_tag_menu() {
     done
 }
 
+# Text of the "Note Information" dialog of Lookup Note Tag.
+# $1 note path, $2 note title, $3 tags, $4 4th field of the NOTES_DB line
+# (ebook_path1#chapters;ebook_path2#chapters). The URLs of the note are read
+# from $URLS_DB (line: note path GS url US title RS url US title ...).
+babyrus_note_info_text() {
+    local note_path="$1" note_title="$2" note_tags="$3" note_ebooks="$4"
+    local GS=$'\x1D' US=$'\x1F' RS=$'\x1E'
+    local ebook_list="" url_list="" e line entry url url_title
+    local -a eb_entries=() url_entries=()
+
+    if [[ -n "$note_ebooks" ]]; then
+        IFS=';' read -ra eb_entries <<< "$note_ebooks"
+        for e in "${eb_entries[@]}"; do
+            [[ -n "$e" ]] && ebook_list+="${e%%#*}"$'\n'
+        done
+    fi
+    ebook_list="${ebook_list%$'\n'}"
+
+    if [[ -f "$URLS_DB" ]]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" == "${note_path}${GS}"* ]]; then
+                IFS="$RS" read -ra url_entries <<< "${line#*$GS}"
+                for entry in "${url_entries[@]}"; do
+                    IFS="$US" read -r url url_title <<< "$entry"
+                    [[ -z "$url" ]] && continue
+                    if [[ -n "$url_title" ]]; then
+                        url_list+="${url} - ${url_title}"$'\n'
+                    else
+                        url_list+="${url}"$'\n'
+                    fi
+                done
+                break
+            fi
+        done < "$URLS_DB"
+        url_list="${url_list%$'\n'}"
+    fi
+
+    printf 'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s\n\nAssociated eBook(s):\n%s\n\nAssociated URL(s):\n%s' \
+        "$note_path" "$note_title" "$note_tags" \
+        "${ebook_list:-(none)}" "${url_list:-(none)}"
+}
+
+# Show the "Note Information" dialog (used by Lookup Note Tag and by the
+# Lookup action of Do Stuff by Tag). Args as babyrus_note_info_text.
+# The dialog is sized to its content (ebook paths and URLs can be long),
+# capped to the terminal; --scrolltext covers anything that still overflows.
+babyrus_show_note_info() {
+    local text rows cols n=0 longest=0 h w l
+    text="$(babyrus_note_info_text "$@")"
+    read -r rows cols < <(babyrus_terminal_size)
+    while IFS= read -r l; do
+        n=$(( n + 1 ))
+        (( ${#l} > longest )) && longest=${#l}
+    done <<< "$text"
+    h=$(( n + 6 ));        (( h < 20 )) && h=20;  (( h > rows )) && h=$rows
+    w=$(( longest + 8 ));  (( w < 90 )) && w=90;  (( w > cols )) && w=$cols
+    whiptail --title "Note Information" --scrolltext --msgbox "$text" "$h" "$w"
+}
+
 lookup_note_tags() {
     if [[ ! -f "$NOTES_DB" || ! -s "$NOTES_DB" ]]; then
         whiptail --title "Attention" --msgbox "No notes found. Add at least one note and try again." 8 60
@@ -9065,7 +9123,7 @@ lookup_note_tags() {
     fi
 
     local chosen_tag="" first=1 rc tag_ok=0
-    local info_title info_path info_tags
+    local info_title info_path info_tags info_ebooks
     local tag_menu_filter=""   # __FILTER__ text, kept while the tag menu is reopened
 
     np_reset
@@ -9108,10 +9166,8 @@ lookup_note_tags() {
             rc=$?
             case $rc in
                 0)
-                    IFS='|' read -r info_title info_path info_tags _ <<< "$NP_SELECTED_LINE"
-                    whiptail --title "Note Information" --msgbox "$(printf \
-                        'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s' \
-                        "$info_path" "$info_title" "$info_tags")" 20 90
+                    IFS='|' read -r info_title info_path info_tags info_ebooks _ <<< "$NP_SELECTED_LINE"
+                    babyrus_show_note_info "$info_path" "$info_title" "$info_tags" "$info_ebooks"
                     ;;
                 3) break ;;      # __CHANGE_TAG__
                 *) return 1 ;;   # Back
