@@ -448,7 +448,7 @@ declare -A EXTENSION_COMMANDS=(
 # Tweak these to set external apps for other sections.
 DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
 URL_BROWSER="firefox"
-PDF_CONVERTER="pandoc" # either "pandoc" or "libreoffice".
+PDF_CONVERTER="pandoc" # either pandoc or libreoffice.
 #+++ CONFIGURATION END +++#
 
 # ADD COMMANDS FOR VIEWERS.
@@ -1273,10 +1273,12 @@ eb_trunc_path() {
 # include shortened tags beside each path; set it to "raw" for arbitrary text
 # such as old -> new rename pairs.
 ebooks_file_list_preview() {
-    local array_name="$1" mode="${2:-path}" more_style="${3:-}" total i line path tags
+    local array_name="$1" mode="${2:-path}" total i line path tags
     local -n entries="$array_name"
     total=${#entries[@]}
 
+    # Every user-facing affected-item list is capped at ten entries. Keep the
+    # omitted-item count in the same consistent form across all operations.
     for (( i=0; i<total && i<10; i++ )); do
         line="${entries[i]}"
         case "$mode" in
@@ -1295,11 +1297,7 @@ ebooks_file_list_preview() {
     done
 
     if (( total > 10 )); then
-        if [[ "$more_style" == "paren" ]]; then
-            printf '  (... %d more)\n' "$(( total - 10 ))"
-        else
-            printf '  ... (%d more)\n' "$(( total - 10 ))"
-        fi
+        printf '  (... %d more)\n' "$(( total - 10 ))"
     fi
 }
 
@@ -2056,6 +2054,195 @@ check_illegal_filenames() {
     return 0
 }
 
+# A base name cannot be registered when it contains '|' or starts with '-'.
+eb_illegal_basename() {
+    [[ "$1" == *"|"* || "$1" == -* ]]
+}
+
+# Reads NUL separated paths on stdin and stores in array $1 those whose base
+# name is illegal (see eb_illegal_basename). Files inside a directory whose
+# name contains '|' are ignored: renaming the file cannot fix them.
+eb_collect_illegal_files() {
+    local -n _ci_arr="$1"
+    local f
+    _ci_arr=()
+    while IFS= read -r -d '' f; do
+        [[ "${f%/*}" == *"|"* ]] && continue
+        eb_illegal_basename "${f##*/}" && _ci_arr+=("$f")
+    done
+}
+
+# Renames ONE file: every '|' and each leading '-' of its base name becomes '_'.
+# A _N suffix (before the extension) is added when the new name already exists,
+# so nothing is overwritten. Prints the new full path; fails when mv fails.
+eb_fix_illegal_basename() {
+    local path="$1" dir base new_base target stem ext n prefix
+    dir="${path%/*}"
+    base="${path##*/}"
+    new_base="${base//|/_}"
+    # Only leading hyphens make a basename illegal; preserve ordinary hyphens
+    # elsewhere in the name.
+    prefix=""
+    while [[ "$new_base" == -* ]]; do
+        prefix+="_"
+        new_base="${new_base#-}"
+    done
+    new_base="${prefix}${new_base}"
+    target="$dir/$new_base"
+    if [[ -e "$target" ]]; then
+        if [[ "$new_base" == *.* ]]; then
+            ext=".${new_base##*.}"
+            stem="${new_base%.*}"
+        else
+            ext=""
+            stem="$new_base"
+        fi
+        n=1
+        while [[ -e "$dir/${stem}_${n}${ext}" ]]; do (( n++ )); done
+        target="$dir/${stem}_${n}${ext}"
+    fi
+    mv -i -- "$path" "$target" || return 1
+    printf '%s' "$target"
+}
+
+# Asks the user whether the files in array $1 (full paths with illegal base
+# names) may be renamed ('|' and a leading '-' -> '_'), and renames them when
+# the answer is yes. Call it BEFORE building the list of files, so the renamed
+# files show up in the list with their new names.
+# Returns 0 when the files were renamed, 1 when there was nothing to rename or
+# the user declined (the caller must then leave those files out of the list).
+eb_offer_rename_illegal() {
+    local -n _oi_arr="$1"
+    (( ${#_oi_arr[@]} == 0 )) && return 1
+
+    local -a names=()
+    local f
+    for f in "${_oi_arr[@]}"; do
+        names+=("${f##*/}")
+    done
+    local msg="${#_oi_arr[@]} file(s) have names that cannot be registered (they contain '|' or start with '-'):\n\n"
+    msg+="$(ebooks_file_list_preview names raw)"
+    msg+="\n\nRename them now? '|' and a leading '-' will be replaced with '_'."
+    whiptail --title "Illegal File Names" --yesno "$msg" 20 155 || return 1
+
+    local new
+    local -a renamed=() failed=()
+    for f in "${_oi_arr[@]}"; do
+        if new=$(eb_fix_illegal_basename "$f"); then
+            renamed+=("${f##*/} -> ${new##*/}")
+        else
+            failed+=("${f##*/}")
+        fi
+    done
+    if (( ${#failed[@]} > 0 )); then
+        local fail_msg="${#failed[@]} file(s) could not be renamed and will be left out:\n\n"
+        fail_msg+="$(ebooks_file_list_preview failed raw)"
+        whiptail --title "Error" --msgbox "$fail_msg" 20 155
+    fi
+    (( ${#renamed[@]} > 0 ))
+}
+
+# Name clean-up applied to a file BEFORE it is added to $EBOOKS_DB:
+#   1. characters illegal in Manage Notes operations ( , : # ; | ) -> _
+#      and every leading '-' -> _
+#   2. meaningless strings (ISBN / hash) between " -- " separators are removed
+# Prints the cleaned base name (unchanged when nothing needs cleaning).
+eb_clean_basename() {
+    local base="$1" new_name lead
+    base="${base//[,:#;|]/_}"
+    if [[ "$base" == -* ]]; then
+        lead="${base%%[!-]*}"
+        base="${lead//-/_}${base#"$lead"}"
+    fi
+    new_name=$(printf '%s' "$base" | perl -CSD -pe 's/(?<= -- )(?=[A-Za-z0-9_-]*\d)(?:isbn\d+ ?)?[A-Za-z0-9_-]{12,}(?= -- |\.[^.]+$)//g; s/ -- (?= -- )//g; s/ -- (?=\.[^.]+$)//')
+    printf '%s' "$new_name"
+}
+
+# Physically renames files (see eb_clean_basename) before they are added to
+# $EBOOKS_DB, rewrites the array elements with the new paths and informs the
+# user when renaming took place.
+# Usage: prepare_ebooks_for_registration ARRAY_NAME [db]
+#   db : array elements have the DB form "path|" instead of plain "path".
+# Files already registered are left alone (renaming them would break their
+# existing database entry). A new name that already exists on disk gets a
+# _N suffix before the extension, so nothing is overwritten.
+prepare_ebooks_for_registration() {
+    local -n _pe_arr="$1"
+    local mode="${2:-plain}"
+    local i entry path suffix dir base new_base target stem ext n p
+    local -a renamed=()
+    local -A registered=()
+
+    if [[ -s "$EBOOKS_DB" ]]; then
+        while IFS= read -r p; do
+            registered["$p"]=1
+        done < <(cut -d'|' -f1 "$EBOOKS_DB")
+    fi
+
+    for i in "${!_pe_arr[@]}"; do
+        entry="${_pe_arr[i]}"
+        suffix=""
+        path="$entry"
+        if [[ "$mode" == "db" ]]; then
+            path="${entry%|}"
+            suffix="|"
+        fi
+        [[ -f "$path" ]] || continue
+        [[ -n "${registered[$path]:-}" ]] && continue
+
+        dir="${path%/*}"
+        base="${path##*/}"
+        new_base=$(eb_clean_basename "$base")
+        [[ -z "$new_base" || "$new_base" == "$base" || "$new_base" == -* ]] && continue
+
+        target="$dir/$new_base"
+        if [[ -e "$target" ]]; then
+            if [[ "$new_base" == *.* ]]; then
+                ext=".${new_base##*.}"
+                stem="${new_base%.*}"
+            else
+                ext=""
+                stem="$new_base"
+            fi
+            n=1
+            while [[ -e "$dir/${stem}_${n}${ext}" ]]; do (( n++ )); done
+            target="$dir/${stem}_${n}${ext}"
+        fi
+
+        if mv -i -- "$path" "$target"; then
+            _pe_arr[i]="${target}${suffix}"
+            renamed+=("$base -> ${target##*/}")
+        fi
+    done
+
+    # An entry whose file name still contains '|' (rename failed) cannot be
+    # stored in the database: drop it and tell the user.
+    local -a kept=() failed=()
+    for i in "${!_pe_arr[@]}"; do
+        entry="${_pe_arr[i]}"
+        path="$entry"
+        [[ "$mode" == "db" ]] && path="${entry%|}"
+        if [[ "$path" == *"|"* ]]; then
+            failed+=("$path")
+        else
+            kept+=("$entry")
+        fi
+    done
+    _pe_arr=("${kept[@]}")
+    if (( ${#failed[@]} > 0 )); then
+        local fail_msg="${#failed[@]} file(s) contain '|' and could not be renamed; they were not added:\n\n"
+        fail_msg+="$(ebooks_file_list_preview failed raw)"
+        whiptail --title "Error" --msgbox "$fail_msg" 20 155
+    fi
+
+    if (( ${#renamed[@]} > 0 )); then
+        local notice="${#renamed[@]} file(s) were renamed before being added to the database:\n\n"
+        notice+="$(ebooks_file_list_preview renamed raw)"
+        whiptail --title "Files Renamed" --msgbox "$notice" 20 155
+    fi
+    return 0
+}
+
 register_ebook() {
     local search_path
     search_path="$(navigate "$(pwd)")"
@@ -2064,25 +2251,24 @@ register_ebook() {
 
     in_operation_msg
 
-    # List the files of the chosen directory (non-recursive). Files that cannot
-    # be registered (name starting with '-' or containing '|') are skipped.
+    # Files with a '|' in the name or a leading '-' cannot be registered: ask
+    # the user whether they may be renamed BEFORE the list is built, so they
+    # appear in it with their new names. When declined they stay out of the list.
+    local -a illegal_found=()
+    eb_collect_illegal_files illegal_found < <(find "$search_path" -maxdepth 1 -type f -print0)
+    eb_offer_rename_illegal illegal_found
+
+    # List the files of the chosen directory (non-recursive). Any illegal
+    # basenames the user declined to rename, plus files under a directory whose
+    # path contains '|', stay out of the selectable list.
     local tmp f
-    local -a illegal_files=()
     tmp=$(mktemp) || return 1
     while IFS= read -r -d '' f; do
         if [[ "${f##*/}" == -* || "$f" == *"|"* ]]; then
-            illegal_files+=("${f##*/}")
             continue
         fi
         printf '%s|\n' "$f" >> "$tmp"
     done < <(find "$search_path" -maxdepth 1 -type f -print0 | sort -z)
-
-    if (( ${#illegal_files[@]} > 0 )); then
-        local illegal_msg="${#illegal_files[@]} illegal file name(s) skipped; they cannot be registered:\n\n"
-        illegal_msg+="$(ebooks_file_list_preview illegal_files raw)"
-        illegal_msg+="\nConsider renaming the files and retry."
-        whiptail --title "Error" --msgbox "$illegal_msg" 20 155
-    fi
 
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
@@ -2102,6 +2288,12 @@ register_ebook() {
     (( rc != 0 )) && return 1
 
     local selected="${EB_SELECTED_LINE%|}"
+
+    # Rename illegal / meaningless file name parts before registering.
+    local -a _rename_sel=("$selected")
+    prepare_ebooks_for_registration _rename_sel
+    (( ${#_rename_sel[@]} == 0 )) && return 1
+    selected="${_rename_sel[0]}"
 
     if [[ -f "$EBOOKS_DB" ]] && EB_P="$selected" awk -F'|' '$1 == ENVIRON["EB_P"] { f = 1 } END { exit !f }' "$EBOOKS_DB"; then
         whiptail --msgbox "Ebook already registered!" 8 40
@@ -2632,7 +2824,7 @@ ebooks_notes_partition() {
 # removal and that they have to be dissociated from the notes first.
 ebooks_notes_blocked_msg() {
     local title="$1" intro="$2" report_name="$3"
-    local msg="${intro}\n\n$(ebooks_file_list_preview "$report_name" raw paren)\nPlease dissociate these eBook file(s) from those notes first (Manage Notes), then try again."
+    local msg="${intro}\n\n$(ebooks_file_list_preview "$report_name" raw)\nPlease dissociate these eBook file(s) from those notes first (Manage Notes), then try again."
     whiptail --scrolltext --title "$title" --msgbox "$msg" 20 155
 }
 
@@ -2772,6 +2964,14 @@ It involves the following steps:\n\
     # containing '|' (or a newline) cannot be stored and are left out.
     local tmp db_src="$EBOOKS_DB"
     [[ -f "$db_src" ]] || db_src=/dev/null
+
+    # Files with a '|' in the name or a leading '-' cannot be registered: ask
+    # the user whether they may be renamed BEFORE the list is built, so they
+    # appear in it with their new names. When declined they stay out of the list.
+    local -a illegal_found=()
+    eb_collect_illegal_files illegal_found < <(find "$selected_dir" -type f \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) ! -path $'*\n*' -print0 2>/dev/null)
+    eb_offer_rename_illegal illegal_found
+
     tmp=$(mktemp) || return 1
     find "$selected_dir" \
         -type f \
@@ -2784,13 +2984,15 @@ It involves the following steps:\n\
             -o -iname '*.djvu' \
             -o -iname '*.djv' \
         \) \
-        ! -name '*|*' ! -path $'*\n*' \
+        ! -name '*|*' ! -name '-*' ! -path $'*\n*' \
         -print 2>/dev/null \
     | awk -F'|' '
         FILENAME == ARGV[1] { reg[$1] = 1; next }   # registered paths (DB, first field)
         {
             f = $0
             gsub(/\/\//, "/", f)            # normalize path (same as before)
+            dir = f; sub(/\/[^\/]*$/, "", dir)
+            if (dir ~ /\|/) next                  # "|" in a folder name cannot be fixed by renaming the file
             if (!(f in reg)) print f
         }' "$db_src" - \
     | sort \
@@ -2827,6 +3029,13 @@ It involves the following steps:\n\
     fi
 
     whiptail --title "Confirm" --yesno "${#to_add[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
+
+    # Rename illegal / meaningless file name parts before registering.
+    prepare_ebooks_for_registration to_add db
+    if (( ${#to_add[@]} == 0 )); then
+        whiptail --msgbox "No files left to add." 8 50
+        return 1
+    fi
 
     printf '%s\n' "${to_add[@]}" >> "$EBOOKS_DB"
 
@@ -3531,7 +3740,9 @@ add_ebooks_from_checklist() {
     EB_PATH_MAX=140
     local start_dir="$(pwd)"
     local current_dir="$start_dir"
-    local -a dirs=() files=() items=()
+    local -a dirs=() files=() items=() illegal_found=() files_all=()
+    local -A rename_asked=()
+    local ci_f
     declare -A global_selected
 
     # Ensure the eBooks DB exists
@@ -3539,13 +3750,39 @@ add_ebooks_from_checklist() {
 
     # Outer loop: directory traversal
     while true; do
+        # First visit of a directory: files with a '|' in the name or a leading
+        # '-' cannot be registered. Ask the user whether they may be renamed
+        # BEFORE the list is built, so they show up with their new names.
+        if [[ -z "${rename_asked[$current_dir]:-}" ]]; then
+            rename_asked["$current_dir"]=1
+            eb_collect_illegal_files illegal_found < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f -print0)
+            eb_offer_rename_illegal illegal_found
+        fi
+
         # Build fresh lists of subdirectories and direct files. mapfile does not
         # clear an existing array, so clear both before reading a new directory.
         dirs=()
         files=()
         mapfile -t dirs < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type d | sort)
         # Files are filtered by the glob (file path or file name); directories stay visible.
-        mapfile -t files < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
+        mapfile -t files_all < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
+        # A pipe in a parent-directory name cannot be repaired by renaming the
+        # file itself. Keep those paths out of the database-bound checklist.
+        local -a unfixable_dir_files=()
+        # Files that still have an illegal name (renaming declined/failed), or
+        # live under a directory containing '|', are not listed.
+        for ci_f in "${files_all[@]}"; do
+            if [[ "${ci_f%/*}" == *"|"* ]]; then
+                unfixable_dir_files+=("${ci_f##*/} (folder: ${ci_f%/*})")
+                continue
+            fi
+            eb_illegal_basename "${ci_f##*/}" || files+=("$ci_f")
+        done
+        if (( ${#unfixable_dir_files[@]} > 0 )); then
+            local unfixable_msg="${#unfixable_dir_files[@]} file(s) are in folders whose names contain '|'. Renaming the files cannot fix their paths, so they will not be listed:\n\n"
+            unfixable_msg+="$(ebooks_file_list_preview unfixable_dir_files raw)"
+            whiptail --title "Files Skipped" --msgbox "$unfixable_msg" 20 155
+        fi
 
         # Show directories first, followed by files, as requested. Both kinds
         # of entries remain paginated and directly selectable.
@@ -3710,6 +3947,8 @@ add_ebooks_from_checklist() {
     msg+="$(ebooks_file_list_preview to_add)"
 
     if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Addition"; then
+        # Rename illegal / meaningless file name parts before registering.
+        prepare_ebooks_for_registration to_add
         for f in "${to_add[@]}"; do
             if ! grep -Fq "${f}|" "$EBOOKS_DB"; then
                 echo "${f}|" >> "$EBOOKS_DB"
@@ -3719,229 +3958,6 @@ add_ebooks_from_checklist() {
     else
         whiptail --msgbox "Addition cancelled." 8 40
     fi
-}
-
-rename_and_reregister_illegal_ebook_filenames() {
-    # Info msgbox about what this function does
-    whiptail --title "Info" --msgbox \
-"Files registered in ebooks database can't have |,#:; characters in their file names \
-because they are illegal in Manage Notes operations. \n\n\
-This function will rename the file names accordingly both in ebooks database \
-and physically on drive. You can also revert the changes later." 15 80
-
-    local EBOOKS_DB_BACKUP="$EBOOKS_DB.backup"
-    local LOG_FILE="$EBOOKS_DB.rename.log"
-    local TEMP_DB
-    TEMP_DB=$(mktemp) || return 1
-    local -A used_paths=()
-    local -a changes=()
-    local -a new_lines=()
-
-    # is this necessary? it's giving no such file error if user selects not to go ahead with renaming.
-    touch /tmp/changes.tmp /tmp/new_lines.tmp 2>/dev/null
-
-    # If ebooks.db and ebooks.db.backup files are equal content
-    # then we shouldn't proceed!    
-    if [[ -f "$EBOOKS_DB_BACKUP" ]] && cmp -s "$EBOOKS_DB" "$EBOOKS_DB_BACKUP"; then
-        whiptail --title "Error" --msgbox "Something is wrong. Start afresh by deleting ${EBOOKS_DB_BACKUP} file and try again." 10 50 </dev/tty >/dev/tty
-        #echo "ebooks db and ebooks db backup files are the same!" >&2   # debug
-        return 1
-    fi
-
-    # Create new backup of original database
-    cp -- "$EBOOKS_DB" "${EBOOKS_DB_BACKUP}_" || return 1
-
-    # Display whiptail message telling user to wait
-    TERM=ansi whiptail --title "Processing" \
-         --infobox "Collecting information about illegal filenames registered inside ebooks database.\n\nPlease wait..." 10 60
-
-    # First pass: collect changes and prepare new database
-    # Process in awk
-    awk -F'|' -v OFS='|' '
-    function sanitize(name) {
-        gsub(/[,:#;]/, "_", name)
-        return name
-    }
-
-    {
-        path = $1
-        tags = $2
-
-        dir = path
-        sub(/\/[^\/]*$/, "", dir)  # dirname
-        old_basename = path
-        sub(/^.*\//, "", old_basename)  # basename
-
-        new_basename = sanitize(old_basename)
-        new_path = dir "/" new_basename
-
-        # Only rename if old file name and sanitized version differs
-        if (new_basename != old_basename) {
-            counter = 1
-            while (new_path in used || system("[ -e \"" new_path "\" ]") == 0) {
-                split(new_basename, parts, /\./)
-                if (length(parts) == 1) {
-                    new_basename = parts[1] "_" counter
-                } else {
-                    ext = parts[length(parts)]
-                    name_part = substr(new_basename, 1, length(new_basename) - length(ext) - 1)
-                    new_basename = name_part "_" counter "." ext
-                }
-                new_path = dir "/" new_basename
-                counter++
-            }
-            used[new_path] = 1
-            print path "|" new_path > "/tmp/changes.tmp"
-            print new_path "|" tags > "/tmp/new_lines.tmp"
-        } else {
-            # Name unchanged; keep line as-is
-            print $0 > "/tmp/new_lines.tmp"
-        }
-    }
-    ' "${EBOOKS_DB_BACKUP}_"
-
-    # Read back into bash arrays and associative array
-    while IFS='|' read -r old new; do
-        changes+=("$old|$new")
-        used_paths["$new"]=1
-    done < /tmp/changes.tmp
-
-    while IFS= read -r line; do
-        new_lines+=("$line")
-    done < /tmp/new_lines.tmp
-
-    # Cleanup temp files
-    rm -f /tmp/changes.tmp /tmp/new_lines.tmp 2>/dev/null
-
-    # Show confirmation dialog if changes needed
-    if [[ ${#changes[@]} -gt 0 ]]; then
-        local change_list
-        change_list=$(mktemp) || return 1
-        
-        local shown_changes=()
-        for change in "${changes[@]}"; do
-            IFS='|' read -r old new <<< "$change"
-            shown_changes+=("$old -> $new")
-        done
-        ebooks_file_list_preview shown_changes raw > "$change_list"
-
-        whiptail --title "Files to be renamed (${#changes[@]} files)" --scrolltext --textbox "$change_list" 20 155
-        rm -f "$change_list"
-
-        if ! whiptail --title "Confirmation" --yesno "Proceed with these changes?" 10 80; then
-            rm -f "$TEMP_DB"
-            #echo "Operation cancelled by user" >&2
-            rm -f "${EBOOKS_DB_BACKUP}_"
-            return 1
-        fi
-
-        # Only create ebooks db backup file if renaming has occurred.
-        cp "${EBOOKS_DB_BACKUP}_" "${EBOOKS_DB_BACKUP}"
-        rm -f "${EBOOKS_DB_BACKUP}_"
-    else
-        whiptail --title "No changes needed" --msgbox "No files with illegal characters found" 8 50
-        rm -f "$TEMP_DB"
-        rm -f "${EBOOKS_DB_BACKUP}_"
-        return 0
-    fi
-
-    # Display whiptail message telling user to wait
-    TERM=ansi whiptail --title "Processing" \
-         --infobox "Changes being applied.\n\nPlease wait..." 10 60
-
-    # Second pass: execute changes
-    : > "$LOG_FILE"
-    for change in "${changes[@]}"; do
-        IFS='|' read -r old new <<< "$change"
-
-        # Debug
-        #echo "Before mv:" >&2
-        #echo "old: $old" >&2
-        #echo "new: $new" >&2
-        #exit
-
-        if ! mv -- "$old" "$new"; then
-            echo "Error: Failed to rename '$old' to '$new'" >&2
-            whiptail --title "Error" --msgbox "Failed to rename '$old' to '$new'. Aborting." 10 155
-            rm -f "$TEMP_DB"
-            return 1
-        fi
-        echo "$old|$new" >> "$LOG_FILE"
-    done
-
-    # Write new database
-    printf "%s\n" "${new_lines[@]}" > "$TEMP_DB"
-    mv -- "$TEMP_DB" "$EBOOKS_DB" || return 1
-
-    whiptail --title "Success" --msgbox "Files renamed and database updated!\n\nBackup: $EBOOKS_DB_BACKUP" 12 155
-}
-
-revert_rename_illegal_ebook_filenames() {  
-    check_backup_and_log() {
-        # 1. Check line counts equal
-        if [[ $(wc -l < "$EBOOKS_DB") -ne $(wc -l < "$EBOOKS_DB_BACKUP") ]]; then
-            echo "Line count mismatch between DB and backup" >&2
-            return 1
-        fi
-
-        # 2. Check every new_path exists, but don't exit early
-        local missing=0
-
-        awk -F'|' '
-            {
-                new_path = $2
-                if (system("[ -f \"" new_path "\" ]") != 0) {
-                    printf("Missing file in filesystem: %s\n", new_path) > "/dev/stderr"
-                    missing = 1
-                }
-            }
-            END {
-                exit missing
-            }
-        ' "$LOG_FILE" || return 1
-
-        return 0
-    }
-  
-    # Info msgbox about what this function does
-    whiptail --title "Info" --msgbox \
-"This function reverts changes made by Rename and Reregister Illegal Ebook Filenames function. \
-It reverts both ebooks database and physical file names on drive." 10 80
-
-    local EBOOKS_DB_BACKUP="$EBOOKS_DB.backup"
-    local LOG_FILE="$EBOOKS_DB.rename.log"
-
-    if [[ ! -f "$EBOOKS_DB_BACKUP" || ! -f "$LOG_FILE" ]]; then
-        whiptail --title "Attention" --msgbox "There is nothing to revert." 8 50
-        return 1
-    fi
-
-    # Extra check to see if ebooks db backup file and log file's integrity holds - test this at the next opportunity!
-    check_backup_and_log || return 1
-
-    # Show confirmation dialog
-    if ! whiptail --title "Confirmation" --yesno "This will restore original filenames and database. Proceed?" 10 80; then
-        #echo "Revert cancelled by user" >&2
-        return 1
-    fi
-
-    # Working... infobox
-    TERM=ansi whiptail --title "Info" --infobox "Working..." 8 40
-
-    cp -- "$EBOOKS_DB_BACKUP" "$EBOOKS_DB" || return 1
-
-    while IFS= read -r line; do
-        IFS='|' read -r original_path new_path <<< "$line"
-        if [[ -e "$new_path" ]]; then
-            if ! mv -f -- "$new_path" "$original_path"; then
-                echo "Warning: Failed to revert '$new_path' to '$original_path'" >&2
-            fi
-        else
-            echo "Warning: '$new_path' does not exist. Skipping." >&2
-        fi
-    done < "$LOG_FILE"
-
-    whiptail --title "Success" --msgbox "Successfully reverted all changes!\n\nOriginal database restored from backup." 12 80
 }
 
 remove_ebooks_from_checklist() {
@@ -3985,7 +4001,7 @@ remove_ebooks_from_checklist() {
     fi
 
     local msg="The following ${#selected_paths[@]} entries will be removed:\n\n"
-    msg+="$(ebooks_file_list_preview selected_paths path paren)"
+    msg+="$(ebooks_file_list_preview selected_paths path)"
 
     if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Removal"; then
         local tmp_db list
@@ -4440,7 +4456,7 @@ ebooks_remove_files_in_path() {
     awk -F'|' 'NR == FNR { m[$0] = 1; next } !($1 in m)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
     rm -f "$list"
 
-    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete path paren)"
+    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete path)"
     whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 155
 
     if (( ${#notes_blocked_report[@]} > 0 )); then
@@ -4560,16 +4576,12 @@ show_ebooks_menu() {
                 esac
                 ;;
             "5")
-                # Open & Read submenu: Items 5 and 6
-                MAINTENANCE_OPTION=$(whiptail --title "Maintenance" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 3 \
-                    "1" "Find Remove Broken Entries" \
-                    "2" "Rename and Reregister Illegal Filenames" \
-                    "3" "Revert Renaming Illegal Filenames" 3>&1 1>&2 2>&3)
+                # Maintenance submenu
+                MAINTENANCE_OPTION=$(whiptail --title "Maintenance" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 1 \
+                    "1" "Find Remove Broken Entries" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$MAINTENANCE_OPTION" in
                     "1") remove_broken_entries ;;
-                    "2") rename_and_reregister_illegal_ebook_filenames ;;
-                    "3") revert_rename_illegal_ebook_filenames ;;
                     *) whiptail --msgbox "Invalid Option" 8 40 ;;
                 esac
                 ;;
@@ -28218,7 +28230,7 @@ Use the glob and tag filters together to narrow a large collection. A tag search
 
 4. Keep the library healthy
 
-Maintenance can find database entries whose files are no longer present. It also provides tools to rename and re-register filenames that cause problems, and to revert those renames when needed. Renaming changes the actual filename on disk, so review the selected files and confirmation prompts carefully.
+Maintenance can find database entries whose files are no longer present. When you add files, names that cannot be registered (a "|" or a leading "-") are shown first and you are asked whether they may be renamed. Files are also tidied before being registered (characters such as , : # ; become "_" and meaningless ISBN/hash strings are removed). Renaming changes the actual filename on disk, and you are told whenever it happens.
 
 A useful first workflow is to register a small group of ebooks, assign a few meaningful tags, then practise finding and opening them from Search & Lookup and Open & Read.
 BABYRUS_HELP_EBOOKS
