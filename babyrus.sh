@@ -2154,7 +2154,7 @@ eb_clean_basename() {
         lead="${base%%[!-]*}"
         base="${lead//-/_}${base#"$lead"}"
     fi
-    new_name=$(printf '%s' "$base" | perl -CSD -pe 's/(?<= -- )(?=[A-Za-z0-9_-]*\d)(?:isbn\d+ ?)?[A-Za-z0-9_-]{12,}(?= -- |\.[^.]+$)//g; s/ -- (?= -- )//g; s/ -- (?=\.[^.]+$)//')
+    new_name=$(printf '%s' "$base" | perl -CSD -pe 's/(?<= -- )(?=[A-Za-z0-9_-]*\d)(?:isbn\d+ ?)?[A-Za-z0-9_-]{12,}(?:[^0-9]+)?(?= -- |\.[^.]+$)//g; s/ -- (?= -- )//g; s/ -- (?=\.[^.]+$)//')
     printf '%s' "$new_name"
 }
 
