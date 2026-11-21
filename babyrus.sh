@@ -1194,6 +1194,14 @@ EB_NO_TAG_VALUE="__NO_TAG__"   # value of EB_TAGF while the [NO TAG] filter is a
 EB_ANY_TAG_VALUE="__ANY_TAG__" # value of EB_TAGF while the [ANY TAG] filter is active
 EB_SCOPE_DIR=""           # restrict a file list to this directory
 EB_RECURSIVE=0             # include sub-directories when EB_SCOPE_DIR is set
+EB_RECURSE_REBUILD=0       # 1 = list offers __RECURSE__ / __NON_RECURSE__; the caller rebuilds its
+                           #     source list (ebooks_pick_file returns 3) whenever EB_RECURSIVE changes
+EB_RECURSE_CHANGED=0       # set by __RECURSE__ / __NON_RECURSE__ (internal)
+
+# find(1) expression matching the eBook file types that can be registered
+# (case insensitive extension). Used by Register eBook and Register eBooks
+# From Checklist: use as  find DIR ... -type f "${EB_EBOOK_FIND_EXT[@]}" ...
+EB_EBOOK_FIND_EXT=( \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) )
 
 # Prints "height width list-height" for a whiptail list that shows
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
@@ -1227,6 +1235,8 @@ ebooks_filter_reset() {
     EB_NO_TAG_ITEM=0
     EB_SCOPE_DIR=""
     EB_RECURSIVE=0
+    EB_RECURSE_REBUILD=0
+    EB_RECURSE_CHANGED=0
 }
 
 # Truncates a file path for a whiptail menu / checklist item: when the path is
@@ -1516,6 +1526,10 @@ ebooks_action_items() {
             EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset eBook tag filter" "${extra[@]}")
         fi
     fi
+    if (( EB_RECURSE_REBUILD == 1 )); then
+        EB_ACTION_ITEMS+=("__RECURSE__" "List files recursively (include sub-directories)" "${extra[@]}")
+        EB_ACTION_ITEMS+=("__NON_RECURSE__" "Turn recursion off (this directory only)" "${extra[@]}")
+    fi
     if [[ -n "$EB_SCOPE_DIR" ]]; then
         EB_ACTION_ITEMS+=("__RECURSIVE__" "Include files from sub-directories" "${extra[@]}")
         EB_ACTION_ITEMS+=("__RESET_RECURSIVE__" "Reset recursive scope (current directory only)" "${extra[@]}")
@@ -1531,6 +1545,8 @@ ebooks_do_action() {
         __RESET_GLOB__)    EB_GLOB=""; EB_PAGE=0 ;;
         __FILTER_BY_TAG__) ebooks_ask_tagfilter ;;
         __RESET_FILTER__)  EB_TAGF=""; EB_PAGE=0 ;;
+        __RECURSE__)       (( EB_RECURSIVE == 1 )) || EB_RECURSE_CHANGED=1; EB_RECURSIVE=1; EB_PAGE=0 ;;
+        __NON_RECURSE__)   (( EB_RECURSIVE == 0 )) || EB_RECURSE_CHANGED=1; EB_RECURSIVE=0; EB_PAGE=0 ;;
         __RECURSIVE__)     EB_RECURSIVE=1; EB_PAGE=0 ;;
         __RESET_RECURSIVE__) EB_RECURSIVE=0; EB_PAGE=0 ;;
         __PREV_PAGE__)     (( EB_PAGE-- )) ;;
@@ -1553,7 +1569,7 @@ ebooks_list_status() {
             s+="  |  eBook tag filter: ${tf:-(none)}"
         fi
     fi
-    if [[ -n "$EB_SCOPE_DIR" ]]; then
+    if [[ -n "$EB_SCOPE_DIR" ]] || (( EB_RECURSE_REBUILD == 1 )); then
         (( EB_RECURSIVE == 1 )) && s+="  |  scope: including sub-directories" || s+="  |  scope: this directory only"
     fi
     printf '%s' "$s"
@@ -1563,7 +1579,9 @@ ebooks_list_status() {
 # __APPLY_GLOB__ / __RESET_GLOB__ / __FILTER_BY_TAG__ / __RESET_FILTER__ items.
 # Both filters can be active at the same time. Filters and the page are kept
 # between calls, call ebooks_filter_reset first for a fresh list.
-# Returns 0 with EB_SELECTED_LINE set ("path|tags"), 1 on Back / Esc.
+# Returns 0 with EB_SELECTED_LINE set ("path|tags"), 1 on Back / Esc, 2 on the
+# EB_PROCEED item, 3 when __RECURSE__ / __NON_RECURSE__ changed EB_RECURSIVE
+# (only with EB_RECURSE_REBUILD=1; rebuild the source list and call again).
 ebooks_pick_file() {
     local title="$1" prompt="${2:-Select a file}"
     local total pages start end i line choice h w lh shown
@@ -1601,6 +1619,12 @@ ebooks_pick_file() {
             "$h" "$w" "$lh" "${items[@]}" 3>&1 1>&2 2>&3) || return 1
 
         if ebooks_do_action "$choice"; then
+            # Recursion switched on/off: the caller has to rebuild its source
+            # list. Filters are kept. Return code 3.
+            if (( EB_RECURSE_CHANGED == 1 )); then
+                EB_RECURSE_CHANGED=0
+                return 3
+            fi
             continue
         fi
         # proceed item (e.g. __ADD__ / __PROCEED__): return code 2
@@ -2046,6 +2070,21 @@ eb_collect_illegal_files() {
     done
 }
 
+# $1: array of illegal file paths, $2: associative array of paths the user was
+# already asked about. Drops the already offered ones from $1 and marks the
+# rest as offered, so switching recursion on/off never asks twice.
+eb_illegal_drop_offered() {
+    local -n _do_arr="$1" _do_off="$2"
+    local -a _do_keep=()
+    local _do_f
+    for _do_f in "${_do_arr[@]}"; do
+        [[ -n "${_do_off["$_do_f"]:-}" ]] && continue
+        _do_off["$_do_f"]=1
+        _do_keep+=("$_do_f")
+    done
+    _do_arr=("${_do_keep[@]}")
+}
+
 # Renames ONE file: every '|' and each leading '-' of its base name becomes '_'.
 # A _N suffix (before the extension) is added when the new name already exists,
 # so nothing is overwritten. Prints the new full path; fails when mv fails.
@@ -2228,37 +2267,57 @@ register_ebook() {
     # Files with a '|' in the name or a leading '-' cannot be registered: ask
     # the user whether they may be renamed BEFORE the list is built, so they
     # appear in it with their new names. When declined they stay out of the list.
-    local -a illegal_found=()
-    eb_collect_illegal_files illegal_found < <(find "$search_path" -maxdepth 1 -type f -print0)
-    eb_offer_rename_illegal illegal_found
-
-    # List the files of the chosen directory (non-recursive). Any illegal
-    # basenames the user declined to rename, plus files under a directory whose
-    # path contains '|', stay out of the selectable list.
+    # The list is non-recursive at first; __RECURSE__ / __NON_RECURSE__ switch
+    # it, and the list (and the rename offer) is rebuilt for the new scope.
     local tmp f
+    local -a illegal_found=() depth=()
+    local -A illegal_offered=()
     tmp=$(mktemp) || return 1
-    while IFS= read -r -d '' f; do
-        if [[ "${f##*/}" == -* || "$f" == *"|"* ]]; then
-            continue
-        fi
-        printf '%s|\n' "$f" >> "$tmp"
-    done < <(find "$search_path" -maxdepth 1 -type f -print0 | sort -z)
-
-    if [[ ! -s "$tmp" ]]; then
-        rm -f "$tmp"
-        whiptail --title "No Matches Found" --msgbox "No files found in: $search_path" 8 155
-        return 1
-    fi
 
     EB_SRC_FILE="$tmp"
     EB_NO_TAGS=1
     ebooks_filter_reset
     EB_PATH_MAX=140
-    local rc=0
-    ebooks_pick_file "Add eBook - Choose File to Register" "Choose the file to register in the eBook database (folder: $search_path):" || rc=1
+    EB_RECURSE_REBUILD=1
+    EB_RECURSIVE=0
+
+    local rc=0 first=1
+    while true; do
+        depth=(-maxdepth 1)
+        (( EB_RECURSIVE == 1 )) && depth=()
+
+        eb_collect_illegal_files illegal_found < <(find "$search_path" "${depth[@]}" -type f "${EB_EBOOK_FIND_EXT[@]}" -print0)
+        eb_illegal_drop_offered illegal_found illegal_offered
+        eb_offer_rename_illegal illegal_found
+
+        # Any illegal basenames the user declined to rename, plus files under
+        # a directory whose path contains '|', stay out of the selectable list.
+        : > "$tmp"
+        while IFS= read -r -d '' f; do
+            if [[ "${f##*/}" == -* || "$f" == *"|"* ]]; then
+                continue
+            fi
+            printf '%s|\n' "$f" >> "$tmp"
+        done < <(find "$search_path" "${depth[@]}" -type f "${EB_EBOOK_FIND_EXT[@]}" -print0 | sort -z)
+
+        if (( first == 1 )) && [[ ! -s "$tmp" ]]; then
+            rm -f "$tmp"
+            EB_SRC_FILE=""
+            ebooks_filter_reset
+            whiptail --title "No Matches Found" --msgbox "No eBook files (txt, pdf, epub, mobi, azw3, djvu) found in: $search_path" 8 155
+            return 1
+        fi
+        first=0
+
+        rc=0
+        ebooks_pick_file "Add eBook - Choose File to Register" "Choose the file to register in the eBook database (folder: $search_path).\nUse __RECURSE__ to list the sub-directories too, __NON_RECURSE__ to turn it off:" || rc=$?
+        (( rc == 3 )) && continue
+        break
+    done
     EB_NO_TAGS=0
     EB_SRC_FILE=""
     rm -f "$tmp"
+    ebooks_filter_reset
     (( rc != 0 )) && return 1
 
     local selected="${EB_SELECTED_LINE%|}"
@@ -2752,14 +2811,21 @@ ebooks_notes_blocked() {
 
 # $1: name of an array of ebook paths.
 # Sets these global arrays:
-#   EB_NOTES_ALLOWED         paths not referenced by any note (safe to remove)
-#   EB_NOTES_BLOCKED         paths referenced by a note (must be kept)
+#   EB_NOTES_ALLOWED         paths that may be removed: not referenced by any
+#                            note, or BROKEN (the file no longer exists)
+#   EB_NOTES_BLOCKED         existing files referenced by a note (must be kept)
 #   EB_NOTES_BLOCKED_REPORT  display lines for the blocked paths
+#   EB_NOTES_BROKEN_LINKED   broken paths (allowed) that notes still reference;
+#                            when removed they must also be purged from the
+#                            notes databases (see ebooks_notes_purge_paths)
+#   EB_NOTES_BROKEN_LINKED_REPORT  display lines for those paths
 ebooks_notes_partition() {
     local -n _eb_np_in="$1"
     EB_NOTES_ALLOWED=()
     EB_NOTES_BLOCKED=()
     EB_NOTES_BLOCKED_REPORT=()
+    EB_NOTES_BROKEN_LINKED=()
+    EB_NOTES_BROKEN_LINKED_REPORT=()
     (( ${#_eb_np_in[@]} == 0 )) && return 0
 
     local _l _ln _p _t _r _c
@@ -2775,22 +2841,111 @@ ebooks_notes_partition() {
     done < <(ebooks_notes_blocked "$_l")
     rm -f "$_l"
 
+    local _line
     for _p in "${_eb_np_in[@]}"; do
         if [[ -n "${_eb_np_blocked["$_p"]+x}" ]]; then
             _t="${_eb_np_blocked["$_p"]}"
             _c="${_eb_np_count["$_p"]:-0}"
             (( _c > 3 )) && _t+=", +$(( _c - 3 ))"
-            EB_NOTES_BLOCKED+=("$_p")
             if [[ -n "$_t" ]]; then
-                EB_NOTES_BLOCKED_REPORT+=("$(eb_trunc_path "$_p" 80)  [notes: $_t]")
+                _line="$(eb_trunc_path "$_p" 80)  [notes: $_t]"
             else
-                EB_NOTES_BLOCKED_REPORT+=("$(eb_trunc_path "$_p" 80)  [listed in the notes ebooks database]")
+                _line="$(eb_trunc_path "$_p" 80)  [listed in the notes ebooks database]"
+            fi
+            if [[ ! -f "$_p" ]]; then
+                # Broken entry (file gone from the file system): removal is
+                # allowed, the notes databases get cleaned up afterwards.
+                EB_NOTES_ALLOWED+=("$_p")
+                EB_NOTES_BROKEN_LINKED+=("$_p")
+                EB_NOTES_BROKEN_LINKED_REPORT+=("$_line")
+            else
+                EB_NOTES_BLOCKED+=("$_p")
+                EB_NOTES_BLOCKED_REPORT+=("$_line")
             fi
         else
             EB_NOTES_ALLOWED+=("$_p")
         fi
     done
     return 0
+}
+
+# Text to append to a confirmation dialog when some of the eBooks about to be
+# removed are broken entries still referenced by notes (uses the globals set
+# by ebooks_notes_partition). Prints nothing otherwise.
+ebooks_notes_broken_warning() {
+    (( ${#EB_NOTES_BROKEN_LINKED[@]} > 0 )) || return 0
+    printf '%s' "\n\n${#EB_NOTES_BROKEN_LINKED[@]} of these eBook(s) no longer exist on disk but are still referenced by notes. They will be removed from the eBooks database (ebooks.db), the notes database (notes.db) and the notes eBooks database (notes-ebooks.db), so those notes lose their association with them (including recorded chapters/pages). The note files themselves are NOT deleted.\n\nAffected eBooks:\n"
+    ebooks_file_list_preview EB_NOTES_BROKEN_LINKED_REPORT raw
+}
+
+# $1: name of an array of ebook paths being removed from $EBOOKS_DB.
+# Only BROKEN paths (file no longer exists) are processed; existing files are
+# never touched. Removes them from:
+#   - $NOTES_EBOOKS_DB (one path per line): the matching lines.
+#   - $NOTES_DB (title|note_path|tags|path1#chapters;path2#chapters): the
+#     matching "<path>#<chapters>" segments of the 4th field. A note left with
+#     no eBooks keeps its line with an empty 4th field.
+# Call it BEFORE removing the lines from $EBOOKS_DB, so that a failure leaves
+# the entries registered and the operation can simply be repeated.
+# Returns 1 (nothing changed in the notes databases) on failure.
+ebooks_notes_purge_paths() {
+    local -n _eb_pp_in="$1"
+    local -a _eb_pp_broken=()
+    local _p
+    for _p in "${_eb_pp_in[@]}"; do
+        [[ -f "$_p" ]] || _eb_pp_broken+=("$_p")
+    done
+    (( ${#_eb_pp_broken[@]} == 0 )) && return 0
+
+    local ndb="$NOTES_DB" nebdb="$NOTES_EBOOKS_DB"
+    [[ -f "$ndb" ]] || ndb=/dev/null
+    [[ -f "$nebdb" ]] || nebdb=/dev/null
+    [[ "$ndb" == /dev/null && "$nebdb" == /dev/null ]] && return 0
+
+    local list tmp_notes tmp_nebs
+    list=$(mktemp) || return 1
+    tmp_notes=$(mktemp) || { rm -f "$list"; return 1; }
+    tmp_nebs=$(mktemp) || { rm -f "$list" "$tmp_notes"; return 1; }
+    printf '%s\n' "${_eb_pp_broken[@]}" > "$list"
+
+    awk '
+        FILENAME == ARGV[1] { rm[$0] = 1; next }
+        !($0 in rm)
+    ' "$list" "$nebdb" > "$tmp_nebs" || { rm -f "$list" "$tmp_notes" "$tmp_nebs"; return 1; }
+
+    awk '
+        BEGIN { FS = OFS = "|" }
+        FILENAME == ARGV[1] { rm[$0] = 1; next }
+        {
+            if (NF >= 4 && $4 != "") {
+                n = split($4, a, ";")
+                out = ""
+                changed = 0
+                for (i = 1; i <= n; i++) {
+                    if (a[i] == "") continue
+                    p = a[i]
+                    k = index(p, "#")
+                    if (k > 0) p = substr(p, 1, k - 1)
+                    if (p in rm) { changed = 1; continue }
+                    out = out (out == "" ? "" : ";") a[i]
+                }
+                if (changed) $4 = out
+            }
+            print
+        }
+    ' "$list" "$ndb" > "$tmp_notes" || { rm -f "$list" "$tmp_notes" "$tmp_nebs"; return 1; }
+
+    local failed=0
+    if [[ "$ndb" != /dev/null ]]; then
+        chmod --reference="$ndb" "$tmp_notes" 2>/dev/null
+        mv -- "$tmp_notes" "$NOTES_DB" || failed=1
+    fi
+    if (( failed == 0 )) && [[ "$nebdb" != /dev/null ]]; then
+        chmod --reference="$nebdb" "$tmp_nebs" 2>/dev/null
+        mv -- "$tmp_nebs" "$NOTES_EBOOKS_DB" || failed=1
+    fi
+    rm -f "$list" "$tmp_notes" "$tmp_nebs"
+    (( failed == 0 ))
 }
 
 # $1: dialog title, $2: intro text, $3: name of the array with the report lines
@@ -2828,10 +2983,15 @@ remove_registered_ebook() {
         return 1
     fi
 
-    whiptail --title "Confirm Removal" --yesno "Are you sure you want to remove:\n$selected_path" 20 155 \
+    whiptail --title "Confirm Removal" --scrolltext --yesno "Are you sure you want to remove:\n$selected_path$(ebooks_notes_broken_warning)" 24 155 \
         --yes-button "Remove" --no-button "Cancel" 3>&1 1>&2 2>&3
 
     if [ $? -eq 0 ]; then
+        # Broken entry referenced by notes: clean the notes databases first.
+        if ! ebooks_notes_purge_paths _one_path; then
+            whiptail --title "Error" --msgbox "Failed to update the notes databases. Nothing was removed." 9 78
+            return 1
+        fi
         local temp_file
         temp_file=$(mktemp)
 
@@ -2919,8 +3079,8 @@ add_files_in_bulk() {
 "This advanced feature allows you to add multiple eBook files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. The files found (txt, pdf, epub, mobi, azw3, djvu) that are not registered yet are listed. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
-3. Select __ADD__ to add ALL the listed files to the database" 14 100
+2. The files found (txt, pdf, epub, mobi, azw3, djvu) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+3. Select __ADD__ to add ALL the listed files to the database" 16 100
 
     local selected_dir
     selected_dir=$(navigate "$(pwd)")
@@ -2942,41 +3102,12 @@ It involves the following steps:\n\
     # Files with a '|' in the name or a leading '-' cannot be registered: ask
     # the user whether they may be renamed BEFORE the list is built, so they
     # appear in it with their new names. When declined they stay out of the list.
-    local -a illegal_found=()
-    eb_collect_illegal_files illegal_found < <(find "$selected_dir" -type f \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) ! -path $'*\n*' -print0 2>/dev/null)
-    eb_offer_rename_illegal illegal_found
+    # The list is recursive at first; __NON_RECURSE__ / __RECURSE__ switch it,
+    # and the list (and the rename offer) is rebuilt for the new scope.
+    local -a illegal_found=() depth=()
+    local -A illegal_offered=()
 
     tmp=$(mktemp) || return 1
-    find "$selected_dir" \
-        -type f \
-        \( \
-            -iname '*.txt' \
-            -o -iname '*.pdf' \
-            -o -iname '*.epub' \
-            -o -iname '*.mobi' \
-            -o -iname '*.azw3' \
-            -o -iname '*.djvu' \
-            -o -iname '*.djv' \
-        \) \
-        ! -name '*|*' ! -name '-*' ! -path $'*\n*' \
-        -print 2>/dev/null \
-    | awk -F'|' '
-        FILENAME == ARGV[1] { reg[$1] = 1; next }   # registered paths (DB, first field)
-        {
-            f = $0
-            gsub(/\/\//, "/", f)            # normalize path (same as before)
-            dir = f; sub(/\/[^\/]*$/, "", dir)
-            if (dir ~ /\|/) next                  # "|" in a folder name cannot be fixed by renaming the file
-            if (!(f in reg)) print f
-        }' "$db_src" - \
-    | sort \
-    | sed 's/$/|/' > "$tmp"
-
-    if [[ ! -s "$tmp" ]]; then
-        rm -f "$tmp"
-        whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 155
-        return 0
-    fi
 
     EB_SRC_FILE="$tmp"
     ebooks_filter_reset
@@ -2985,9 +3116,59 @@ It involves the following steps:\n\
     EB_LIST_ONLY=1
     EB_PROCEED="__ADD__"
     EB_PROCEED_DESC="Add all matched files (@N@) to the database"
+    EB_RECURSE_REBUILD=1
+    EB_RECURSIVE=1
 
-    local rc=0
-    ebooks_pick_file "Bulk Add eBooks - Review New Files" "New files under: ${selected_dir}.\nNarrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
+    local rc=0 first=1
+    while true; do
+        depth=()
+        (( EB_RECURSIVE == 1 )) || depth=(-maxdepth 1)
+
+        eb_collect_illegal_files illegal_found < <(find "$selected_dir" "${depth[@]}" -type f \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) ! -path $'*\n*' -print0 2>/dev/null)
+        eb_illegal_drop_offered illegal_found illegal_offered
+        eb_offer_rename_illegal illegal_found
+
+        find "$selected_dir" "${depth[@]}" \
+            -type f \
+            \( \
+                -iname '*.txt' \
+                -o -iname '*.pdf' \
+                -o -iname '*.epub' \
+                -o -iname '*.mobi' \
+                -o -iname '*.azw3' \
+                -o -iname '*.djvu' \
+                -o -iname '*.djv' \
+            \) \
+            ! -name '*|*' ! -name '-*' ! -path $'*\n*' \
+            -print 2>/dev/null \
+        | awk -F'|' '
+            FILENAME == ARGV[1] { reg[$1] = 1; next }   # registered paths (DB, first field)
+            {
+                f = $0
+                gsub(/\/\//, "/", f)            # normalize path (same as before)
+                dir = f; sub(/\/[^\/]*$/, "", dir)
+                if (dir ~ /\|/) next                  # "|" in a folder name cannot be fixed by renaming the file
+                if (!(f in reg)) print f
+            }' "$db_src" - \
+        | sort \
+        | sed 's/$/|/' > "$tmp"
+
+        # Nothing new at all in the first (recursive) pass: nothing to show.
+        # Later passes keep the list open so recursion can be switched back.
+        if (( first == 1 )) && [[ ! -s "$tmp" ]]; then
+            rm -f "$tmp"
+            EB_SRC_FILE=""
+            ebooks_filter_reset
+            whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 155
+            return 0
+        fi
+        first=0
+
+        rc=0
+        ebooks_pick_file "Bulk Add eBooks - Review New Files" "New files under: ${selected_dir}.\nUse __NON_RECURSE__ / __RECURSE__ to exclude / include sub-directories. Narrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
+        (( rc == 3 )) && continue
+        break
+    done
 
     local -a to_add=("${EB_FILTERED[@]}")
     EB_NO_TAGS=0
@@ -3545,9 +3726,15 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
     local warn=""
     (( no_filter == 1 )) && warn="NO FILTER IS ACTIVE: this removes EVERY registered file!\n\n"
 
-    whiptail --title "Confirm Removal" --yesno \
-"${warn}About to remove ${#to_remove[@]} entries from the database. This operation cannot be undone!\n\nProceed with deletion?" \
-12 78 || return 1
+    whiptail --scrolltext --title "Confirm Removal" --yesno \
+"${warn}About to remove ${#to_remove[@]} entries from the database. This operation cannot be undone!$(ebooks_notes_broken_warning)\n\nProceed with deletion?" \
+24 155 || return 1
+
+    local -a _rm_paths=("${to_remove[@]%%|*}")
+    if ! ebooks_notes_purge_paths _rm_paths; then
+        whiptail --title "Error" --msgbox "Failed to update the notes databases. Nothing was removed." 9 78
+        return 1
+    fi
 
     local list tmpdb
     list=$(mktemp) || return 1
@@ -3683,7 +3870,7 @@ Removed eBooks are also removed from the notes databases, so any notes associate
     warn+="  - the eBook associations of ${affected_notes} note(s), including the chapters and pages recorded for these eBooks\n\n"
     warn+="The note files themselves are NOT deleted, only their association with these eBooks.\n\n"
     warn+="eBooks associated with notes:\n"
-    warn+="$(ebooks_file_list_preview EB_NOTES_BLOCKED_REPORT raw)\n"
+    warn+="$(ebooks_file_list_preview EB_NOTES_BROKEN_LINKED_REPORT raw)\n"
   else
     warn+="\nNo note is associated with these eBooks.\n"
   fi
@@ -3799,8 +3986,10 @@ add_ebooks_from_checklist() {
     local start_dir="$(pwd)"
     local current_dir="$start_dir"
     local -a dirs=() files=() items=() illegal_found=() files_all=()
-    local -A rename_asked=()
+    local -A rename_asked=() illegal_offered=()
     local ci_f
+    local recursive=0      # 1 = also list the files of all sub-directories of current_dir
+    local -a ci_depth=()
     declare -A global_selected
 
     # Ensure the eBooks DB exists
@@ -3811,9 +4000,12 @@ add_ebooks_from_checklist() {
         # First visit of a directory: files with a '|' in the name or a leading
         # '-' cannot be registered. Ask the user whether they may be renamed
         # BEFORE the list is built, so they show up with their new names.
-        if [[ -z "${rename_asked[$current_dir]:-}" ]]; then
-            rename_asked["$current_dir"]=1
-            eb_collect_illegal_files illegal_found < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f -print0)
+        ci_depth=(-maxdepth 1)
+        (( recursive == 1 )) && ci_depth=()
+        if [[ -z "${rename_asked["$current_dir:$recursive"]:-}" ]]; then
+            rename_asked["$current_dir:$recursive"]=1
+            eb_collect_illegal_files illegal_found < <(find "$current_dir" "${ci_depth[@]}" -mindepth 1 -type f "${EB_EBOOK_FIND_EXT[@]}" -print0)
+            eb_illegal_drop_offered illegal_found illegal_offered
             eb_offer_rename_illegal illegal_found
         fi
 
@@ -3823,7 +4015,7 @@ add_ebooks_from_checklist() {
         files=()
         mapfile -t dirs < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type d | sort)
         # Files are filtered by the glob (file path or file name); directories stay visible.
-        mapfile -t files_all < <(find "$current_dir" -maxdepth 1 -mindepth 1 -type f | sort | ebooks_glob_filter)
+        mapfile -t files_all < <(find "$current_dir" "${ci_depth[@]}" -mindepth 1 -type f "${EB_EBOOK_FIND_EXT[@]}" | sort | ebooks_glob_filter)
         # A pipe in a parent-directory name cannot be repaired by renaming the
         # file itself. Keep those paths out of the database-bound checklist.
         local -a unfixable_dir_files=()
@@ -3866,6 +4058,8 @@ add_ebooks_from_checklist() {
             local -a choices=(
                 "__APPLY_GLOB__" "Filter files by glob (file path and file name)${EB_GLOB:+   [glob: $EB_GLOB]}" "OFF"
                 "__RESET_GLOB__" "Reset glob filter" "OFF"
+                "__RECURSE__" "List files recursively (include sub-directories)$( (( recursive == 1 )) && printf '   [recursive: ON]')" "OFF"
+                "__NON_RECURSE__" "Turn recursion off (this directory only)$( (( recursive == 0 )) && printf '   [recursive: OFF]')" "OFF"
                 "__up__" "[DIR] .. (parent)" "OFF"
             )
             (( current_page > 0 ))       && choices+=("__prev__" "Previous page" "OFF")
@@ -3890,7 +4084,7 @@ add_ebooks_from_checklist() {
             local result
             result=$(whiptail \
                 --title "Add eBooks - Choose Files (${current_dir})" \
-                --checklist "Page $((current_page+1))/$pages\nSelect files/directories or navigation action:" \
+                --checklist "Page $((current_page+1))/$pages  |  scope: $( (( recursive == 1 )) && printf 'including sub-directories' || printf 'this directory only')\nSelect files/directories or navigation action:" \
                 $(eb_menu_dims) \
                 "${choices[@]}" \
                 3>&1 1>&2 2>&3) \
@@ -3919,7 +4113,7 @@ add_ebooks_from_checklist() {
             local movement_nav_count=0 dir_count=0 proceed_count=0 file_count=0
             for tag in "${sel_tags[@]}"; do
                 case "$tag" in
-                    "__up__"|"__prev__"|"__next__"|"__APPLY_GLOB__"|"__RESET_GLOB__") ((movement_nav_count++)) ;;
+                    "__up__"|"__prev__"|"__next__"|"__APPLY_GLOB__"|"__RESET_GLOB__"|"__RECURSE__"|"__NON_RECURSE__") ((movement_nav_count++)) ;;
                     "__add__")                       ((proceed_count++)) ;;
                     dir_*)                           ((dir_count++)) ;;
                     file_*)                          ((file_count++)) ;;
@@ -3928,7 +4122,7 @@ add_ebooks_from_checklist() {
 
             # Validation rules
             if (( movement_nav_count > 1 )); then
-                whiptail --title "Invalid Selection" --msgbox "Please select only one of Previous, Next, Up, Apply glob or Reset glob." 10 40
+                whiptail --title "Invalid Selection" --msgbox "Please select only one of Previous, Next, Up, Apply glob, Reset glob, Recurse or Non-recurse." 10 60
                 continue
             fi
             if (( dir_count > 1 )); then
@@ -3959,6 +4153,12 @@ add_ebooks_from_checklist() {
                     break
                 elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__RESET_GLOB__"; then
                     EB_GLOB=""
+                    break
+                elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__RECURSE__"; then
+                    recursive=1
+                    break
+                elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__NON_RECURSE__"; then
+                    recursive=0
                     break
                 elif printf "%s\n" "${sel_tags[@]}" | grep -qx "__up__"; then
                     current_dir="$(dirname "$current_dir")"
@@ -4060,8 +4260,13 @@ remove_ebooks_from_checklist() {
 
     local msg="The following ${#selected_paths[@]} entries will be removed:\n\n"
     msg+="$(ebooks_file_list_preview selected_paths path)"
+    msg+="$(ebooks_notes_broken_warning)"
 
     if whiptail --scrolltext --yesno "$msg" 20 155 --title "Confirm Removal"; then
+        if ! ebooks_notes_purge_paths selected_paths; then
+            whiptail --msgbox "Failed to update the notes databases. Nothing was removed." 9 78
+            return 1
+        fi
         local tmp_db list
         tmp_db=$(mktemp) || { whiptail --msgbox "Error creating temporary file." 8 40; return 1; }
         list=$(mktemp) || { rm -f "$tmp_db"; return 1; }
@@ -4500,8 +4705,13 @@ ebooks_remove_files_in_path() {
     local scope_txt="(this directory only)"
     (( scope_recursive == 1 )) && scope_txt="(including sub-directories)"
 
-    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles associated with notes will not be deleted."
-    if ! whiptail --title "Confirm Deletion" --yesno "$confirm_msg" 15 155; then
+    local confirm_msg="About to delete ${#files_to_delete[@]} files from '$selected_dir' ${scope_txt}.\n\nFiles associated with notes will not be deleted (unless they are broken entries).$(ebooks_notes_broken_warning)"
+    if ! whiptail --scrolltext --title "Confirm Deletion" --yesno "$confirm_msg" 24 155; then
+        return 1
+    fi
+
+    if ! ebooks_notes_purge_paths files_to_delete; then
+        whiptail --title "Error" --msgbox "Failed to update the notes databases. Nothing was removed." 9 78
         return 1
     fi
 
@@ -4527,7 +4737,7 @@ ebooks_remove_files_in_path() {
 }
 
 remove_files_by_filepath() {
-    whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If a file is associated with a note, it will not be removed; dissociate it from the note first. It does not delete files physically from the drive." 12 100 >/dev/tty
+    whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If an existing file is associated with a note, it will not be removed; dissociate it from the note first. Broken entries (files that no longer exist on disk) can always be removed, and are then also removed from the notes databases. It does not delete files physically from the drive." 12 100 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
         whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
@@ -28272,9 +28482,9 @@ BABYRUS builds a searchable index of ebook files that are already stored on your
 
 1. Build your library
 
-Use File Management to register one ebook, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character.
+Use File Management to register one ebook, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character. In the file lists of Add Files In Bulk, Register eBook and Register eBooks From Checklist, __RECURSE__ lists the files of sub-directories as well and __NON_RECURSE__ turns that off (only the selected directory is listed). Add Files In Bulk starts recursive; Register eBook and the checklist start with the selected directory only. Filters and selections are kept when you switch. Register eBook and Register eBooks From Checklist only list files with the extensions .txt, .pdf, .epub, .mobi, .azw3 and .djvu (.djv too).
 
-The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original ebook files from your drive.
+The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original ebook files from your drive. An ebook that is associated with a note cannot be removed, unless it is a broken entry (the file no longer exists on your drive). Broken entries can always be removed; they are then also removed from the notes database and the notes eBooks database, so the notes lose their association with them (the note files themselves are kept). The confirmation dialog lists the affected files.
 
 2. Organise with tags
 
