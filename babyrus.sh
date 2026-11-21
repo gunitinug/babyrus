@@ -2048,7 +2048,7 @@ check_illegal_filenames() {
         local msg="Error: ${#illegal_files[@]} illegal filename(s) found:\n\n"
         msg+="$(ebooks_file_list_preview illegal_files raw)"
         msg+="\nConsider renaming the files and retry.\n"
-        whiptail --title "Error" --msgbox "$(printf '%b' "$msg")" 15 155
+        whiptail --scrolltext --title "Error" --msgbox "$(printf '%b' "$msg")" 15 155
         return 1
     fi
     return 0
@@ -2123,7 +2123,7 @@ eb_offer_rename_illegal() {
     local msg="${#_oi_arr[@]} file(s) have names that cannot be registered (they contain '|' or start with '-'):\n\n"
     msg+="$(ebooks_file_list_preview names raw)"
     msg+="\n\nRename them now? '|' and a leading '-' will be replaced with '_'."
-    whiptail --title "Illegal File Names" --yesno "$msg" 20 155 || return 1
+    whiptail --scrolltext --title "Illegal File Names" --yesno "$msg" 20 155 || return 1
 
     local new
     local -a renamed=() failed=()
@@ -2137,7 +2137,7 @@ eb_offer_rename_illegal() {
     if (( ${#failed[@]} > 0 )); then
         local fail_msg="${#failed[@]} file(s) could not be renamed and will be left out:\n\n"
         fail_msg+="$(ebooks_file_list_preview failed raw)"
-        whiptail --title "Error" --msgbox "$fail_msg" 20 155
+        whiptail --scrolltext --title "Error" --msgbox "$fail_msg" 20 155
     fi
     (( ${#renamed[@]} > 0 ))
 }
@@ -2232,13 +2232,13 @@ prepare_ebooks_for_registration() {
     if (( ${#failed[@]} > 0 )); then
         local fail_msg="${#failed[@]} file(s) contain '|' and could not be renamed; they were not added:\n\n"
         fail_msg+="$(ebooks_file_list_preview failed raw)"
-        whiptail --title "Error" --msgbox "$fail_msg" 20 155
+        whiptail --scrolltext --title "Error" --msgbox "$fail_msg" 20 155
     fi
 
     if (( ${#renamed[@]} > 0 )); then
         local notice="${#renamed[@]} file(s) were renamed before being added to the database:\n\n"
         notice+="$(ebooks_file_list_preview renamed raw)"
-        whiptail --title "Files Renamed" --msgbox "$notice" 20 155
+        whiptail --scrolltext --title "Files Renamed" --msgbox "$notice" 20 155
     fi
     return 0
 }
