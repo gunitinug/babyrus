@@ -124,7 +124,7 @@ The main menu provides access to:
 
 ## Dependencies
 
-Babyrus requires **Bash 5.2.21 or newer** and several command-line utilities for its terminal interface, window management and clipboard functionality.
+Babyrus requires **Bash 4.4 or newer** and several command-line utilities for its terminal interface, window management and clipboard functionality.
 
 It also requires external applications to open eBooks, edit text files and browse URLs.
 
@@ -132,7 +132,7 @@ It also requires external applications to open eBooks, edit text files and brows
 
 | Dependency | Purpose |
 |---|---|
-| `bash` 5.2.21+ | Required Bash version |
+| `bash` 4.4+ | Required Bash version |
 | `whiptail` | Terminal menus and checklists |
 | `wmctrl` | Window management |
 | `dialog` | Dialog interfaces |
