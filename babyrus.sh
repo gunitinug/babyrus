@@ -3589,10 +3589,21 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
 }
 
 # Search each line in $EBOOKS_DB for broken entries and remove them.
-remove_broken_entries() { 
+#
+# Removing an entry from $EBOOKS_DB also cleans up the notes databases:
+#   - $NOTES_EBOOKS_DB (one ebook path per line): the matching lines are removed.
+#   - $NOTES_DB (title|note_path|tags|path1#chapters;path2#chapters): the
+#     matching "<path>#<chapters>" segments are removed from the 4th field.
+#     A note left with no eBooks keeps its line with an empty 4th field
+#     (title|note_path|tags|), which is how notes without eBooks are stored.
+#     The note files themselves and all other fields are left untouched.
+# All new database contents are prepared in temporary files first and only
+# moved into place after the user has confirmed the warning.
+remove_broken_entries() {
   # Initial information
   whiptail --title "Remove Broken Entries" --msgbox \
-"This feature allows you to fix the database file by finding and removing broken entries (ie. paths to files that point to non-existent files)." 10 78
+"This feature allows you to fix the database file by finding and removing broken entries (ie. paths to files that point to non-existent files).\n\n\
+Removed eBooks are also removed from the notes databases, so any notes associated with them lose that association." 12 78
 
   # Check if the EBOOKS_DB variable is set and file exists.
   if [ -z "$EBOOKS_DB" ] || [ ! -f "$EBOOKS_DB" ]; then
@@ -3600,16 +3611,19 @@ remove_broken_entries() {
     return 1
   fi
 
-  # Declare an array to hold conflicting (broken) entries.
-  local conflicting_entries=()
+  # Broken entries (full $EBOOKS_DB lines) and their bare paths.
+  local conflicting_entries=() broken_paths=()
+  local line filepath
 
   # Process each line in the database.
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
     # Retrieve the file path (everything before the first |)
-    local filepath="${line%|*}"
+    filepath="${line%%|*}"
     # Check if the file exists.
     if [ ! -f "$filepath" ]; then
       conflicting_entries+=("$line")
+      broken_paths+=("$filepath")
     fi
   done < "$EBOOKS_DB"
 
@@ -3619,48 +3633,118 @@ remove_broken_entries() {
     return 0
   fi
 
-  # Prepare a message listing all broken entries.
-  #local message="${#conflicting_entries[@]} broken entries found:\n"
-  #for entry in "${conflicting_entries[@]}"; do
-  #  message+="$entry\n"
-  #done
-
-  # Inform the user about the conflicting lines.
-  #whiptail --msgbox "$message" 20 78
-
   # Show a concise preview; the helper includes the exact number omitted.
   local message="${#conflicting_entries[@]} broken entries found:\n\n"
   message+="$(ebooks_file_list_preview conflicting_entries tags)"
-  
-  # Inform the user about the conflicting lines.
   whiptail --scrolltext --msgbox "$message" 20 155
 
-  # Confirm deletion with the user.
-  if whiptail --yesno "Do you want to proceed with deletion of ${#conflicting_entries[@]} conflicting entries?" 8 155; then
-    # Create a temporary file.
-    local tmp_file
-    tmp_file=$(mktemp) || { whiptail --msgbox "Failed to create temporary file." 8 78; return 1; }
+  # Which of the broken eBooks are referenced by notes? Sets
+  # EB_NOTES_BLOCKED (paths) and EB_NOTES_BLOCKED_REPORT (display lines).
+  ebooks_notes_partition broken_paths
 
-    # Write back only the valid entries.
-    while IFS= read -r line; do
-      local found=0
-      for broken in "${conflicting_entries[@]}"; do
-        if [ "$line" = "$broken" ]; then
-          found=1
-          break
-        fi
-      done
-      if [ $found -eq 0 ]; then
-        echo "$line" >> "$tmp_file"
-      fi
-    done < "$EBOOKS_DB"
+  # Prepare the cleaned-up database files in temporary files first.
+  local list tmp_eb tmp_notes tmp_nebs stats
+  list=$(mktemp) || return 1
+  tmp_eb=$(mktemp) || { rm -f "$list"; return 1; }
+  tmp_notes=$(mktemp) || { rm -f "$list" "$tmp_eb"; return 1; }
+  tmp_nebs=$(mktemp) || { rm -f "$list" "$tmp_eb" "$tmp_notes"; return 1; }
+  stats=$(mktemp) || { rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs"; return 1; }
+  printf '%s\n' "${broken_paths[@]}" > "$list"
 
-    # Replace the original database with the filtered version.
-    mv "$tmp_file" "$EBOOKS_DB"
-    
+  local ndb="$NOTES_DB" nebdb="$NOTES_EBOOKS_DB"
+  [[ -f "$ndb" ]] || ndb=/dev/null
+  [[ -f "$nebdb" ]] || nebdb=/dev/null
+
+  # $EBOOKS_DB: drop the broken lines (first field is the path).
+  awk -F'|' '
+    FILENAME == ARGV[1] { rm[$0] = 1; next }
+    !($1 in rm)
+  ' "$list" "$EBOOKS_DB" > "$tmp_eb" || { rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs" "$stats"; return 1; }
+
+  # $NOTES_EBOOKS_DB: drop the lines equal to a broken path.
+  awk '
+    FILENAME == ARGV[1] { rm[$0] = 1; next }
+    !($0 in rm)
+  ' "$list" "$nebdb" > "$tmp_nebs" || { rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs" "$stats"; return 1; }
+
+  # $NOTES_DB: drop the "<path>#<chapters>" segments of the 4th field whose
+  # path (everything before the first '#') is a broken path. Lines that do not
+  # change are printed exactly as they are. The path of every changed note is
+  # written to the stats file so that the affected notes can be counted.
+  awk -v stats="$stats" '
+    BEGIN { FS = OFS = "|" }
+    FILENAME == ARGV[1] { rm[$0] = 1; next }
+    {
+      if (NF >= 4 && $4 != "") {
+        n = split($4, a, ";")
+        out = ""
+        changed = 0
+        for (i = 1; i <= n; i++) {
+          if (a[i] == "") continue
+          p = a[i]
+          k = index(p, "#")
+          if (k > 0) p = substr(p, 1, k - 1)
+          if (p in rm) { changed = 1; continue }
+          out = out (out == "" ? "" : ";") a[i]
+        }
+        if (changed) {
+          $4 = out
+          print $2 > stats
+        }
+      }
+      print
+    }
+  ' "$list" "$ndb" > "$tmp_notes" || { rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs" "$stats"; return 1; }
+
+  local affected_notes
+  affected_notes=$(sort -u "$stats" | wc -l)
+  affected_notes=${affected_notes//[[:space:]]/}
+
+  # Final warning: this is destructive and cannot be undone.
+  local warn="WARNING: THIS PERMANENTLY MODIFIES YOUR DATABASE FILES AND CANNOT BE UNDONE!\n\n"
+  warn+="${#conflicting_entries[@]} broken entries will be removed from:\n"
+  warn+="  - the eBooks database (ebooks.db)\n"
+  warn+="  - the notes eBooks database (notes-ebooks.db)\n"
+  if (( affected_notes > 0 )); then
+    warn+="  - the eBook associations of ${affected_notes} note(s), including the chapters and pages recorded for these eBooks\n\n"
+    warn+="The note files themselves are NOT deleted, only their association with these eBooks.\n\n"
+    warn+="eBooks associated with notes:\n"
+    warn+="$(ebooks_file_list_preview EB_NOTES_BLOCKED_REPORT raw)\n"
+  else
+    warn+="\nNo note is associated with these eBooks.\n"
+  fi
+  warn+="\nProceed with the permanent removal?"
+
+  if whiptail --scrolltext --title "Confirm Permanent Removal" --defaultno --yesno "$warn" 24 155; then
+    # Keep the permissions of the original files.
+    chmod --reference="$EBOOKS_DB" "$tmp_eb" 2>/dev/null
+    [[ "$ndb" != /dev/null ]] && chmod --reference="$ndb" "$tmp_notes" 2>/dev/null
+    [[ "$nebdb" != /dev/null ]] && chmod --reference="$nebdb" "$tmp_nebs" 2>/dev/null
+
+    # $EBOOKS_DB is replaced last: if a step fails half way, the broken
+    # entries are still listed in $EBOOKS_DB and can simply be removed again,
+    # whereas the notes databases never end up referring to a removed eBook.
+    local failed=0
+    if [[ "$ndb" != /dev/null ]]; then
+      mv -- "$tmp_notes" "$NOTES_DB" || failed=1
+    fi
+    if (( failed == 0 )) && [[ "$nebdb" != /dev/null ]]; then
+      mv -- "$tmp_nebs" "$NOTES_EBOOKS_DB" || failed=1
+    fi
+    if (( failed == 0 )); then
+      mv -- "$tmp_eb" "$EBOOKS_DB" || failed=1
+    fi
+    rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs" "$stats"
+
+    if (( failed )); then
+      whiptail --msgbox "Failed to update the database files. Please check them before trying again." 9 78
+      return 1
+    fi
+
     # Inform the user that deletion is complete.
     whiptail --msgbox "Deletion of ${#conflicting_entries[@]} conflicting entries has completed." 8 78
   else
+    rm -f "$list" "$tmp_eb" "$tmp_notes" "$tmp_nebs" "$stats"
     whiptail --msgbox "No entries were deleted." 8 78
   fi
 }
