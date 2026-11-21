@@ -50,30 +50,85 @@ Babyrus provides two different search methods, whichever is most suitable for th
 2. **Globbing**  
    Uses wildcards like `*stallman*`. You can include spaces and `*` and `?`.
 
-### Requirements
+### Dependencies
 
-Babyrus requires the following dependencies:
+Babyrus requires **Bash 5.2.21 or newer** and several command-line utilities to provide its terminal-based interface, window management, and clipboard functionality. It also uses external applications to open ebooks, edit text files, and browse URLs.
 
-  * `bash >= 5.2.21`
-  * `whiptail`
-  * `wmctrl`
-  * `dialog`
-  * `xclip`
+The following packages and applications are required by the default configuration:
 
-**To install on Ubuntu/Debian:**
+| Dependency | Purpose |
+|---|---|
+| `whiptail` | Terminal menus |
+| `wmctrl` | Window management |
+| `dialog` | Dialog interfaces |
+| `xclip` | Clipboard operations |
+| `geany` | Opening TXT files |
+| `zathura` | Opening PDF files |
+| `okular` | Opening EPUB, MOBI and AZW3 files |
+| `nano` | Default text editor |
+| `firefox` | Opening URLs |
+| `djview4` | Opening DjVu files (optional) |
+
+#### PDF Conversion Dependencies
+
+By default, Babyrus uses **Pandoc** to convert documents into PDF files:
 
 ```bash
-sudo apt install whiptail wmctrl dialog xclip
+PDF_CONVERTER="pandoc"
 ```
-Plus of course your chosen default editor (terminal-based), viewers and web browser that you can setup by visiting `Main Menu -> Configure` menu. Also, `wmctrl` and `xclip` only work with X11 not Wayland.
 
-BABYRUS will not launch if any of the programs defined in `Main Menu -> Configure` menu are not installed. For default setting here is the command to install them:
+This configuration requires `pandoc`, `xelatex`, `kpsewhich`, and the following LaTeX files:
+
+- `fvextra.sty`
+- `lmodern.sty`
+- `pzdr.tfm`
+
+#### Installation
+
+**Ubuntu:**
+
 ```bash
-sudo apt install gnome-text-editor zathura okular nano
-```
-Plus, the default browser is set as `google-chrome` so download and install it from official google chrome website.
+sudo apt update
 
-You can then change your default apps from `Main Menu -> Configure`.
+sudo apt install \
+    whiptail wmctrl dialog xclip \
+    geany zathura okular nano firefox \
+    pandoc texlive-xetex texlive-latex-extra \
+    texlive-fonts-recommended lmodern
+```
+
+**Fedora 45:**
+
+```bash
+sudo dnf install \
+    newt wmctrl dialog xclip \
+    geany zathura okular nano firefox \
+    pandoc texlive-xetex texlive-kpathsea \
+    texlive-fvextra texlive-lm texlive-zapfding
+```
+
+On Fedora, the `newt` package provides `whiptail`. Note that Ubuntu 24.04's default Bash version satisfies the minimum requirement, whereas Ubuntu 22.04's default Bash version does not.
+
+#### Verifying LaTeX Dependencies
+
+You can verify that the required LaTeX files are installed and discoverable by running:
+
+```bash
+for file in fvextra.sty lmodern.sty pzdr.tfm; do
+    echo -n "$file: "
+    kpsewhich "$file" || echo "NOT FOUND"
+done
+```
+
+#### Alternative PDF Converter
+
+If you prefer not to use Pandoc and its LaTeX dependencies, Babyrus also supports LibreOffice as an alternative PDF converter:
+
+```bash
+PDF_CONVERTER="libreoffice"
+```
+
+With this configuration, LibreOffice is required instead of the Pandoc and LaTeX dependencies.
 
 ### Installation
 
