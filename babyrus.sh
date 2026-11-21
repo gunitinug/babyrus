@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-BABYRUS_VERSION='v.0.99x20'
+BABYRUS_VERSION='pre-release 1'
 BABYRUS_AUTHOR='Logan Lee'
 
 # Shared Whiptail (libnewt) colour theme.
