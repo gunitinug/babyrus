@@ -731,49 +731,23 @@ mkdir -p "${NOTES_METADATA_PATH}"
 # Create if not existent
 touch "$NOTES_DB" "$NOTES_TAGS_DB" "$NOTES_EBOOKS_DB"
 
-# CHECK MINIMUM BASH VERSION 5.2.21
+# CHECK MINIMUM BASH VERSION 4.4
 check_bash_ver() {
-  # Required version components
-  local req_major=5 req_minor=2 req_patch=21
+    local req_major=4 req_minor=4
+    local cur_major=${BASH_VERSINFO[0]}
+    local cur_minor=${BASH_VERSINFO[1]}
 
-  # Extract current Bash version components
-  local cur_major=${BASH_VERSINFO[0]}
-  local cur_minor=${BASH_VERSINFO[1]}
-  local cur_patch=${BASH_VERSINFO[2]}
+    if (( cur_major < req_major ||
+          (cur_major == req_major && cur_minor < req_minor) )); then
+        echo "Error: You need Bash version at least 4.4." >&2
+        return 1
+    fi
 
-  local err_msg="Error: You need bash version at least ${req_major}.${req_minor}.${req_patch}."
-
-  # Compare major version
-  if (( cur_major < req_major )); then
-    echo "$err_msg" >&2
-    return 1
-  elif (( cur_major > req_major )); then
-    # Any major > 5 is automatically OK
     return 0
-  fi
-
-  # At this point cur_major == req_major
-  # Compare minor version
-  if (( cur_minor < req_minor )); then
-    echo "$err_msg" >&2
-    return 1
-  elif (( cur_minor > req_minor )); then
-    # 5.x where x > 2 is OK
-    return 0
-  fi
-
-  # At this point cur_major == 5 && cur_minor == 2
-  # Compare patch version
-  if (( cur_patch < req_patch )); then
-    echo "$err_msg" >&2
-    return 1
-  fi
-
-  # If we reach here, version is >= 5.2.21
-  return 0
 }
 
 check_bash_ver || exit 1
+
 
 # Check core dependencies
 for cmd in whiptail wmctrl dialog xclip; do
