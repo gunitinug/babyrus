@@ -1,67 +1,149 @@
+# Babyrus
+
 <p align="center">
-  <img src="./babyrus%20logo%203%20jan%202026.png" alt="Babyrus logo"/ width=300>
+  <img src="./babyrus%20logo%203%20jan%202026.png" alt="Babyrus logo" width="300">
 </p>
 
 ## Project Overview
 
-**Babyrus** is a fast, terminal-based productivity tool designed for hackers. It is built to help you manage eBooks and URLs, take notes, and track project goals directly from the command line.
+**Babyrus** is a fast, terminal-based productivity and knowledge-management tool designed for hackers and people who enjoy working from the command line.
 
-The application integrates these features to streamline your workflow: define project goals, link notes to relevant resources (e.g., eBooks, URLs), and organize everything with a flexible tagging system.
+Built with Bash and Whiptail, Babyrus helps you organise eBooks, manage notes, collect web resources, and plan projects. Its features are interconnected through a flexible tagging and linking system, allowing you to build a personal knowledge base and manage your work from one application.
 
------
+You can associate notes with eBooks, saved reading locations, URLs and projects. You can also organise project plans into headings and tasks, maintain their progress, and build books from your linked notes.
+
+---
 
 ## ⚠️ Development Status
 
-Babyrus is under active development. For the most stable and feature-rich experience, it is recommended to pull the latest `main` branch.
+Babyrus is under active development. Features and workflows may change as the project evolves.
 
------
+For the latest improvements and fixes, use the latest version from the `main` branch.
+
+---
 
 ## Key Features
 
-### Babyrus: Key Features
+### eBook Management
 
-* **Effortless Organization:** Create a personalized knowledge base by associating notes and tags with your eBooks and external URLs.
-* **Seamless Workflow:** Quickly open an eBook to a specific page or jump to a URL directly from your notes.
-* **Goal Tracking:** Create project files to keep track of your goals and centralize all related notes.
-* **Built for Growth:** Handle thousands of notes and files with a powerful and efficient architecture.
+- Register individual eBooks, multiple selections from a checklist, or files in bulk.
+- Organise your library using custom tags.
+- Associate and dissociate tags individually, from checklists, in bulk, or by file path.
+- Search registered eBooks using filename globbing and tag filters.
+- Browse registered files and look up files by their paths.
+- Open eBooks directly using your configured applications.
+- Find and remove broken database entries pointing to missing files.
+- Clean up filenames during registration, including handling characters that cannot be stored safely in the database.
 
------
+### Note Management
+
+- Create, edit, print and delete notes.
+- Organise notes using multiple tags.
+- Associate notes with eBooks and their saved reading locations.
+- Associate URLs with notes for easy access to external resources.
+- Open associated eBooks and URLs directly from notes.
+- Filter and manage collections of notes using **Do Stuff by Tag**.
+- Associate notes with projects and reuse them across multiple projects.
+
+### Project and Goal Management
+
+- Create and manage project files.
+- Organise project plans using nested headings and tasks.
+- Add comments and manage task status and importance.
+- Associate and dissociate notes with projects.
+- Work with linked notes through **Do Stuff with Linked Notes in Project File**.
+- Filter linked notes using tags and filename globbing.
+- Maintain a shortlist of active projects and access shortlist history.
+- Print project content or send it to a printer.
+
+### Book Builder
+
+- Build a book from notes associated with a project.
+- Add notes as book sections and organise them into a numbered outline.
+- Load existing books for further editing.
+- Reorder sections, change indentation and remove sections.
+- Load additional notes from other project files.
+- Preview the book structure and read individual sections.
+- Save the resulting book as a text file or convert it to PDF.
+
+### Backup and Restore
+
+- Create compressed `.tar.gz` backups of Babyrus databases, notes and project files.
+- Restore data from previously created backup archives.
+- Select from available backup archives using a paginated menu.
+
+### User Interface
+
+- Terminal-based menus and checklists using Whiptail and Dialog.
+- Consistent light-coloured interface with blue accents.
+- Automatically sized menus and content pickers.
+- Paginated lists for navigating larger collections.
+- Built-in help covering the main features and workflows.
+
+---
 
 ## Getting Started
 
-### First run ###
-When you first run BABYRUS, you will be prompted to set default apps. This is so that the program will run normally the next time you run BABYRUS. Set default apps per extension then quit and restart the program. Next time BABYRUS is run, you will be shown the main menu.
+### Installation
 
-To reset BABYRUS and display the first run screen, change `FIRST_RUN` variable to 0 like this:
+Clone the repository and enter the project directory:
 
-```
-#+++ FIRST RUN +++#
-FIRST_RUN=0
-#+++ FIRST RUN END +++#
+```bash
+git clone https://github.com/gunitinug/babyrus.git
+cd babyrus
 ```
 
-### 🔍 Searching in Babyrus
+Make the script executable:
 
-Babyrus provides two different search methods, whichever is most suitable for the search task at hand. Use the method indicated by the program. The rule of thumb is to use literal substring match for filtering tags and globbing for filtering file names.
+```bash
+chmod +x babyrus.sh
+```
 
-1. **Literal Substring Match**  
-   A simple substring search. The `*` character is treated literally, not as a wildcard. Special characters like `?` or `.` are also treated literally.
+**Important:** Babyrus uses the current working directory for its databases and data folders. Run the script from the directory where you want your Babyrus data to be stored.
 
-2. **Globbing**  
-   Uses wildcards like `*stallman*`. You can include spaces and `*` and `?`.
+### Running the Application
 
-### Dependencies
+Launch Babyrus from its working directory:
 
-Babyrus requires **Bash 5.2.21 or newer** and several command-line utilities to provide its terminal-based interface, window management, and clipboard functionality. It also uses external applications to open ebooks, edit text files, and browse URLs.
+```bash
+./babyrus.sh
+```
 
-The following packages and applications are required by the default configuration:
+The main menu provides access to:
+
+- **Manage eBooks**
+- **Manage Notes**
+- **Manage Goals**
+- **Set Default Apps**
+- **Read Help**
+- **Backup Everything**
+- **Restore from File**
+- **About Babyrus**
+
+---
+
+## Dependencies
+
+Babyrus requires **Bash 5.2.21 or newer** and several command-line utilities for its terminal interface, window management and clipboard functionality.
+
+It also requires external applications to open eBooks, edit text files and browse URLs.
+
+### Core Dependencies
 
 | Dependency | Purpose |
 |---|---|
-| `whiptail` | Terminal menus |
+| `bash` 5.2.21+ | Required Bash version |
+| `whiptail` | Terminal menus and checklists |
 | `wmctrl` | Window management |
 | `dialog` | Dialog interfaces |
 | `xclip` | Clipboard operations |
+
+### Default Applications
+
+The following applications are used by the default configuration:
+
+| Application | Purpose |
+|---|---|
 | `geany` | Opening TXT files |
 | `zathura` | Opening PDF files |
 | `okular` | Opening EPUB, MOBI and AZW3 files |
@@ -69,23 +151,34 @@ The following packages and applications are required by the default configuratio
 | `firefox` | Opening URLs |
 | `djview4` | Opening DjVu files (optional) |
 
-#### PDF Conversion Dependencies
+The DjVu viewer is optional at startup. If it is not installed, Babyrus will report the missing application when you attempt to open a DjVu file.
 
-By default, Babyrus uses **Pandoc** to convert documents into PDF files:
+### PDF Conversion Dependencies
+
+By default, Babyrus uses **Pandoc with XeLaTeX** to convert books created through Book Builder into PDF files.
 
 ```bash
 PDF_CONVERTER="pandoc"
 ```
 
-This configuration requires `pandoc`, `xelatex`, `kpsewhich`, and the following LaTeX files:
+This configuration requires:
 
+- `pandoc`
+- `xelatex`
+- `kpsewhich`
 - `fvextra.sty`
 - `lmodern.sty`
 - `pzdr.tfm`
 
-#### Installation
+The required LaTeX files are supplied by the following packages:
 
-**Ubuntu:**
+| LaTeX file | Ubuntu package | Fedora package |
+|---|---|---|
+| `fvextra.sty` | `texlive-latex-extra` | `texlive-fvextra` |
+| `lmodern.sty` | `lmodern` | `texlive-lm` |
+| `pzdr.tfm` | `texlive-fonts-recommended` | `texlive-zapfding` |
+
+### Installation on Ubuntu
 
 ```bash
 sudo apt update
@@ -97,7 +190,9 @@ sudo apt install \
     texlive-fonts-recommended lmodern
 ```
 
-**Fedora 45:**
+Ubuntu 24.04's default Bash version satisfies the minimum requirement. Ubuntu 22.04's default Bash 5.1 does not.
+
+### Installation on Fedora
 
 ```bash
 sudo dnf install \
@@ -107,11 +202,11 @@ sudo dnf install \
     texlive-fvextra texlive-lm texlive-zapfding
 ```
 
-On Fedora, the `newt` package provides `whiptail`. Note that Ubuntu 24.04's default Bash version satisfies the minimum requirement, whereas Ubuntu 22.04's default Bash version does not.
+On Fedora, the `newt` package provides `whiptail`.
 
-#### Verifying LaTeX Dependencies
+### Verifying LaTeX Dependencies
 
-You can verify that the required LaTeX files are installed and discoverable by running:
+After installing the Pandoc and LaTeX packages, verify that the required files are available:
 
 ```bash
 for file in fvextra.sty lmodern.sty pzdr.tfm; do
@@ -120,123 +215,270 @@ for file in fvextra.sty lmodern.sty pzdr.tfm; do
 done
 ```
 
-#### Alternative PDF Converter
+If installed correctly, `kpsewhich` will print the location of each file.
 
-If you prefer not to use Pandoc and its LaTeX dependencies, Babyrus also supports LibreOffice as an alternative PDF converter:
+### Alternative PDF Converter: LibreOffice
+
+Babyrus also supports LibreOffice as an alternative to Pandoc.
+
+Change the configuration to:
 
 ```bash
 PDF_CONVERTER="libreoffice"
 ```
 
-With this configuration, LibreOffice is required instead of the Pandoc and LaTeX dependencies.
+With this setting, Babyrus requires LibreOffice instead of Pandoc, XeLaTeX and the associated LaTeX files.
 
-### Installation
-
-Clone the repository and make the script executable:
+On Ubuntu:
 
 ```bash
-git clone https://github.com/gunitinug/babyrus.git
-cd babyrus/
-chmod +x babyrus.sh
+sudo apt install libreoffice
 ```
 
-### Running the Application
-
-Launch the application from the project directory:
+On Fedora:
 
 ```bash
-./babyrus.sh
+sudo dnf install libreoffice
 ```
 
------
+You only need to install the dependencies for the PDF converter you have selected.
+
+---
 
 ## Configuration
 
-To set default apps for different extensions (eg. .pdf or .epub), go to `Main Menu -> Configure` then change settings from there. 
+Babyrus allows you to configure the external applications used to open different file types.
 
-Babyrus supports the following extensions:
+Open:
+
+**Main Menu → Set Default Apps**
+
+You can configure the following settings:
+
+| Setting | Default |
+|---|---|
+| TXT | `geany` |
+| PDF | `zathura` |
+| EPUB | `okular` |
+| MOBI | `okular` |
+| AZW3 | `okular` |
+| DjVu | `djview4` |
+| Default Editor | `nano` |
+| URL Browser | `firefox` |
+| PDF Converter | `pandoc` |
+
+The application supports the following eBook extensions:
 
 ```bash
 declare -A EXTENSION_COMMANDS=(
-    ["txt"]="gnome-text-editor"
+    ["txt"]="geany"
     ["pdf"]="zathura"
     ["epub"]="okular"
     ["mobi"]="okular"
     ["azw3"]="okular"
+    ["djvu"]="djview4"
 )
 ```
 
-At the moment we support the following viewers:
+You can also select other registered applications, including Geany, Kate, Mousepad, Gedit, VS Code, Evince, Okular, Zathura, MuPDF, Calibre, Foliate and Thorium Reader.
+
+The default text editor and URL browser can also be changed through the Configure menu.
 
 ```bash
-declare -A VIEWER_COMMANDS=(
-    # PDF viewers
-    ["evince"]="evince -p"
-    ["okular"]="okular -p"
-    ["zathura"]="zathura -P"
-    ["mupdf"]="mupdf"
-    ["qpdfview"]="qpdfview"
-
-    # EPUB/MOBI/AZW3 viewers
-    ["calibre"]="ebook-viewer --open-at"    
-)
-````
-You can also configure default editor and web browser from the `Configure` menu.
-
-```bash
-DEFAULT_EDITOR="nano" # runs in the same terminal as babyrus.
-URL_BROWSER="google-chrome"
+DEFAULT_EDITOR="nano"
+URL_BROWSER="firefox"
+PDF_CONVERTER="pandoc"
 ```
 
-File `babyrus.sh.bak` is created to save old `babyrus.sh` executable.
+When you save configuration changes, Babyrus creates a backup of the previous script named `babyrus.sh.bak` before updating the configuration block.
 
-**Note:** Ensure all configured applications are installed on your system. The script will exit if a required dependency is not found.
+**Note:** Ensure that your configured applications are installed. Babyrus checks its required dependencies and configured applications during startup.
 
------
+### First-Run Configuration
+
+The first-run configuration screen can be triggered by changing the `FIRST_RUN` variable in `babyrus.sh`:
+
+```bash
+#+++ FIRST RUN +++#
+FIRST_RUN=0
+#+++ FIRST RUN END +++#
+```
+
+When the configuration is saved, Babyrus automatically resets this variable to `1`.
+
+You can also change application settings at any time through the main menu.
+
+---
+
+## Searching and Filtering
+
+Babyrus provides two main search methods, depending on the type of information being searched.
+
+### 1. Literal Substring Matching
+
+Used primarily for filtering tag names.
+
+The search text is treated literally, not as a wildcard or regular expression.
+
+For example:
+
+- Searching for `math` matches tags containing `math`.
+- Searching for `?` looks for an actual question mark.
+- Searching for `*` looks for an actual asterisk.
+
+Tag filtering is case-insensitive.
+
+### 2. Globbing
+
+Used to filter filenames and file paths, as well as project and note selections in supported workflows.
+
+Globbing supports:
+
+- `*` — matches any sequence of characters.
+- `?` — matches a single character.
+
+Examples:
+
+```text
+*schaum*
+*programming*.pdf
+/books/*/math*.pdf
+```
+
+Globbing is case-insensitive in the relevant file-selection workflows.
+
+### Combining Filters
+
+Some workflows allow you to combine a filename glob with a tag filter. This is useful when managing a large collection of eBooks or notes.
+
+You can also reset individual filters without leaving the current workflow.
+
+---
+
+## Filename Cleanup
+
+Babyrus performs filename cleanup when registering eBooks.
+
+Some characters cannot be safely stored in the database. When affected files are encountered, Babyrus displays the affected filenames and asks whether you want to allow the renaming operation.
+
+The cleanup process can also:
+
+- Replace certain special characters with underscores.
+- Replace leading hyphens.
+- Remove unnecessary ISBN and hash information from filenames.
+
+**Important:** Filename cleanup can rename the actual files on your drive, not just their database entries. Review the affected filenames before confirming the operation.
+
+---
 
 ## File Structure
 
-Babyrus manages the following files and directories. Deleting these will result in the application regenerating blank versions on the next run.
+Babyrus stores its databases and supporting files relative to the current working directory.
 
-```bash
-readonly BACKUP_ENTRIES=(
-  "ebooks.db"
-  "ebooks.db.backup"
-  "ebooks.db.rename.log"
-  "tags.db"
-  "notes/*.txt"
-  "notes/metadata/notes.db"
-  "notes/metadata/notes-ebooks.db"
-  "notes/metadata/notes-tags.db"
-  "projects/*.txt"
-  "projects/metadata/projects.db"
-  "projects/metadata/projects.db.shortlisted"
-  "projects/metadata/projects.db.shortlisted.history"
-  "urls/urls.db"
-)
+The main directory structure is:
+
+```text
+babyrus/
+├── babyrus.sh
+├── babyrus.sh.bak
+├── ebooks.db
+├── ebooks.db.backup
+├── ebooks.db.rename.log
+├── tags.db
+│
+├── notes/
+│   ├── *.txt
+│   └── metadata/
+│       ├── notes.db
+│       ├── notes-ebooks.db
+│       └── notes-tags.db
+│
+├── projects/
+│   ├── *.txt
+│   └── metadata/
+│       ├── projects.db
+│       ├── projects.db.shortlisted
+│       └── projects.db.shortlisted.history
+│
+└── urls/
+    └── urls.db
 ```
 
-The application provides a built-in backup and restore feature via the main menu. Backups are saved as `backup_*.tar.gz` within the `babyrus/` directory.
+Babyrus automatically creates the required directories and database files when they are missing.
 
------
+The databases store information about registered eBooks, tags, notes, project files, URLs and their associations.
+
+**Important:** Registered eBooks remain in their original locations. Babyrus stores their file paths rather than copying the actual eBook files into its own directory.
+
+Do not delete database files or folders unless you intend to reset the corresponding Babyrus data. Missing databases are recreated as empty files when the application starts.
+
+---
+
+## Backup and Restore
+
+Babyrus provides built-in backup and restore functionality through the main menu.
+
+### Backup
+
+Select:
+
+**Main Menu → Backup Everything**
+
+Babyrus creates a compressed archive containing:
+
+- eBook registration and tag databases.
+- Notes and their metadata.
+- Project files and project metadata.
+- URL database.
+- Supporting eBook database backup files.
+
+The default archive filename uses a timestamp:
+
+```text
+backup_YYYYMMDD_HHMMSS.tar.gz
+```
+
+Backups are created in the current working directory.
+
+### Restore
+
+Select:
+
+**Main Menu → Restore from File**
+
+Choose an existing `backup_*.tar.gz` archive and confirm the restoration.
+
+**Important considerations:**
+
+- Restoring replaces files at matching paths with the contents of the selected archive.
+- Newer changes may be overwritten.
+- It is recommended to create a backup of your current data before restoring.
+- Backup archives do not include the original eBook files registered in Babyrus. Those files must be backed up separately.
+
+For additional safety, keep copies of your backup archives somewhere outside your Babyrus directory.
+
+---
 
 ## Contribution
 
-We welcome contributions and feedback to improve Babyrus.
+Contributions, suggestions and feedback are welcome.
 
-  * **Report Bugs:** Please open an issue on the [GitHub Issues tab](https://github.com/gunitinug/babyrus/issues) if you encounter any bugs or unexpected behavior.
-  * **Suggest Features:** We are always open to ideas for new features or improvements.
-  * **Testing:** Your real-world usage and feedback are invaluable.
+- **Report Bugs:** Open an issue through the [GitHub Issues page](https://github.com/gunitinug/babyrus/issues) if you encounter bugs or unexpected behaviour.
+- **Suggest Features:** Ideas for new features and improvements are always welcome.
+- **Testing:** Feedback from real-world usage helps improve Babyrus.
 
------
+---
 
 ## Author
 
 **Logan Lee**
+
 📧 [logan.wonki.lee@gmail.com](mailto:logan.wonki.lee@gmail.com)
 
------
+---
 
 ## License
 
-Babyrus is free software licensed under the [GNU General Public License, Version 3](https://www.gnu.org/licenses/gpl-3.0.html). A copy of the license is available in the repository as `LICENSE`.
+Babyrus is free software licensed under the [GNU General Public License, Version 3](https://www.gnu.org/licenses/gpl-3.0.html).
+
+A copy of the license is available in the repository as `LICENSE`.
