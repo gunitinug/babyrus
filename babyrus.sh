@@ -224,7 +224,7 @@ whiptail() {
     # Identify navigation/action menus rather than content pickers.
     case "$title" in
         "BABYRUS "*" Main Menu"|"Babyrus Help Menu") is_navigation=1 ;;
-        "Manage eBooks"|"File Management"|\
+        "Manage Assets"|"File Management"|\
         "Tag Management"|"Search & Lookup"|"Open & Read"|"Maintenance"|\
         "Manage Notes"|"Goals Management"|"Chapter Management"|\
         "Heading Operations"|"Project Configuration"|"Manage Tags"|\
@@ -240,7 +240,7 @@ whiptail() {
     case "$prompt" in
         "Choose an option:"|"Select a help topic:"|"Project Configuration"|"Heading Operations"|\
         "Note Action"|"Choose an action:"|"What would you like to do?"|\
-        "Manage ebook associations"|"Manage URL"|"Manage URLs for "*|\
+        "Manage Asset associations"|"Manage URL"|"Manage URLs for "*|\
         "Project: "*|"Chapter: "*|"Selected section: "*)
             is_navigation=1
             ;;
@@ -443,6 +443,8 @@ declare -A EXTENSION_COMMANDS=(
     ["mobi"]="okular"
     ["azw3"]="okular"
     ["djvu"]="djview4"
+    ["audio"]="mpv"
+    ["video"]="mpv"
 )
 
 # Tweak these to set external apps for other sections.
@@ -480,6 +482,18 @@ declare -A VIEWER_COMMANDS=(
     ["bookworm"]="bookworm"
     ["thorium-reader"]="thorium"
 
+    # Audio players (audio) / video players (video). Seeking to a bookmark is
+    # handled in ebook_open_at, since every player has its own syntax.
+    ["mpv"]="mpv"
+    ["mpg123"]="mpg123"
+    ["vlc"]="vlc"
+    ["cvlc"]="cvlc"
+    ["aplay"]="aplay"
+    ["paplay"]="paplay"
+    ["ogg123"]="ogg123"
+    ["ffplay"]="ffplay"
+    ["mplayer"]="mplayer"
+
     # Default editor (terminal-based)
     ["nano"]="nano"
     ["vim"]="vim"
@@ -508,6 +522,8 @@ declare -A AVAILABLE_CMDS=(
   ["mobi"]="calibre okular"
   ["azw3"]="calibre okular"
   ["djvu"]="djview4 djview evince okular zathura"
+  ["audio"]="mpv mpg123 vlc aplay paplay ogg123 ffplay cvlc"
+  ["video"]="mpv vlc ffplay mplayer"
   ["DEFAULT_EDITOR"]="nano vim nvim emacs micro helix"
   ["URL_BROWSER"]="firefox chromium google-chrome brave-browser vivaldi opera qutebrowser lynx w3m"
 )
@@ -531,7 +547,7 @@ edit_configuration() {
         local chosen_cmd
         chosen_cmd=$(whiptail --title "Open With - Choose Application" \
             --default-item "$current_val" \
-            --menu "Choose application for $chosen_ext" \
+            --menu "Choose application for $chosen_ext$([[ $chosen_ext == audio || $chosen_ext == video ]] && printf ' files')" \
             20 70 10 \
             "${menu_items[@]}" \
             3>&1 1>&2 2>&3) || return 1
@@ -566,8 +582,11 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     # Reload configuration from file before making changes
     source <(sed -n '/^#+++ CONFIGURATION +++#$/,/^#+++ CONFIGURATION END +++#$/{//!p}' "$config_file")
 
-    # Configuration blocks saved by older versions have no djvu entry: use a default.
+    # Configuration blocks saved by older versions have no djvu/audio/video entry: use a default.
     [[ -n "${EXTENSION_COMMANDS[djvu]:-}" ]] || EXTENSION_COMMANDS[djvu]="djview4"
+    # Same for the audio and video players.
+    [[ -n "${EXTENSION_COMMANDS[audio]:-}" ]] || EXTENSION_COMMANDS[audio]="mpv"
+    [[ -n "${EXTENSION_COMMANDS[video]:-}" ]] || EXTENSION_COMMANDS[video]="mpv"
 
     # --- Make a local backup in memory ---
     local -A BACKUP_EC
@@ -580,7 +599,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     local BACKUP_PC="$PDF_CONVERTER"
 
     # Create ordered list of extensions for consistent display
-    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu")
+    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu" "audio" "video")
 
     while true; do
         # Build menu options
@@ -679,6 +698,8 @@ declare -A EXTENSION_COMMANDS=(
     [\"mobi\"]=\"${EXTENSION_COMMANDS[mobi]}\"
     [\"azw3\"]=\"${EXTENSION_COMMANDS[azw3]}\"
     [\"djvu\"]=\"${EXTENSION_COMMANDS[djvu]}\"
+    [\"audio\"]=\"${EXTENSION_COMMANDS[audio]}\"
+    [\"video\"]=\"${EXTENSION_COMMANDS[video]}\"
 )
 
 # Tweak these to set external apps for other sections.
@@ -805,11 +826,24 @@ touch "$EBOOKS_DB" "$TAGS_DB"
 # Older configuration blocks have no djvu entry: use a default.
 [[ -n "${EXTENSION_COMMANDS[djvu]:-}" ]] || EXTENSION_COMMANDS[djvu]="djview4"
 
+# Older configuration blocks have no audio/video entries: use a default. A
+# player that was not chosen by the user is only checked when a file is opened.
+BABYRUS_AUDIO_VIDEO_DEFAULTED=()
+for _av in audio video; do
+    if [[ -z "${EXTENSION_COMMANDS[$_av]:-}" ]]; then
+        EXTENSION_COMMANDS[$_av]="mpv"
+        BABYRUS_AUDIO_VIDEO_DEFAULTED+=("$_av")
+    fi
+done
+unset _av
+
 # Check all specified external apps are found for 'Manage eBooks' section.
 for ext in "${!EXTENSION_COMMANDS[@]}"; do
     cmd="${EXTENSION_COMMANDS[$ext]}"
     # DjVu is optional: a missing viewer is reported when a .djvu file is opened.
     [[ "$ext" == "djvu" ]] && continue
+    # Not chosen by the user yet (old configuration): checked when opening.
+    [[ " ${BABYRUS_AUDIO_VIDEO_DEFAULTED[*]} " == *" $ext "* ]] && continue
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Command for .$ext ($cmd) is not found. Modify EXTENSION_COMMANDS accordingly." >&2
         exit 1
@@ -1201,7 +1235,46 @@ EB_RECURSE_CHANGED=0       # set by __RECURSE__ / __NON_RECURSE__ (internal)
 # find(1) expression matching the eBook file types that can be registered
 # (case insensitive extension). Used by Register eBook and Register eBooks
 # From Checklist: use as  find DIR ... -type f "${EB_EBOOK_FIND_EXT[@]}" ...
-EB_EBOOK_FIND_EXT=( \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) )
+#
+# Assets are eBooks plus audio and video files. The extension lists below are
+# the single source of truth: asset_kind() classifies a file with them.
+BABYRUS_EBOOK_EXTS=(txt pdf epub mobi azw3 djvu djv)
+BABYRUS_AUDIO_EXTS=(mp3 flac wav ogg oga opus m4a aac wma aiff aif ape mka)
+BABYRUS_VIDEO_EXTS=(mp4 mkv avi webm mov wmv flv m4v mpg mpeg ogv 3gp)
+
+EB_EBOOK_FIND_EXT=( \( )
+for _ext in "${BABYRUS_EBOOK_EXTS[@]}" "${BABYRUS_AUDIO_EXTS[@]}" "${BABYRUS_VIDEO_EXTS[@]}"; do
+    (( ${#EB_EBOOK_FIND_EXT[@]} > 1 )) && EB_EBOOK_FIND_EXT+=( -o )
+    EB_EBOOK_FIND_EXT+=( -iname "*.${_ext}" )
+done
+EB_EBOOK_FIND_EXT+=( \) )
+unset _ext
+
+# Print the kind of asset FILE is, by its extension: ebook, audio or video.
+asset_kind() {
+    local ext="${1##*.}" e
+    ext="${ext,,}"
+    for e in "${BABYRUS_AUDIO_EXTS[@]}"; do [[ "$ext" == "$e" ]] && { echo audio; return 0; }; done
+    for e in "${BABYRUS_VIDEO_EXTS[@]}"; do [[ "$ext" == "$e" ]] && { echo video; return 0; }; done
+    echo book
+}
+
+# A time position inside an audio/video file: M:SS or H:MM:SS (eg. 4:30,
+# 1:02:15). A range START-END is accepted where noted by the callers.
+babyrus_valid_time() {
+    [[ "$1" =~ ^[0-9]+:[0-5][0-9]$ || "$1" =~ ^[0-9]+:[0-5][0-9]:[0-5][0-9]$ ]]
+}
+
+# Print TIME (M:SS or H:MM:SS) as a number of seconds.
+babyrus_time_to_seconds() {
+    local a b c
+    IFS=: read -r a b c <<< "$1"
+    if [[ -n "$c" ]]; then
+        echo $(( 10#$a * 3600 + 10#$b * 60 + 10#$c ))
+    else
+        echo $(( 10#$a * 60 + 10#$b ))
+    fi
+}
 
 # Prints "height width list-height" for a whiptail list that shows
 # EB_PAGE_SIZE items (plus the action/navigation items). The height is capped
@@ -1473,8 +1546,8 @@ ebooks_pick_tag_filter() {
         (( end > total )) && end=$total
 
         menu=(
-            "[ANY TAG]" "Show all eBooks, tagged or untagged"
-            "[NO TAG]" "Only show eBooks with no tags"
+            "[ANY TAG]" "Show all assets, tagged or untagged"
+            "[NO TAG]" "Only show assets with no tags"
             "__FILTER__" "Filter tags by literal substring${filter:+   [filter: $filter]}"
             "__RESET_FILTER__" "Reset tag filter"
         )
@@ -1485,7 +1558,7 @@ ebooks_pick_tag_filter() {
         done
 
         read -r h w lh <<< "$(eb_menu_dims)"
-        choice=$(whiptail --title "Select an eBook Tag to Filter By" \
+        choice=$(whiptail --title "Select an Asset Tag to Filter By" \
             --menu "Choose a tag, or use __FILTER__ to narrow the tag list.\n\
 Matching tags: ${total}/${#matches[@]}  |  Page $((page + 1))/${pages}\n\
 Filter: ${filter:-(none)}" \
@@ -1522,8 +1595,8 @@ ebooks_action_items() {
             local tag_filter_label="$EB_TAGF"
             tag_filter_label="${tag_filter_label/$EB_NO_TAG_VALUE/[NO TAG]}"
             tag_filter_label="${tag_filter_label/$EB_ANY_TAG_VALUE/[ANY TAG]}"
-            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by eBook tag${EB_TAGF:+   [tag filter: ${tag_filter_label}]}" "${extra[@]}")
-            EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset eBook tag filter" "${extra[@]}")
+            EB_ACTION_ITEMS+=("__FILTER_BY_TAG__" "Filter by asset tag${EB_TAGF:+   [tag filter: ${tag_filter_label}]}" "${extra[@]}")
+            EB_ACTION_ITEMS+=("__RESET_FILTER__" "Reset Asset tag filter" "${extra[@]}")
         fi
     fi
     if (( EB_RECURSE_REBUILD == 1 )); then
@@ -1566,7 +1639,7 @@ ebooks_list_status() {
             local tf="$EB_TAGF"
             tf="${tf/$EB_NO_TAG_VALUE/[NO TAG]}"
             tf="${tf/$EB_ANY_TAG_VALUE/[ANY TAG]}"
-            s+="  |  eBook tag filter: ${tf:-(none)}"
+            s+="  |  asset tag filter: ${tf:-(none)}"
         fi
     fi
     if [[ -n "$EB_SCOPE_DIR" ]] || (( EB_RECURSE_REBUILD == 1 )); then
@@ -1727,7 +1800,7 @@ ebooks_select_dir() {
     local -a menu_items all_items
 
     if ! ebooks_dir_menu_items; then
-        whiptail --title "Attention" --msgbox "No directories found! Perhaps ebooks db is empty." 10 60 >/dev/tty
+        whiptail --title "Attention" --msgbox "No directories found! Perhaps Assets db is empty." 10 60 >/dev/tty
         return 1
     fi
     all_items=("${DIR_MENU_ITEMS[@]}")
@@ -2279,7 +2352,7 @@ register_ebook() {
     ebooks_filter_reset
     EB_PATH_MAX=140
     EB_RECURSE_REBUILD=1
-    EB_RECURSIVE=0
+    EB_RECURSIVE=1
 
     local rc=0 first=1
     while true; do
@@ -2304,13 +2377,13 @@ register_ebook() {
             rm -f "$tmp"
             EB_SRC_FILE=""
             ebooks_filter_reset
-            whiptail --title "No Matches Found" --msgbox "No eBook files (txt, pdf, epub, mobi, azw3, djvu) found in: $search_path" 8 155
+            whiptail --title "No Matches Found" --msgbox "No asset files (documents: txt, pdf, epub, mobi, azw3, djvu; audio: mp3, flac, wav, ogg, opus, m4a...; video: mp4, mkv, avi, webm...) found in: $search_path" 8 155
             return 1
         fi
         first=0
 
         rc=0
-        ebooks_pick_file "Add eBook - Choose File to Register" "Choose the file to register in the eBook database (folder: $search_path).\nUse __RECURSE__ to list the sub-directories too, __NON_RECURSE__ to turn it off:" || rc=$?
+        ebooks_pick_file "Add Asset - Choose File to Register" "Choose the file to register in the asset database (folder: $search_path).\nUse __RECURSE__ to list the sub-directories too, __NON_RECURSE__ to turn it off:" || rc=$?
         (( rc == 3 )) && continue
         break
     done
@@ -2329,7 +2402,7 @@ register_ebook() {
     selected="${_rename_sel[0]}"
 
     if [[ -f "$EBOOKS_DB" ]] && EB_P="$selected" awk -F'|' '$1 == ENVIRON["EB_P"] { f = 1 } END { exit !f }' "$EBOOKS_DB"; then
-        whiptail --msgbox "Ebook already registered!" 8 40
+        whiptail --msgbox "Asset already registered!" 8 40
         return
     fi
 
@@ -2432,7 +2505,7 @@ filter_menu_items() {
 
 associate_tag() {
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -2452,7 +2525,7 @@ associate_tag() {
     local -a tags sorted tags_whip
 
     while :; do
-        ebooks_pick_file "Associate Tag - Choose eBook" "Choose the eBook that will receive a tag:" || return
+        ebooks_pick_file "Associate Tag - Choose Asset" "Choose the asset that will receive a tag:" || return
 
         ebook="${EB_SELECTED_LINE%%|*}"
         existing_tags="${EB_SELECTED_LINE#*|}"
@@ -2472,7 +2545,7 @@ associate_tag() {
         tag="$(eb_paginate_tags_menu "Choose a Tag to Associate to File" "${tags_whip[@]}")" || continue
 
         if [[ ",${existing_tags}," == *",${tag},"* ]]; then
-            whiptail --msgbox "Ebook already has this tag!" 8 40
+            whiptail --msgbox "Asset already has this tag!" 8 40
             continue
         fi
 
@@ -2581,7 +2654,7 @@ Empty input lists ALL tags." 12 "$EB_WIDTH" "$filter" 3>&1 1>&2 2>&3) && { filte
 
 dissociate_tag_from_registered_ebook() {
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -2597,7 +2670,7 @@ dissociate_tag_from_registered_ebook() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_file "Dissociate Tag - Choose eBook" "Choose the eBook you want to remove a tag from:" || return 0
+    ebooks_pick_file "Dissociate Tag - Choose Asset" "Choose the asset you want to remove a tag from:" || return 0
 
     local selected_ebook="${EB_SELECTED_LINE%%|*}"
     local original_tags="${EB_SELECTED_LINE#*|}"
@@ -2609,14 +2682,14 @@ dissociate_tag_from_registered_ebook() {
         [[ -n "$tag" ]] && tags_array+=("$tag")
     done
 
-    [[ ${#tags_array[@]} -eq 0 ]] && whiptail --msgbox "No tags associated with this eBook!" 8 40 && return 0
+    [[ ${#tags_array[@]} -eq 0 ]] && whiptail --msgbox "No tags associated with this asset!" 8 40 && return 0
 
     for tag in "${tags_array[@]}"; do
         tag_menu_items+=("$tag" "")
     done
 
     local selected_tag
-    selected_tag=$(eb_paginate_tags_menu "Remove Tag from eBook" "${tag_menu_items[@]}") || return 0
+    selected_tag=$(eb_paginate_tags_menu "Remove Tag from Asset" "${tag_menu_items[@]}") || return 0
 
     whiptail --yesno "Remove tag '$selected_tag' from:\n$selected_ebook?" 20 155 || return 0
 
@@ -2699,7 +2772,7 @@ delete_tag_from_global_list() {
 
     # Check dependencies
     [[ ! -f "$TAGS_DB" ]] && whiptail --msgbox "Tags database not found!" 8 40 && return 1
-    [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Ebooks database not found!" 8 40 && return 1
+    [[ ! -f "$EBOOKS_DB" ]] && whiptail --msgbox "Assets database not found!" 8 40 && return 1
 
     # Read tags database
     local tags_list=()
@@ -2742,7 +2815,7 @@ delete_tag_from_global_list() {
 
     # If tag is still in use
     if [[ ${#used_in[@]} -gt 0 ]]; then
-        local message="Tag is used in ${#used_in[@]} eBook(s):\n\n"
+        local message="Tag is used in ${#used_in[@]} asset(s):\n\n"
         message+="$(ebooks_file_list_preview used_in)"
         message+="\nDissociate tag first!"
         whiptail --scrolltext --msgbox "$message" 20 155
@@ -2850,7 +2923,7 @@ ebooks_notes_partition() {
             if [[ -n "$_t" ]]; then
                 _line="$(eb_trunc_path "$_p" 80)  [notes: $_t]"
             else
-                _line="$(eb_trunc_path "$_p" 80)  [listed in the notes ebooks database]"
+                _line="$(eb_trunc_path "$_p" 80)  [listed in the notes assets database]"
             fi
             if [[ ! -f "$_p" ]]; then
                 # Broken entry (file gone from the file system): removal is
@@ -2874,7 +2947,7 @@ ebooks_notes_partition() {
 # by ebooks_notes_partition). Prints nothing otherwise.
 ebooks_notes_broken_warning() {
     (( ${#EB_NOTES_BROKEN_LINKED[@]} > 0 )) || return 0
-    printf '%s' "\n\n${#EB_NOTES_BROKEN_LINKED[@]} of these eBook(s) no longer exist on disk but are still referenced by notes. They will be removed from the eBooks database (ebooks.db), the notes database (notes.db) and the notes eBooks database (notes-ebooks.db), so those notes lose their association with them (including recorded chapters/pages). The note files themselves are NOT deleted.\n\nAffected eBooks:\n"
+    printf '%s' "\n\n${#EB_NOTES_BROKEN_LINKED[@]} of these asset(s) no longer exist on disk but are still referenced by notes. They will be removed from the assets database (ebooks.db), the notes database (notes.db) and the notes assets database (notes-ebooks.db), so those notes lose their association with them (including recorded chapters/pages). The note files themselves are NOT deleted.\n\nAffected assets:\n"
     ebooks_file_list_preview EB_NOTES_BROKEN_LINKED_REPORT raw
 }
 
@@ -2953,13 +3026,13 @@ ebooks_notes_purge_paths() {
 # removal and that they have to be dissociated from the notes first.
 ebooks_notes_blocked_msg() {
     local title="$1" intro="$2" report_name="$3"
-    local msg="${intro}\n\n$(ebooks_file_list_preview "$report_name" raw)\nPlease dissociate these eBook file(s) from those notes first (Manage Notes), then try again."
+    local msg="${intro}\n\n$(ebooks_file_list_preview "$report_name" raw)\nPlease dissociate these asset file(s) from those notes first (Manage Notes), then try again."
     whiptail --scrolltext --title "$title" --msgbox "$msg" 20 155
 }
 
 remove_registered_ebook() {
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40
         return 1
     fi
 
@@ -2969,7 +3042,7 @@ remove_registered_ebook() {
     EB_PATH_MAX=110
     EB_TAG_PICK=1
 
-    ebooks_pick_file "Remove eBook - Choose eBook" "Choose the registered eBook to remove from the database:" || return 1
+    ebooks_pick_file "Remove Asset - Choose Asset" "Choose the registered asset to remove from the database:" || return 1
 
     local selected_path="${EB_SELECTED_LINE%%|*}"
 
@@ -2977,8 +3050,8 @@ remove_registered_ebook() {
     local -a _one_path=("$selected_path")
     ebooks_notes_partition _one_path
     if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
-        ebooks_notes_blocked_msg "Cannot Remove eBook" \
-            "This eBook cannot be removed from the database because it is associated with notes:" \
+        ebooks_notes_blocked_msg "Cannot Remove Asset" \
+            "This asset cannot be removed from the database because it is associated with notes:" \
             EB_NOTES_BLOCKED_REPORT
         return 1
     fi
@@ -3004,16 +3077,56 @@ remove_registered_ebook() {
 
 # Open eBook codes start here:
 
-# Get appropriate open command for file type
+# Can PLAYER play files with the (lower case) extension EXT? Some command line
+# players only know a few formats, so the chosen player may be replaced by one
+# that can play the file (see get_open_command).
+asset_player_supports() {
+    local player="$1" ext="$2"
+    case "$player" in
+        mpg123) [[ "$ext" == mp3 ]] ;;
+        aplay)  [[ "$ext" == wav ]] ;;
+        paplay) [[ "$ext" =~ ^(wav|flac|ogg|oga|aiff|aif)$ ]] ;;
+        ogg123) [[ "$ext" =~ ^(ogg|oga|flac|opus)$ ]] ;;
+        *)      return 0 ;;
+    esac
+}
+
+# Print the command that opens FILE. Audio and video files use the players
+# chosen for 'audio' and 'video' in Set Default Apps.
 get_open_command() {
     local file="$1"
     local extension="${file##*.}"
     extension="${extension,,}"
     [[ "$extension" == "djv" ]] && extension="djvu"
-    local cmd="${EXTENSION_COMMANDS[$extension]}"
-    
-    [ -z "$cmd" ] && cmd="xdg-open"
-    
+
+    local kind
+    kind=$(asset_kind "$file")
+
+    local cmd
+    if [[ "$kind" == "audio" || "$kind" == "video" ]]; then
+        cmd="${EXTENSION_COMMANDS[$kind]:-mpv}"
+
+        # Use another installed player when the chosen one cannot play this format.
+        if ! asset_player_supports "$cmd" "$extension"; then
+            local alt fallback
+            for alt in mpv vlc ffplay cvlc mplayer ogg123 paplay mpg123 aplay; do
+                [[ "$kind" == "video" && "$alt" =~ ^(cvlc|ogg123|paplay|mpg123|aplay)$ ]] && continue
+                command -v "$alt" >/dev/null 2>&1 || continue
+                asset_player_supports "$alt" "$extension" || continue
+                fallback="$alt"
+                break
+            done
+            if [[ -z "${fallback:-}" ]]; then
+                whiptail --msgbox "ERROR: '$cmd' cannot play .$extension files and no other suitable player is installed." 10 60
+                return 1
+            fi
+            cmd="$fallback"
+        fi
+    else
+        cmd="${EXTENSION_COMMANDS[$extension]}"
+        [ -z "$cmd" ] && cmd="xdg-open"
+    fi
+
     command -v "$cmd" >/dev/null 2>&1 || {
         whiptail --msgbox "ERROR: Command '$cmd' not found for $extension files" 10 60
         return 1
@@ -3024,22 +3137,18 @@ get_open_command() {
 # File opening handler with existence check
 open_file() {
     local file="$1"
-    
+
     if [ ! -f "$file" ]; then
         whiptail --msgbox "ERROR: File does not exist:\n$file" 20 155
         return 1
     fi
-    
+
     local open_cmd
     if ! open_cmd=$(get_open_command "$file"); then
         return 1
     fi
 
-    # maybe a good idea to show 'Opening file for you...' for a second
-    #TERM=ansi whiptail --infobox "Opening file for you..." 8 40
-    #sleep 1
-    
-    $open_cmd "$file" &>/dev/null & disown
+    ebook_open_at "$open_cmd" "$file"
 }
 
 # Open eBook by Search workflow: filter by glob (file path / file name) and by
@@ -3047,7 +3156,7 @@ open_file() {
 # paginated, or ALL tags when empty, plus a [NO TAG] item).
 open_file_by_search() {
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -3058,7 +3167,7 @@ open_file_by_search() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_file "Open eBook - Choose File" "Choose the file to open (narrow the list with __APPLY_GLOB__ / __FILTER_BY_TAG__):" || return 1
+    ebooks_pick_file "Open Asset - Choose File" "Choose the file to open (narrow the list with __APPLY_GLOB__ / __FILTER_BY_TAG__):" || return 1
 
     local selected="${EB_SELECTED_LINE%%|*}"
     [ -z "$selected" ] && whiptail --msgbox "No file selected." 10 60 && return 1
@@ -3075,11 +3184,11 @@ illegal_pattern() {
 }
 
 add_files_in_bulk() {
-    whiptail --title "Bulk Add eBooks" --msgbox \
-"This advanced feature allows you to add multiple eBook files to the database.\n\
+    whiptail --title "Bulk Add Assets" --msgbox \
+"This advanced feature allows you to add multiple asset files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. The files found (txt, pdf, epub, mobi, azw3, djvu) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+2. The files found (ebooks: txt, pdf, epub, mobi, azw3, djvu; audio: mp3, flac, wav, ogg, opus, m4a and more; video: mp4, mkv, avi, webm and more) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
 3. Select __ADD__ to add ALL the listed files to the database" 16 100
 
     local selected_dir
@@ -3124,21 +3233,13 @@ It involves the following steps:\n\
         depth=()
         (( EB_RECURSIVE == 1 )) || depth=(-maxdepth 1)
 
-        eb_collect_illegal_files illegal_found < <(find "$selected_dir" "${depth[@]}" -type f \( -iname '*.txt' -o -iname '*.pdf' -o -iname '*.epub' -o -iname '*.mobi' -o -iname '*.azw3' -o -iname '*.djvu' -o -iname '*.djv' \) ! -path $'*\n*' -print0 2>/dev/null)
+        eb_collect_illegal_files illegal_found < <(find "$selected_dir" "${depth[@]}" -type f "${EB_EBOOK_FIND_EXT[@]}" ! -path $'*\n*' -print0 2>/dev/null)
         eb_illegal_drop_offered illegal_found illegal_offered
         eb_offer_rename_illegal illegal_found
 
         find "$selected_dir" "${depth[@]}" \
             -type f \
-            \( \
-                -iname '*.txt' \
-                -o -iname '*.pdf' \
-                -o -iname '*.epub' \
-                -o -iname '*.mobi' \
-                -o -iname '*.azw3' \
-                -o -iname '*.djvu' \
-                -o -iname '*.djv' \
-            \) \
+            "${EB_EBOOK_FIND_EXT[@]}" \
             ! -name '*|*' ! -name '-*' ! -path $'*\n*' \
             -print 2>/dev/null \
         | awk -F'|' '
@@ -3165,7 +3266,7 @@ It involves the following steps:\n\
         first=0
 
         rc=0
-        ebooks_pick_file "Bulk Add eBooks - Review New Files" "New files under: ${selected_dir}.\nUse __NON_RECURSE__ / __RECURSE__ to exclude / include sub-directories. Narrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
+        ebooks_pick_file "Bulk Add Assets - Review New Files" "New files under: ${selected_dir}.\nUse __NON_RECURSE__ / __RECURSE__ to exclude / include sub-directories. Narrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
         (( rc == 3 )) && continue
         break
     done
@@ -3407,7 +3508,7 @@ lookup_registered_files() {
     "This advanced feature allows you to look up full file information. Narrow the list down with the items shown on top of it:\n\n__APPLY_GLOB__ / __RESET_GLOB__: filter by file path and file name (glob)\n__FILTER_BY_TAG__ / __RESET_FILTER__: filter by tag (literal substring match)\n\nBoth filters can be applied at the same time." 14 100
 
     if [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     fi
 
@@ -3542,7 +3643,7 @@ assoc_tag_to_bulk() {
     whiptail --title "Bulk Associate Tag" --msgbox "This advanced feature lets you choose a registered tag and associate that same tag across a bulk of registered files.\n\nAfter choosing the tag, the registered files are listed. Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag), then select __PROCEED__ to associate the tag with ALL listed files." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -3615,7 +3716,7 @@ dissoc_tag_to_bulk() {
     whiptail --title "Bulk Dissociate Tag" --msgbox "This advanced feature lets you choose a registered tag and remove that same tag from a bulk of registered files.\n\nAfter choosing the tag, the files carrying it are listed with their tags. Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag), then select __PROCEED__ to remove the tag from ALL listed files." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -3682,7 +3783,7 @@ remove_files_in_bulk() {
 Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file name) and __FILTER_BY_TAG__ / __RESET_FILTER__ (pick one tag). Both filters can be combined." 14 100
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -3714,8 +3815,8 @@ Narrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (file path or file nam
     local -a to_remove_paths=("${to_remove[@]%%|*}")
     ebooks_notes_partition to_remove_paths
     if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
-        ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
-            "${#EB_NOTES_BLOCKED[@]} of the listed eBook(s) cannot be removed because they are associated with notes:" \
+        ebooks_notes_blocked_msg "Assets Blocked From Removal" \
+            "${#EB_NOTES_BLOCKED[@]} of the listed asset(s) cannot be removed because they are associated with notes:" \
             EB_NOTES_BLOCKED_REPORT
         if (( ${#EB_NOTES_ALLOWED[@]} == 0 )); then
             return 1
@@ -3764,7 +3865,7 @@ remove_broken_entries() {
   # Initial information
   whiptail --title "Remove Broken Entries" --msgbox \
 "This feature allows you to fix the database file by finding and removing broken entries (ie. paths to files that point to non-existent files).\n\n\
-Removed eBooks are also removed from the notes databases, so any notes associated with them lose that association." 12 78
+Removed Assets are also removed from the notes databases, so any notes associated with them lose that association." 12 78
 
   # Check if the EBOOKS_DB variable is set and file exists.
   if [ -z "$EBOOKS_DB" ] || [ ! -f "$EBOOKS_DB" ]; then
@@ -3864,15 +3965,15 @@ Removed eBooks are also removed from the notes databases, so any notes associate
   # Final warning: this is destructive and cannot be undone.
   local warn="WARNING: THIS PERMANENTLY MODIFIES YOUR DATABASE FILES AND CANNOT BE UNDONE!\n\n"
   warn+="${#conflicting_entries[@]} broken entries will be removed from:\n"
-  warn+="  - the eBooks database (ebooks.db)\n"
-  warn+="  - the notes eBooks database (notes-ebooks.db)\n"
+  warn+="  - the assets database (ebooks.db)\n"
+  warn+="  - the notes assets database (notes-ebooks.db)\n"
   if (( affected_notes > 0 )); then
-    warn+="  - the eBook associations of ${affected_notes} note(s), including the chapters and pages recorded for these eBooks\n\n"
-    warn+="The note files themselves are NOT deleted, only their association with these eBooks.\n\n"
-    warn+="eBooks associated with notes:\n"
+    warn+="  - the asset associations of ${affected_notes} note(s), including the chapters and pages recorded for these assets\n\n"
+    warn+="The note files themselves are NOT deleted, only their association with these assets.\n\n"
+    warn+="Assets associated with notes:\n"
     warn+="$(ebooks_file_list_preview EB_NOTES_BROKEN_LINKED_REPORT raw)\n"
   else
-    warn+="\nNo note is associated with these eBooks.\n"
+    warn+="\nNo note is associated with these assets.\n"
   fi
   warn+="\nProceed with the permanent removal?"
 
@@ -3919,7 +4020,7 @@ After choosing a path from the list, you can further narrow the search with __AP
 Use __RECURSIVE__ in the file list to include sub-directories." 20 155
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -3953,7 +4054,7 @@ Use __RECURSIVE__ in the file list to include sub-directories.\n\
 Then, you can select to open a file item." 20 155
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -3988,7 +4089,7 @@ add_ebooks_from_checklist() {
     local -a dirs=() files=() items=() illegal_found=() files_all=()
     local -A rename_asked=() illegal_offered=()
     local ci_f
-    local recursive=0      # 1 = also list the files of all sub-directories of current_dir
+    local recursive=1      # 1 = also list the files of all sub-directories of current_dir
     local -a ci_depth=()
     declare -A global_selected
 
@@ -4083,7 +4184,7 @@ add_ebooks_from_checklist() {
             # Show the checklist
             local result
             result=$(whiptail \
-                --title "Add eBooks - Choose Files (${current_dir})" \
+                --title "Add assets - Choose Files (${current_dir})" \
                 --checklist "Page $((current_page+1))/$pages  |  scope: $( (( recursive == 1 )) && printf 'including sub-directories' || printf 'this directory only')\nSelect files/directories or navigation action:" \
                 $(eb_menu_dims) \
                 "${choices[@]}" \
@@ -4196,7 +4297,7 @@ add_ebooks_from_checklist() {
     done
 
     if [ ${#to_add[@]} -eq 0 ]; then
-        whiptail --msgbox "No eBooks selected." 8 40
+        whiptail --msgbox "No assets selected." 8 40
         return 1
     fi
 
@@ -4212,7 +4313,7 @@ add_ebooks_from_checklist() {
                 echo "${f}|" >> "$EBOOKS_DB"
             fi
         done
-        whiptail --msgbox "eBooks added successfully." 8 40
+        whiptail --msgbox "Assets added successfully." 8 40
     else
         whiptail --msgbox "Addition cancelled." 8 40
     fi
@@ -4220,7 +4321,7 @@ add_ebooks_from_checklist() {
 
 remove_ebooks_from_checklist() {
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40
         return 1
     }
 
@@ -4230,8 +4331,8 @@ remove_ebooks_from_checklist() {
     EB_PATH_MAX=110
     EB_TAG_PICK=1
 
-    ebooks_pick_files_checklist "Remove eBooks - Choose Entries to Remove" \
-        "Choose the registered eBook entries to remove from the database." "Proceed to remove selected entries" || return 1
+    ebooks_pick_files_checklist "Remove Assets - Choose Entries to Remove" \
+        "Choose the registered asset entries to remove from the database." "Proceed to remove selected entries" || return 1
 
     local -a selected_paths=()
     local p
@@ -4249,8 +4350,8 @@ remove_ebooks_from_checklist() {
     # Entries referenced by notes are kept; only the others can be removed.
     ebooks_notes_partition selected_paths
     if (( ${#EB_NOTES_BLOCKED[@]} > 0 )); then
-        ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
-            "${#EB_NOTES_BLOCKED[@]} selected eBook(s) cannot be removed because they are associated with notes:" \
+        ebooks_notes_blocked_msg "Assets Blocked From Removal" \
+            "${#EB_NOTES_BLOCKED[@]} selected asset(s) cannot be removed because they are associated with notes:" \
             EB_NOTES_BLOCKED_REPORT
         if (( ${#EB_NOTES_ALLOWED[@]} == 0 )); then
             return 1
@@ -4337,7 +4438,7 @@ dissociate_tag_from_checklist() {
     touch "$EBOOKS_DB" "$TAGS_DB"
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -4355,7 +4456,7 @@ dissociate_tag_from_checklist() {
     ebooks_lines_having_tag "$tag_to_remove" < "$EBOOKS_DB" > "$tmp"
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --msgbox "No eBooks found with tag '$tag_to_remove'." 8 60
+        whiptail --msgbox "No assets found with tag '$tag_to_remove'." 8 60
         return 1
     fi
 
@@ -4367,7 +4468,7 @@ dissociate_tag_from_checklist() {
     EB_NO_TAG_ITEM=1
 
     local rc=0
-    ebooks_pick_files_checklist "Dissociate Tag - Step 2: Choose eBooks (tag: ${tag_to_remove})" \
+    ebooks_pick_files_checklist "Dissociate Tag - Step 2: Choose Assets (tag: ${tag_to_remove})" \
         "Choose the e-Books to remove the tag '${tag_to_remove}' from." "Proceed to tag dissociation" || rc=1
 
     EB_SRC_FILE=""
@@ -4408,7 +4509,7 @@ associate_tag_from_checklist() {
     touch "$EBOOKS_DB" "$TAGS_DB"
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -4443,7 +4544,7 @@ associate_tag_from_checklist() {
     EB_TAG_PICK=1
     EB_NO_TAG_ITEM=1
 
-    ebooks_pick_files_checklist "Associate Tag - Choose eBooks to Tag (tag: ${selected_tag})" \
+    ebooks_pick_files_checklist "Associate Tag - Choose Assets to Tag (tag: ${selected_tag})" \
         "Choose the e-Books that will receive the tag '${selected_tag}'." "Proceed to tag association" || return 1
 
     local -a to_update=()
@@ -4453,7 +4554,7 @@ associate_tag_from_checklist() {
     done
 
     if (( ${#to_update[@]} == 0 )); then
-        whiptail --msgbox "No eBooks selected." 8 40
+        whiptail --msgbox "No assets selected." 8 40
         return 1
     fi
 
@@ -4492,11 +4593,11 @@ associate_tag_from_checklist() {
 assoc_tag_by_filepath() {
     whiptail --title "Help" \
          --msgbox "This function will associate your chosen tag to every file in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db. Use __RECURSIVE__ in the file list to include sub-directories. \
+You may choose from a list of directories registered in the assets db. Use __RECURSIVE__ in the file list to include sub-directories. \
 The matching files are listed with their tags before anything is changed." 12 80 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -4577,11 +4678,11 @@ The matching files are listed with their tags before anything is changed." 12 80
 dissoc_tag_by_filepath() {
     whiptail --title "Help" \
          --msgbox "This function will dissociate your chosen tag from the files in a directory that you choose. \
-You may choose from a list of directories registered in the ebooks db. Use __RECURSIVE__ in the file list to include sub-directories. \
+You may choose from a list of directories registered in the assets db. Use __RECURSIVE__ in the file list to include sub-directories. \
 The files carrying the tag are listed with their tags before anything is changed. It is inverse of associate tag by filepath function." 12 80 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -4602,7 +4703,7 @@ The files carrying the tag are listed with their tags before anything is changed
     ebooks_lines_having_tag "$selected_tag" < "$EBOOKS_DB" > "$tmp"
     if [[ ! -s "$tmp" ]]; then
         rm -f "$tmp"
-        whiptail --msgbox "No ebooks with the tag '$selected_tag' found in the database." 10 155 >/dev/tty
+        whiptail --msgbox "No assets with the tag '$selected_tag' found in the database." 10 155 >/dev/tty
         return 1
     fi
 
@@ -4693,8 +4794,8 @@ ebooks_remove_files_in_path() {
 
     if (( ${#files_to_delete[@]} == 0 )); then
         if (( ${#notes_blocked_report[@]} > 0 )); then
-            ebooks_notes_blocked_msg "eBooks Blocked From Removal" \
-                "The matched eBook(s) cannot be removed because they are associated with notes:" \
+            ebooks_notes_blocked_msg "Assets Blocked From Removal" \
+                "The matched asset(s) cannot be removed because they are associated with notes:" \
                 notes_blocked_report
         else
             whiptail --title "Information" --msgbox "No matched files. Nothing to remove." 10 100
@@ -4724,7 +4825,7 @@ ebooks_remove_files_in_path() {
     awk -F'|' 'NR == FNR { m[$0] = 1; next } !($1 in m)' "$list" "$EBOOKS_DB" > "${EBOOKS_DB}.tmp" && mv "${EBOOKS_DB}.tmp" "$EBOOKS_DB"
     rm -f "$list"
 
-    local deleted_msg="Removed files from ebooks db:\n\n$(ebooks_file_list_preview files_to_delete path)"
+    local deleted_msg="Removed files from assets db:\n\n$(ebooks_file_list_preview files_to_delete path)"
     whiptail --scrolltext --title "Files Removed" --msgbox "$deleted_msg" 20 155
 
     if (( ${#notes_blocked_report[@]} > 0 )); then
@@ -4740,7 +4841,7 @@ remove_files_by_filepath() {
     whiptail --title "Attention" --msgbox "This function allows you to remove registered files under a selected file path. Use __RECURSIVE__ in the file list to include sub-directories. The files are listed with their tags. If an existing file is associated with a note, it will not be removed; dissociate it from the note first. Broken entries (files that no longer exist on disk) can always be removed, and are then also removed from the notes databases. It does not delete files physically from the drive." 12 100 >/dev/tty
 
     [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-        whiptail --title "Attention" --msgbox "No ebook assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one asset and try again." 8 40 </dev/tty >/dev/tty
         return 1
     }
 
@@ -4756,7 +4857,7 @@ show_ebooks_menu() {
     local SUBCHOICE FILE_OPTION TAG_OPTION SEARCH_OPTION OPEN_OPTION MAINTENANCE_OPTION
 
     while true; do
-        SUBCHOICE=$(whiptail --title "Manage eBooks" --cancel-button "Back" --menu "Choose an area to work in (files, tags, searching, opening or maintenance):" 15 50 6 \
+        SUBCHOICE=$(whiptail --title "Manage Assets" --cancel-button "Back" --menu "Choose an area to work in (files, tags, searching, opening or maintenance):" 15 50 6 \
             "1" "File Management" \
             "2" "Tag Management" \
             "3" "Search & Lookup" \
@@ -4771,10 +4872,10 @@ show_ebooks_menu() {
                 # File Management submenu: Items 1, 3, and 13
                 FILE_OPTION=$(whiptail --title "File Management" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 20 50 8 \
                     "1" "Add Files In Bulk" \
-                    "2" "Register eBook" \
-                    "3" "Register eBooks From Checklist" \
-                    "4" "Remove Registered eBook" \
-                    "5" "Remove eBooks From Checklist" \
+                    "2" "Register Asset" \
+                    "3" "Register Assets From Checklist" \
+                    "4" "Remove Registered Asset" \
+                    "5" "Remove Assets From Checklist" \
                     "6" "Remove Files In Bulk" \
 		    "7" "Remove Files by Filepath" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
@@ -4793,11 +4894,11 @@ show_ebooks_menu() {
                 # Tag Management submenu: Items 4, 7, 11, and 12
                 TAG_OPTION=$(whiptail --title "Tag Management" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 20 50 10 \
                     "1" "Register Tag" \
-                    "2" "Associate Tag with eBook" \
+                    "2" "Associate Tag with asset" \
                     "3" "Associate Tag from Checklist" \
                     "4" "Associate Tag to Bulk" \
 		    "5" "Associate Tag by Filepath" \
-                    "6" "Dissociate Tag from Registered eBook" \
+                    "6" "Dissociate Tag from Registered Asset" \
                     "7" "Disociate Tag from Checklist" \
                     "8" "Dissociate Tag from Bulk" \
 		    "9" "Dissociate Tag by Filepath" \
@@ -4834,7 +4935,7 @@ show_ebooks_menu() {
             "4")
                 # Open & Read submenu: Open eBook by Search, Open File by File Path
                 OPEN_OPTION=$(whiptail --title "Open & Read" --cancel-button "Back" --menu "Choose a task from this group, then press OK. Back returns to the previous menu:" 15 50 2 \
-                    "1" "Open eBook by Search" \
+                    "1" "Open asset by Search" \
                     "2" "Open File by File Path" 3>&1 1>&2 2>&3)
                 [ $? -ne 0 ] && continue
                 case "$OPEN_OPTION" in
@@ -5219,7 +5320,7 @@ filter_by_filename() {
     }
 
   [[ ! -f "$EBOOKS_DB" || ! -s "$EBOOKS_DB" ]] && {
-    whiptail --title "Ebook Database" --msgbox "Ebooks database not found or empty. Register at least one ebook." 10 60 >/dev/tty
+    whiptail --title "Asset Database" --msgbox "Assets database not found or empty. Register at least one asset." 10 60 >/dev/tty
     return 1
   }
  
@@ -5255,11 +5356,11 @@ filter_by_filename() {
 
   # FIX: PAGINATE TAG SELECTION.
   local selected_tag
-  selected_tag="$(paginate_tags_menu "Select eBook Tag to Filter" "${tag_options[@]}")" || return 1
+  selected_tag="$(paginate_tags_menu "Select Asset Tag to Filter" "${tag_options[@]}")" || return 1
 
   # Prompt for search term
   local search_term
-  search_term=$(whiptail --inputbox "Enter search term for ebook file name (globbing; empty is wildcard):" 8 60 --title "Filter Ebooks" 3>&1 1>&2 2>&3 </dev/tty)
+  search_term=$(whiptail --inputbox "Enter search term for asset file name (globbing; empty is wildcard):" 8 60 --title "Filter Assets" 3>&1 1>&2 2>&3 </dev/tty)
   if [ $? -ne 0 ]; then
     return 1
   fi
@@ -5567,7 +5668,23 @@ verify_pages_str() {
     return 1
 }
 
+# Verify a time position or range for audio/video files: 4:30, 1:02:15 or a
+# range such as 4:30-6:00 (the end must be later than the start).
+verify_time_str() {
+    local t="$1"
+    babyrus_valid_time "$t" && return 0
+    if [[ "$t" =~ ^([0-9:]+)-([0-9:]+)$ ]]; then
+        local a="${BASH_REMATCH[1]}" b="${BASH_REMATCH[2]}"
+        babyrus_valid_time "$a" && babyrus_valid_time "$b" || return 1
+        (( $(babyrus_time_to_seconds "$b") > $(babyrus_time_to_seconds "$a") )) && return 0
+    fi
+    return 1
+}
+
 # UI to construct CHAPTER_PAGES string.
+# $1: current chapters (to prefill); $2: path of the asset. Chapters of ebooks
+# have pages (eg. Intro:1-10); for audio/video files they are bookmarks with a
+# time position instead (eg. Intro:4:30 or Part two:1:02:15-1:10:00).
 add_chapters() {
     # Reset global
     CHAPTER_PAGES=""
@@ -5575,12 +5692,24 @@ add_chapters() {
 
     # If need to prefill chapters.
     local current_chapters="$1"
+    local asset_path="${2:-}"
+
+    # Wording depends on the kind of asset: ebooks have chapters with pages,
+    # audio/video files have bookmarks with time positions.
+    local kind=book noun="chapter" noun_title="Chapter" pos_example pos_word="pages"
+    [[ -n "$asset_path" ]] && kind=$(asset_kind "$asset_path")
+    pos_example="eg. 1 or 1-10"
+    if [[ "$kind" != "book" ]]; then
+        noun="bookmark"; noun_title="Bookmark"; pos_word="time"
+        pos_example="eg. 4:30 or 1:02:15, or a range like 4:30-6:00"
+    fi
+    local add_label="Add $noun"
 
     # Prefill chapters array if current_chapters is given as $1.
     if [[ -n "$current_chapters" ]]; then
         # Split current_chapters by comma and populate the chapters array.
         IFS=',' read -ra chapters <<< "$current_chapters"
-    fi   
+    fi
 
     local chapter_name chapter_pages new_entry
     local choice index chapter_entry old_name old_pages new_pages
@@ -5588,50 +5717,51 @@ add_chapters() {
 
     while true; do
         num_chapters=${#chapters[@]}
-        #add_choice=$((num_chapters + 1))
-        #save_choice=$((num_chapters + 2))
-        
+
         # Build menu with chapters first, then static options
         menu_options=()
         for ((index=0; index<num_chapters; index++)); do
             menu_options+=("$((index+1))" "${chapters[index]}")
         done
-        menu_options+=("Add chapter" "")
+        menu_options+=("$add_label" "")
         menu_options+=("Save and return" "")
 
-	# If added lot of chapters menu gets broken so increase dimensions!
-        choice=$(whiptail --title "Chapter Management" --cancel-button "Back" --menu "Add a chapter, pick an existing chapter to edit or delete it, or save your changes:" \
+        # If added lot of chapters menu gets broken so increase dimensions!
+        choice=$(whiptail --title "${noun_title} Management" --cancel-button "Back" --menu "Add a ${noun}, pick an existing ${noun} to edit or delete it, or save your changes:" \
             22 150 15 "${menu_options[@]}" 3>&1 1>&2 2>&3)
-        
+
         [[ $? -ne 0 ]] && choice="Save and return"  # Handle ESC/Cancel as Save
-        
-        if [[ "$choice" == "Add chapter" ]]; then
+
+        if [[ "$choice" == "$add_label" ]]; then
             # Add new chapter
             while true; do
-                chapter_name=$(whiptail --inputbox "Enter chapter name:" 8 40 3>&1 1>&2 2>&3)
+                chapter_name=$(whiptail --inputbox "Enter ${noun} name:" 8 40 3>&1 1>&2 2>&3)
                 [[ $? -ne 0 ]] && break
 
-		# FIX
-		# Check for illegal chapter name
-		if [[ "$chapter_name" =~ [\;\|#,:] ]]; then
-			whiptail --title "Attention" --msgbox "Chapter name cannot contain illegal characters (|#,:;)." 8 60
-    			continue
-		fi
-		# END FIX.
-                
-                chapter_pages=$(whiptail --inputbox "Enter pages for '$chapter_name' (eg. 1 or 1-10):" \
-                    8 40 3>&1 1>&2 2>&3)
-                [[ $? -ne 0 ]] && continue
-
-                # Check for syntax page1 or page1-page2 here.
-                # Check for:
-                # If pages a-b, b must be > a.
-                # ^[0-9]+-[0-9]+$ or ^[0-9]+$.
-                if ! verify_pages_str "$chapter_pages"; then
-                    whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
+                # Check for illegal chapter name
+                if [[ "$chapter_name" =~ [\;\|#,:] ]]; then
+                    whiptail --title "Attention" --msgbox "${noun_title} name cannot contain illegal characters (|#,:;)." 8 60
                     continue
                 fi
-                
+
+                chapter_pages=$(whiptail --inputbox "Enter ${pos_word} for '$chapter_name' (${pos_example}):" \
+                    9 70 3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && continue
+
+                # Check for syntax page1 or page1-page2 (ebooks), or a time
+                # position / time range (audio/video).
+                if [[ "$kind" == "book" ]]; then
+                    verify_pages_str "$chapter_pages" || {
+                        whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
+                        continue
+                    }
+                else
+                    verify_time_str "$chapter_pages" || {
+                        whiptail --title "Error" --msgbox "Invalid time syntax. Use M:SS or H:MM:SS (eg. 4:30, 1:02:15)." 8 70
+                        continue
+                    }
+                fi
+
                 # Remember that we can have same chapter name but different pages.
                 new_entry="$chapter_name:$chapter_pages"
                 if [[ " ${chapters[*]} " =~ " $new_entry " ]]; then
@@ -5647,32 +5777,39 @@ add_chapters() {
             CHAPTER_PAGES=$(IFS=','; echo "${chapters[*]}")
             return 0
 
-        elif [[ $choice -le $num_chapters ]]; then
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= num_chapters )); then
             # Chapter selected - show edit/delete menu
             index=$((choice - 1))
             chapter_entry="${chapters[index]}"
             old_name="${chapter_entry%%:*}"
             old_pages="${chapter_entry#*:}"
-            
-            action=$(whiptail --title "Chapter - Edit or Delete" --menu "Chapter: $chapter_entry\nChoose what to do with this chapter:" 15 60 5 \
-                "Edit pages" "" \
-                "Delete chapter" "" \
+
+            action=$(whiptail --title "${noun_title} - Edit or Delete" --menu "${noun_title}: $chapter_entry\nChoose what to do with this ${noun}:" 15 60 5 \
+                "Edit ${pos_word}" "" \
+                "Delete ${noun}" "" \
                 3>&1 1>&2 2>&3)
-            
+
             if [[ $? -eq 0 ]]; then
                 case $action in
-                    "Edit pages")  # Edit pages
+                    "Edit ${pos_word}")
                         while true; do
-                            new_pages=$(whiptail --inputbox "New pages for '$old_name' (eg. 1 or 1-10):" \
-                                8 40 "$old_pages" 3>&1 1>&2 2>&3)
+                            new_pages=$(whiptail --inputbox "New ${pos_word} for '$old_name' (${pos_example}):" \
+                                9 70 "$old_pages" 3>&1 1>&2 2>&3)
                             [[ $? -ne 0 ]] && break
 
-                            # Check for pages syntax here.
-                            if ! verify_pages_str "$new_pages"; then
-                                whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
-                                continue
+                            # Check for pages / time syntax here.
+                            if [[ "$kind" == "book" ]]; then
+                                verify_pages_str "$new_pages" || {
+                                    whiptail --title "Error" --msgbox "Invalid pages syntax." 8 40
+                                    continue
+                                }
+                            else
+                                verify_time_str "$new_pages" || {
+                                    whiptail --title "Error" --msgbox "Invalid time syntax. Use M:SS or H:MM:SS (eg. 4:30, 1:02:15)." 8 70
+                                    continue
+                                }
                             fi
-                            
+
                             new_entry="$old_name:$new_pages"
                             if [[ " ${chapters[*]} " =~ " $new_entry " ]]; then
                                 whiptail --msgbox "No change." 8 40
@@ -5683,7 +5820,7 @@ add_chapters() {
                             fi
                         done
                         ;;
-                    "Delete chapter")  # Delete chapter
+                    "Delete ${noun}")
                         unset 'chapters[index]'
                         chapters=("${chapters[@]}")  # Re-index array
                         ;;
@@ -5752,7 +5889,7 @@ paginate_n_checklist() {
 
         # 3. Display Checklist
         local choices
-        choices=$(whiptail --title "Add eBook Assets - Choose Files" \
+        choices=$(whiptail --title "Add Asset Assets - Choose Files" \
             --separate-output \
             --checklist "Select items (Page $((CURRENT_PAGE + 1))/$total_pages)" \
             25 155 15 \
@@ -5886,15 +6023,15 @@ manage_ebooks() {
         (( current_page > 0 )) && manage_menu_items+=("__PREV_PAGE__" "Previous page")
         (( current_page < assoc_pages - 1 )) && manage_menu_items+=("__NEXT_PAGE__" "Next page")
         manage_menu_items+=("${TRUNC_MANAGE_EBOOKS_MENU[@]}")
-        manage_menu_items+=("Add new ebook" "Associate another registered eBook with this note")
+        manage_menu_items+=("Add new asset" "Associate another registered asset with this note")
         (( ${#ebook_entries[@]} > 0 )) && \
-            manage_menu_items+=("Remove ebook" "Remove eBook association(s) from this note")
+            manage_menu_items+=("Remove Asset" "Remove asset association(s) from this note")
         manage_menu_items+=("Back" "Return to note properties")
 
         # The shared Whiptail wrapper makes this menu terminal-width and gives
         # it a 50-row list capacity (subject to the physical terminal height).
-        selection_trunc=$(whiptail --title "Manage Ebooks" --cancel-button "Back" \
-            --menu "Choose an associated eBook to edit its chapters, add another eBook, or remove associations. Page $((current_page + 1))/${assoc_pages}:" \
+        selection_trunc=$(whiptail --title "Manage Assets" --cancel-button "Back" \
+            --menu "Choose an associated asset to edit its chapters (pages) or bookmarks (audio/video time positions), add another asset, or remove associations. Page $((current_page + 1))/${assoc_pages}:" \
             20 155 10 "${manage_menu_items[@]}" \
             3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
         [[ $? -eq 0 ]] || break
@@ -5904,8 +6041,8 @@ manage_ebooks() {
             __NEXT_PAGE__) (( current_page++ )); continue ;;
         esac
 
-        if [[ "$selection_trunc" != "Add new ebook" && \
-              "$selection_trunc" != "Remove ebook" && \
+        if [[ "$selection_trunc" != "Add new asset" && \
+              "$selection_trunc" != "Remove Asset" && \
               "$selection_trunc" != "Back" ]]; then
             n="${selection_trunc%%:*}"
             [[ "$n" =~ ^[0-9]+$ ]] || continue
@@ -5916,10 +6053,10 @@ manage_ebooks() {
         fi
 
         case "$selection" in
-            "Add new ebook")
+            "Add new asset")
                 if [[ ! -s "$EBOOKS_DB" ]]; then
-                    whiptail --title "eBook Database" --msgbox \
-                        "No registered eBooks are available. Register eBook files first, then add them to this note." \
+                    whiptail --title "Asset Database" --msgbox \
+                        "No registered assets are available. Register Asset files first, then add them to this note." \
                         10 "$EB_WIDTH" >/dev/tty
                     continue
                 fi
@@ -5932,13 +6069,13 @@ manage_ebooks() {
                 EB_PATH_MAX=120
                 EB_TAG_PICK=1
                 EB_PROCEED="__add__"
-                EB_PROCEED_DESC="Add the selected eBook(s) to this note"
+                EB_PROCEED_DESC="Add the selected asset(s) to this note"
 
                 local add_rc=0
                 ebooks_pick_files_checklist \
-                    "Add eBooks to Note - Choose eBooks" \
-                    "Select eBooks to associate with this note. Each row shows the eBook file path and its eBook tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for eBook tags and __APPLY_GLOB__ / __RESET_GLOB__ for the eBook path or file name, then select __add__." \
-                    "Add selected eBooks to this note" || add_rc=$?
+                    "Add assets to Note - Choose Assets" \
+                    "Select assets to associate with this note. Each row shows the asset file path and its asset tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for asset tags and __APPLY_GLOB__ / __RESET_GLOB__ for the asset path or file name, then select __add__." \
+                    "Add selected assets to this note" || add_rc=$?
 
                 local -a selected_add_paths=()
                 local -A add_set=()
@@ -5956,8 +6093,8 @@ manage_ebooks() {
 
                 (( add_rc == 0 )) || continue
                 if (( ${#selected_add_paths[@]} == 0 )); then
-                    whiptail --title "Add eBooks" --msgbox \
-                        "No eBooks were selected. Nothing has been added to this note." 9 "$EB_WIDTH" >/dev/tty
+                    whiptail --title "Add Assets" --msgbox \
+                        "No assets were selected. Nothing has been added to this note." 9 "$EB_WIDTH" >/dev/tty
                     continue
                 fi
 
@@ -5970,7 +6107,7 @@ manage_ebooks() {
                     fi
                 done
                 if [[ -n "$invalid_path" ]]; then
-                    whiptail --title "Invalid eBook Path" --msgbox \
+                    whiptail --title "Invalid Asset Path" --msgbox \
                         "The selected path contains a character that cannot be stored in the note database (|, #, :, or ;):\n\n${invalid_path}\n\nRename the file and try again." \
                         12 "$EB_WIDTH" >/dev/tty
                     continue
@@ -5989,14 +6126,14 @@ manage_ebooks() {
                     fi
                 done
 
-                local add_message="Added ${added_count} eBook(s) to this note."
-                (( skipped_count > 0 )) && add_message+="\nSkipped ${skipped_count} eBook(s) that were already associated."
-                whiptail --title "Add eBooks" --msgbox "$add_message" 9 "$EB_WIDTH" >/dev/tty
+                local add_message="Added ${added_count} asset(s) to this note."
+                (( skipped_count > 0 )) && add_message+="\nSkipped ${skipped_count} asset(s) that were already associated."
+                whiptail --title "Add Assets" --msgbox "$add_message" 9 "$EB_WIDTH" >/dev/tty
                 ;;
 
-            "Remove ebook")
+            "Remove Asset")
                 if (( ${#ebook_entries[@]} == 0 )); then
-                    whiptail --title "Remove eBooks" --msgbox "This note has no associated eBooks to remove." 8 60 >/dev/tty
+                    whiptail --title "Remove Assets" --msgbox "This note has no associated assets to remove." 8 60 >/dev/tty
                     continue
                 fi
 
@@ -6006,7 +6143,7 @@ manage_ebooks() {
                 # global eBook database, so it can still be dissociated.
                 local remove_src
                 remove_src=$(mktemp) || {
-                    whiptail --title "Error" --msgbox "Could not create a temporary eBook list." 8 60 >/dev/tty
+                    whiptail --title "Error" --msgbox "Could not create a temporary asset list." 8 60 >/dev/tty
                     continue
                 }
                 local associated_path
@@ -6025,13 +6162,13 @@ manage_ebooks() {
                 EB_PATH_MAX=120
                 EB_TAG_PICK=1
                 EB_PROCEED="__remove__"
-                EB_PROCEED_DESC="Remove the selected eBook association(s) from this note"
+                EB_PROCEED_DESC="Remove the selected asset association(s) from this note"
 
                 local remove_rc=0
                 ebooks_pick_files_checklist \
-                    "Remove eBooks from Note - Choose eBooks" \
-                    "Select the eBook association(s) to remove. Each row shows the eBook file path and its eBook tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for eBook tags and __APPLY_GLOB__ / __RESET_GLOB__ for the eBook path or file name, then select __remove__." \
-                    "Remove selected eBook associations from this note" || remove_rc=$?
+                    "Remove assets from Note - Choose Assets" \
+                    "Select the asset association(s) to remove. Each row shows the asset file path and its asset tags.\nUse __FILTER_BY_TAG__ / __RESET_FILTER__ for asset tags and __APPLY_GLOB__ / __RESET_GLOB__ for the asset path or file name, then select __remove__." \
+                    "Remove selected asset associations from this note" || remove_rc=$?
 
                 local -a selected_remove_paths=()
                 for path in "${!EB_SEL[@]}"; do
@@ -6044,8 +6181,8 @@ manage_ebooks() {
 
                 (( remove_rc == 0 )) || continue
                 if (( ${#selected_remove_paths[@]} == 0 )); then
-                    whiptail --title "Remove eBooks" --msgbox \
-                        "No eBooks were selected. No associations have been removed." 9 "$EB_WIDTH" >/dev/tty
+                    whiptail --title "Remove Assets" --msgbox \
+                        "No assets were selected. No associations have been removed." 9 "$EB_WIDTH" >/dev/tty
                     continue
                 fi
 
@@ -6060,8 +6197,8 @@ manage_ebooks() {
                         remaining_entries+=("$entry")
                 done
                 ebook_entries=("${remaining_entries[@]}")
-                whiptail --title "Remove eBooks" --msgbox \
-                    "Removed ${#selected_remove_paths[@]} eBook association(s) from this note." \
+                whiptail --title "Remove Assets" --msgbox \
+                    "Removed ${#selected_remove_paths[@]} asset association(s) from this note." \
                     9 "$EB_WIDTH" >/dev/tty
                 ;;
 
@@ -6079,7 +6216,7 @@ manage_ebooks() {
                     fi
                 done
 
-                add_chapters "$current_chapters"
+                add_chapters "$current_chapters" "$selection"
                 local new_chapters="$CHAPTER_PAGES"
                 for idx in "${!ebook_entries[@]}"; do
                     if [[ "${ebook_entries[idx]%%#*}" == "$selection" ]]; then
@@ -6175,13 +6312,13 @@ add_note() {
         [ ${#current_tags[@]} -gt 0 ] && tag_status="${#current_tags[@]} tags"
 
         local ebook_status="none"
-        [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} ebooks"
+        [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} assets"
 
         choice=$(whiptail --title "Create New Note" --menu "Configure note properties" 20 100 8 \
             "Note Title"    "Current: ${note_title_tr:-<not set>}" \
             "Note Path"     "Status: ${path_status}" \
             "Tags"          "Status: ${tag_status}" \
-            "Ebooks"        "Status: ${ebook_status}" \
+            "Assets"        "Status: ${ebook_status}" \
             "Save and Edit" "Save note and open in editor" \
             "Save and Return" "Save note and exit" 3>&1 1>&2 2>&3)
         [ $? -eq 0 ] || break
@@ -6205,7 +6342,7 @@ add_note() {
             "Tags")
                 manage_tags
                 ;;
-            "Ebooks")
+            "Assets")
                 manage_ebooks
                 ;;
             "Save and Edit")
@@ -6319,7 +6456,7 @@ edit_note() {
         local tag_status="none"
         [ ${#current_tags[@]} -gt 0 ] && tag_status="${#current_tags[@]} tags"
         local ebook_status="none"
-        [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} ebooks"
+        [ ${#ebook_entries[@]} -gt 0 ] && ebook_status="${#ebook_entries[@]} assets"
 
         # Truncate Note Path
         local dirname filename dirname_tr filename_tr tr_max
@@ -6337,7 +6474,7 @@ edit_note() {
             "Note Title"    "Current: ${note_title:0:50}" \
             "Note Path"     "Path: ${path_status}" \
             "Tags"          "Status: ${tag_status}" \
-            "Ebooks"        "Status: ${ebook_status}" \
+            "Assets"        "Status: ${ebook_status}" \
             "Save and Edit" "Save changes and open in editor" \
             "Save and Return" "Save changes and exit" 3>&1 1>&2 2>&3)
         [ $? -eq 0 ] || break
@@ -6363,7 +6500,7 @@ edit_note() {
             "Tags")
                 manage_tags
                 ;;
-            "Ebooks")
+            "Assets")
                 manage_ebooks
                 ;;
             "Save and Edit")
@@ -6627,7 +6764,7 @@ get_notes() {
     CURRENT_PAGE=0
     SELECTED_ITEM=""
 
-    ! paginate_get_notes "Open Associated eBook" "${options[@]}" && return 1
+    ! paginate_get_notes "Open Associated Asset" "${options[@]}" && return 1
     local selected_line_tag="$SELECTED_ITEM"
 
     local selected_index=$((selected_line_tag - 1))
@@ -6641,10 +6778,10 @@ get_ebooks() {
     [[ -z "$selected_line" ]] && { echo ""; return 1; }
 
     local ebooks_part=$(cut -d'|' -f4 <<< "$selected_line")
-    [[ -z "$ebooks_part" ]] && { whiptail --msgbox "No ebooks associated with the note." 8 50 >/dev/tty;  return 1; }
+    [[ -z "$ebooks_part" ]] && { whiptail --msgbox "No assets associated with the note." 8 50 >/dev/tty;  return 1; }
 
     IFS=';' read -ra ebooks <<< "$ebooks_part"
-    [[ ${#ebooks[@]} -eq 0 ]] && { whiptail --msgbox "No ebooks associated with the note." 8 50 >/dev/tty; return 1; }
+    [[ ${#ebooks[@]} -eq 0 ]] && { whiptail --msgbox "No assets associated with the note." 8 50 >/dev/tty; return 1; }
 
     local ebook_options=()
     for i in "${!ebooks[@]}"; do
@@ -6664,7 +6801,7 @@ get_ebooks() {
     done
 
     local selected_ebook_tag
-    selected_ebook_tag=$(whiptail --title "Open eBook - Choose eBook" --menu "Choose the eBook associated with this note to open:" 20 155 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
+    selected_ebook_tag=$(whiptail --title "Open Asset - Choose Asset" --menu "Choose the asset associated with this note to open:" 20 155 10 "${ebook_options[@]}" 3>&1 1>&2 2>&3 </dev/tty >/dev/tty)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     local ebook_index=$((selected_ebook_tag - 1))
@@ -6693,7 +6830,11 @@ get_chapters() {
     done
 
     local selected_chapter_tag
-    selected_chapter_tag=$(whiptail --title "Open eBook - Choose Chapter" --menu "Choose the chapter to open the eBook at:" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
+    local chap_noun="chapter" chap_title="Chapter"
+    if [[ "$(asset_kind "${selected_ebook%%#*}")" != "book" ]]; then
+        chap_noun="bookmark"; chap_title="Bookmark"
+    fi
+    selected_chapter_tag=$(whiptail --title "Open Asset - Choose ${chap_title}" --menu "Choose the ${chap_noun} to open the asset at:" 20 80 10 "${chapter_options[@]}" 3>&1 1>&2 2>&3)
     [[ $? -ne 0 ]] && { echo ""; return 1; }
 
     if [[ "$selected_chapter_tag" == ">> Just open" ]]; then
@@ -6714,7 +6855,8 @@ extract_page() {
     local page_part="${chapter_entry#*:}"
     page_part="${page_part%%-*}"
     [[ -z "$page_part" ]] && { whiptail --msgbox "Invalid chapter format." 20 80; echo ""; return 1; }
-    [[ "$page_part" =~ ^[0-9]+$ ]] || { whiptail --msgbox "Invalid page number: $page_part" 20 80; echo ""; return 1; }
+    # A page number (ebooks) or a time position such as 4:30 (audio/video).
+    [[ "$page_part" =~ ^[0-9]+$ ]] || babyrus_valid_time "$page_part" || { whiptail --msgbox "Invalid page number or time: $page_part" 20 80; echo ""; return 1; }
 
     echo "$page_part"
 }
@@ -6725,29 +6867,112 @@ open_evince() {
     [[ -z "$selected_ebook" ]] && return 1   # Allow empty pages to just open the document.
 
     local ebook_path=$(cut -d'#' -f1 <<< "$selected_ebook")
-    [[ -f "$ebook_path" ]] || { whiptail --msgbox "Ebook not found: $ebook_path" 20 80; return 1; }
+    [[ -f "$ebook_path" ]] || { whiptail --msgbox "Asset not found: $ebook_path" 20 80; return 1; }
 
-    # extract extension then get viewer accordingly.
-    local ext="${ebook_path##*.}"
-    ext="${ext,,}"
-    [[ "$ext" == "djv" ]] && ext="djvu"
-    local viewer="${EXTENSION_COMMANDS[$ext]}"
-
-    # check viewer is installed in system
-    if ! command -v "$viewer" &>/dev/null; then
-        whiptail --title "Alert" --msgbox "Command ${viewer} is not installed! Install it first." 20 80
-        return 1
-    fi
+    # Get the viewer (or audio/video player) for this kind of file; it also
+    # checks that the command is installed in the system.
+    local viewer
+    viewer=$(get_open_command "$ebook_path") || return 1
 
     ebook_open_at "$viewer" "$ebook_path" "$page"
+}
+
+# Run a player in the foreground of the terminal (audio players without a
+# window) so it can be controlled and stopped; babyrus carries on afterwards.
+asset_run_foreground() {
+    local old_int
+    old_int=$(trap -p INT)
+    trap ':' INT
+    clear >/dev/tty 2>/dev/null
+    printf 'Playing: %s\n(Press q or Ctrl-C to stop playback.)\n\n' "${@: -1}" >/dev/tty
+    "$@" </dev/tty >/dev/tty 2>&1 || :
+    if [[ -n "$old_int" ]]; then eval "$old_int"; else trap - INT; fi
+    return 0
+}
+
+# Open an audio/video FILE with PLAYER, starting at POS (M:SS or H:MM:SS; may
+# be empty). Every player has its own syntax for starting at a position.
+asset_av_open_at() {
+    local player="$1" file="$2" pos="${3:-}" kind
+    kind=$(asset_kind "$file")
+    local secs=0
+    if [[ -n "$pos" ]]; then
+        pos="${pos%%-*}"   # a range opens at its start
+        babyrus_valid_time "$pos" && secs=$(babyrus_time_to_seconds "$pos")
+    fi
+
+    local -a cmd=()
+    local fg=0
+    case "$player" in
+        mpv)
+            cmd=(mpv)
+            (( secs > 0 )) && cmd+=("--start=$secs")
+            if [[ "$kind" == "audio" ]]; then cmd+=(--no-video); fg=1; fi
+            ;;
+        vlc)
+            cmd=(vlc)
+            (( secs > 0 )) && cmd+=("--start-time=$secs")
+            ;;
+        cvlc)
+            cmd=(cvlc --play-and-exit)
+            (( secs > 0 )) && cmd+=("--start-time=$secs")
+            fg=1
+            ;;
+        ffplay)
+            cmd=(ffplay -autoexit)
+            (( secs > 0 )) && cmd+=(-ss "$secs")
+            if [[ "$kind" == "audio" ]]; then cmd+=(-nodisp); fg=1; fi
+            ;;
+        mplayer)
+            cmd=(mplayer)
+            (( secs > 0 )) && cmd+=(-ss "$secs")
+            ;;
+        mpg123)
+            cmd=(mpg123 -C)
+            # mpg123 skips frames, not seconds: about 26.12 ms per frame (44.1 kHz).
+            (( secs > 0 )) && cmd+=(-k "$(( secs * 1000 * 100 / 2612 ))")
+            fg=1
+            ;;
+        ogg123)
+            cmd=(ogg123)
+            (( secs > 0 )) && cmd+=(-k "$secs")
+            fg=1
+            ;;
+        aplay|paplay)
+            cmd=("$player")
+            if (( secs > 0 )); then
+                whiptail --title "Attention" --msgbox "$player cannot start at a position: playing $(basename "$file") from the start." 9 70 >/dev/tty
+            fi
+            fg=1
+            ;;
+        *)
+            cmd=("$player")
+            ;;
+    esac
+    cmd+=("$file")
+
+    if (( fg )); then
+        asset_run_foreground "${cmd[@]}"
+    else
+        nohup "${cmd[@]}" >/dev/null 2>&1 </dev/null &
+        disown 2>/dev/null || true
+    fi
 }
 
 # Open FILE with VIEWER (a key of VIEWER_COMMANDS), optionally at PAGE.
 # Each viewer has its own syntax for jumping to a page, handled here so every
 # workflow (notes, goals, chapters, bookmarks) opens files the same way.
+# For audio/video files PAGE is a time position (M:SS or H:MM:SS).
 ebook_open_at() {
     local viewer="$1" file="$2" page="${3:-}"
     local -a cmd
+
+    case "$(asset_kind "$file")" in
+        audio|video)
+            asset_av_open_at "$viewer" "$file" "$page"
+            return 0
+            ;;
+    esac
 
     if [[ -z "$page" ]]; then
         cmd=("$viewer" "$file")
@@ -6773,7 +6998,7 @@ handle_no_chapters() {
     choice=$(whiptail --title "No Chapters Found" \
                      --menu "What would you like to do?" \
                      15 60 4 \
-                     "Open" "Open ebook anyway" \
+                     "Open" "Open asset anyway" \
                      "Return" "Return without opening" \
                      3>&1 1>&2 2>&3)
     exit_status=$?
@@ -6812,13 +7037,13 @@ open_note_ebook_page() {
     awk -F'|' 'NF >= 2 && $4 ~ /[^ \t;]/' "$NOTES_DB" > "$ebook_src"
     if [[ ! -s "$ebook_src" ]]; then
         rm -f "$ebook_src"
-        whiptail --title "Attention" --msgbox "No notes with associated ebooks found." 8 60 >/dev/tty
+        whiptail --title "Attention" --msgbox "No notes with associated assets found." 8 60 >/dev/tty
         return 1
     fi
 
     np_reset
     NP_SRC_FILE="$ebook_src"
-    np_pick_note "Open eBook - Choose Note" "Choose a note to open the eBook associated with it:"
+    np_pick_note "Open Asset - Choose Note" "Choose a note to open the asset associated with it:"
     local pick_rc=$?
     rm -f "$ebook_src"
     (( pick_rc == 0 )) || return 1
@@ -7402,11 +7627,11 @@ get_notes_from_filtered() {
     nt_filter_notes_with_ebooks "$@"
 
     if [[ ${#NT_EBOOK_NOTE_LINES[@]} -eq 0 ]]; then
-        whiptail --title "Attention" --msgbox "None of the notes has an ebook associated with it." 8 60
+        whiptail --title "Attention" --msgbox "None of the notes has an asset associated with it." 8 60
         return 1
     fi
 
-    NT_PICK_PROMPT="Choose a note to open the eBook associated with it (only notes with an eBook are listed)." nt_pick_note_line "Open eBook - Choose Note" "${NT_EBOOK_NOTE_LINES[@]}"
+    NT_PICK_PROMPT="Choose a note to open the asset associated with it (only notes with an asset are listed)." nt_pick_note_line "Open Asset - Choose Note" "${NT_EBOOK_NOTE_LINES[@]}"
 }
 
 open_note_ebook_page_from_filtered() {
@@ -8329,9 +8554,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
     # Initial message
     whiptail --title "Do Stuff by Tag" --msgbox "The following advanced feature lets you narrow down note entries \
-by their associated tag (or [NO TAG] to work with the notes that have no tag) and do stuff with them. You can add a new note, edit note or open associated ebooks. You can also associate a note to multiple projects.\n\n\
+by their associated tag (or [NO TAG] to work with the notes that have no tag) and do stuff with them. You can add a new note, edit note or open associated assets. You can also associate a note to multiple projects.\n\n\
 In the filtered view, __CHANGE_TAG__ filters the notes by a different tag and __REVERT_TAG__ goes back to the tag you chose at the start. Lists of notes and projects can be narrowed down with __APPLY_GLOB__ / __RESET_GLOB__.\n\n\
-After creating a new note, you can choose to associate it to a project file. Afterwards, you can do stuff with it from Manage Goals section such as View Note or Open ebooks." 22 76
+After creating a new note, you can choose to associate it to a project file. Afterwards, you can do stuff with it from Manage Goals section such as View Note or Open assets." 22 76
 
     local chosen_tag original_tag
     nt_pick_tag "Do Stuff by Tag - Step 1: Choose Tag" "Choose the tag whose notes you want to work with\n(or [NO TAG] for notes without any tag)." 1 || return 1
@@ -8366,7 +8591,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
             24 100 13 \
             "__CHANGE_TAG__" "Filter the notes by a different tag" \
             "__REVERT_TAG__" "Filter by the original tag again (${original_tag})" \
-            "Lookup" "" "$add_note_label" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated ebook" "" "Associate URL to note" "" \
+            "Lookup" "" "$add_note_label" "" "Copy note content to clipboard" "" "Edit note" "" "Open associated asset" "" "Associate URL to note" "" \
             "Dissociate URL from note" "" "Open URL" "" "Print note using printer" "" "Associate note to project" "" "$add_tag_label" "" \
             3>&1 1>&2 2>&3) || return  # Explicit cancellation handling
 
@@ -8420,7 +8645,7 @@ After creating a new note, you can choose to associate it to a project file. Aft
             "Edit note")
                 list_notes_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
-            "Open associated ebook")
+            "Open associated asset")
                 open_note_ebook_page_from_filtered "${FILTERED_NOTES_BY_TAG[@]}"
                 ;;
             "Associate URL to note")
@@ -8448,12 +8673,12 @@ After creating a new note, you can choose to associate it to a project file. Aft
 # The following code section is about opening an ebook file in global list NOTES_EBOOKS_DB.
 open_ebook_note_from_global_list() {
     # Initial message
-    whiptail --title "Open eBook File From Global List" \
-         --msgbox "This feature allows you to open an ebook file from global list.\n\nNarrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (glob on the full ebook file path or on the file name alone)." 12 78
+    whiptail --title "Open Asset File From Global List" \
+         --msgbox "This feature allows you to open an asset file from global list.\n\nNarrow the list down with __APPLY_GLOB__ / __RESET_GLOB__ (glob on the full asset file path or on the file name alone)." 12 78
 
     # Check if the database file exists
     if [[ ! -f "$NOTES_EBOOKS_DB" || ! -s "$NOTES_EBOOKS_DB" ]]; then
-        whiptail --title "Attention" --msgbox "No ebooks found. Add at least one note and associate at least one ebook and try again." 10 50 >/dev/tty
+        whiptail --title "Attention" --msgbox "No assets found. Add at least one note and associate at least one asset and try again." 10 50 >/dev/tty
         return 1
     fi
 
@@ -8465,7 +8690,7 @@ open_ebook_note_from_global_list() {
     EB_PATH_MAX=120
 
     local rc=0
-    ebooks_pick_file "Open eBook - Choose eBook From Global List" "Choose the registered eBook to open:" || rc=1
+    ebooks_pick_file "Open Asset - Choose Asset From Global List" "Choose the registered asset to open:" || rc=1
     EB_NO_TAGS=0
     (( rc == 0 )) || return 1
 
@@ -9372,7 +9597,7 @@ babyrus_note_info_text() {
         url_list="${url_list%$'\n'}"
     fi
 
-    printf 'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s\n\nAssociated eBook(s):\n%s\n\nAssociated URL(s):\n%s' \
+    printf 'Note path:\n%s\n\nNote title:\n%s\n\nTags:\n%s\n\nAssociated asset(s):\n%s\n\nAssociated URL(s):\n%s' \
         "$note_path" "$note_title" "$note_tags" \
         "${ebook_list:-(none)}" "${url_list:-(none)}"
 }
@@ -10191,7 +10416,7 @@ manage_notes() {
             "1" "Add Note" \
             "2" "Edit Note" \
             "3" "Print Note Using Printer" \
-            "4" "Open Associated eBook" \
+            "4" "Open Associated Asset" \
             "5" "Add New Note Tag" \
             "6" "Lookup Note Tag" \
             "7" "Do Stuff by Tag" \
@@ -10199,7 +10424,7 @@ manage_notes() {
             "9" "Associate URL to Note" \
             "10" "Dissociate URL from Note" \
 	        "11" "Open URL from Note" \
-            "12" "Open an eBook From Global List" \
+            "12" "Open an Asset From Global List" \
             "13" "Delete Notes" \
 	        "14" "Delete Note Tag From Global List" 3>&1 1>&2 2>&3)
 
@@ -17006,8 +17231,8 @@ open_note_ebook_page_from_project() {
     [[ -n "$selected_line" ]] || return 1
     ebooks_part="$(cut -d'|' -f4 <<< "$selected_line")"
     if [[ -z "$ebooks_part" ]]; then
-        whiptail --title "Select an ebook" --msgbox \
-            "No ebooks are associated with this note." 8 60
+        whiptail --title "Select an asset" --msgbox \
+            "No assets are associated with this note." 8 60
         return 1
     fi
     IFS=';' read -r -a ebooks <<< "$ebooks_part"
@@ -17031,7 +17256,7 @@ open_note_ebook_page_from_project() {
         (( end > total )) && end=$total
 
         menu_items=(
-            "__APPLY_GLOB__" "Apply glob (matches ebook file path or file name)"
+            "__APPLY_GLOB__" "Apply glob (matches asset file path or file name)"
             "__RESET_GLOB__" "Reset glob"
         )
         (( page > 1 )) && menu_items+=("__PREV_PAGE__" "<< Previous page")
@@ -17041,13 +17266,13 @@ open_note_ebook_page_from_project() {
         done
         (( page < total_pages )) && menu_items+=("__NEXT_PAGE__" "Next page >>")
 
-        choice=$(whiptail --title "Select an ebook" --cancel-button "Back" \
-            --menu "Choose an ebook (page $page/$total_pages)\nFile path/name glob: ${glob:-none}  |  ${total} ebook(s) shown" \
+        choice=$(whiptail --title "Select an asset" --cancel-button "Back" \
+            --menu "Choose an asset (page $page/$total_pages)\nFile path/name glob: ${glob:-none}  |  ${total} asset(s) shown" \
             35 155 25 "${menu_items[@]}" 3>&1 1>&2 2>&3) || return 1
         case "$choice" in
             __APPLY_GLOB__)
-                if new_glob=$(whiptail --title "Apply eBook Glob" --inputbox \
-                    "Enter a case-insensitive glob to match the full ebook file path or file name. Use * and ? as wildcards; leave empty to show all ebooks." \
+                if new_glob=$(whiptail --title "Apply Asset Glob" --inputbox \
+                    "Enter a case-insensitive glob to match the full asset file path or file name. Use * and ? as wildcards; leave empty to show all assets." \
                     11 90 "$glob" 3>&1 1>&2 2>&3); then
                     glob="$new_glob"
                     page=1
@@ -20086,7 +20311,7 @@ do_stuff_with_project_file() {
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
-        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open Asset" "")
         note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -20284,7 +20509,7 @@ do_stuff_with_project_file() {
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
-        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open Asset" "")
         note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -21116,7 +21341,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             if ((${#note_items[@]} == 0)); then
                 _dialog_msg \
-                    "None of the supplied notes have associated ebook files." \
+                    "None of the supplied notes have associated asset files." \
                     10 70
                 return 1
             fi
@@ -21131,7 +21356,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             GOALS_NOTE_TAGFILTER=""
             local GOALS_NOTE_TITLE_MODE=1
             local GOALS_NOTE_TAGMENU_FULL=1
-            goals_pick_note "Open eBook - Choose Linked Note" "Choose a linked note to open its eBook" \
+            goals_pick_note "Open Asset - Choose Linked Note" "Choose a linked note to open its asset" \
                 "${ebook_note_paths[@]}" || return 1
             note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -21180,7 +21405,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             if ((${#ebook_items[@]} == 0)); then
                 _dialog_msg \
-                    "No ebook files were found for the selected note." \
+                    "No asset files were found for the selected note." \
                     10 65
                 return 1
             fi
@@ -21191,9 +21416,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             selected_ebook=$(
                 whiptail \
-                    --title "Open eBook - Choose eBook" \
+                    --title "Open Asset - Choose Asset" \
                     --cancel-button "Back" \
-                    --menu "Choose an ebook to open with its configured viewer:" \
+                    --menu "Choose an asset to open with its configured viewer:" \
                     22 100 14 \
                     "${ebook_items[@]}" \
                     3>&1 1>&2 2>&3
@@ -21213,9 +21438,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             action=$(
                 whiptail \
-                    --title "Open eBook - Choose How to Open" \
+                    --title "Open Asset - Choose How to Open" \
                     --cancel-button "Back" \
-                    --menu "How should the configured viewer open this ebook?" \
+                    --menu "How should the configured viewer open this asset?" \
                     15 90 4 \
                     "open"       "Just open" \
                     "bookmarks"  "Browse bookmarks" \
@@ -21241,6 +21466,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     local bookmark
                     local label
                     local page
+                    local page_label
                     local bookmark_id
 
                     local bookmark_selection
@@ -21259,16 +21485,24 @@ Tag you have chosen will be added to the selected notes." 10 60
                             [[ -n $bookmark ]] || continue
                             [[ $bookmark == *:* ]] || continue
 
-                            label=${bookmark%:*}
-                            page=${bookmark##*:}
+                            label=${bookmark%%:*}
+                            page=${bookmark#*:}
 
-                            [[ $page =~ ^[0-9]+$ ]] || continue
+                            if [[ $(asset_kind "$ebook") == book ]]; then
+                                [[ $page =~ ^[0-9]+$ ]] || continue
+                                page_label="page $page"
+                            else
+                                # Audio/video bookmark: time position (start of a range).
+                                page=${page%%-*}
+                                babyrus_valid_time "$page" || continue
+                                page_label="at $page"
+                            fi
 
                             page_by_id[$bookmark_id]=$page
 
                             bookmark_items+=(
                                 "$bookmark_id"
-                                "$label    [page $page]"
+                                "$label    [$page_label]"
                             )
 
                             ((++bookmark_id))
@@ -21277,7 +21511,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     if ((${#bookmark_items[@]} == 0)); then
                         _dialog_msg \
-                            "This ebook has no valid bookmarks in NOTES_DB." \
+                            "This asset has no valid bookmarks in NOTES_DB." \
                             10 65
                         return 1
                     fi
@@ -21288,7 +21522,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     bookmark_selection=$(
                         whiptail \
-                            --title "Open eBook - Choose Bookmark" \
+                            --title "Open Asset - Choose Bookmark" \
                             --cancel-button "Back" \
                             --menu "Choose a bookmark:" \
                             22 90 14 \
@@ -21545,7 +21779,7 @@ Leave the pattern non-empty; use * to match all titles." \
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
             open_urls_filtered "${filtered_linked_notes[@]}"
             continue
-        elif [[ "$selected_note_tag" == "Open ebook" ]]; then
+        elif [[ "$selected_note_tag" == "Open Asset" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
             open_ebook_filtered "${filtered_linked_notes[@]}"
             continue
@@ -21570,7 +21804,7 @@ Leave the pattern non-empty; use * to match all titles." \
         action=$(whiptail --title "Linked Note - Choose Action" --menu "Note Action\nChoose what to do with the selected note:" 24 70 11 \
             "1" "View Note" \
             "2" "Copy note content to clipboard" \
-            "3" "Open ebooks linked to note" \
+            "3" "Open assets linked to note" \
             "4" "Edit Note" \
             "5" "Open linked URL" \
             "6" "Associate URL to note" \
@@ -25058,7 +25292,7 @@ do_stuff_shortlisted() {
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
-        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open Asset" "")
         note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -25256,7 +25490,7 @@ do_stuff_shortlisted() {
         note_menu_options+=("Manage plan" "")
         note_menu_options+=("Create new note tag" "")
         note_menu_options+=("Create new linked note" "")
-        note_menu_options+=("Open ebook" "")
+        note_menu_options+=("Open Asset" "")
         note_menu_options+=("Open URL" "")
         note_menu_options+=("Link note" "")
         note_menu_options+=("Unlink note" "")
@@ -26088,7 +26322,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             if ((${#note_items[@]} == 0)); then
                 _dialog_msg \
-                    "None of the supplied notes have associated ebook files." \
+                    "None of the supplied notes have associated asset files." \
                     10 70
                 return 1
             fi
@@ -26103,7 +26337,7 @@ Tag you have chosen will be added to the selected notes." 10 60
             GOALS_NOTE_TAGFILTER=""
             local GOALS_NOTE_TITLE_MODE=1
             local GOALS_NOTE_TAGMENU_FULL=1
-            goals_pick_note "Open eBook - Choose Linked Note" "Choose a linked note to open its eBook" \
+            goals_pick_note "Open Asset - Choose Linked Note" "Choose a linked note to open its asset" \
                 "${ebook_note_paths[@]}" || return 1
             note_path="$GOALS_PICKED_NOTE_PATH"
 
@@ -26152,7 +26386,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             if ((${#ebook_items[@]} == 0)); then
                 _dialog_msg \
-                    "No ebook files were found for the selected note." \
+                    "No asset files were found for the selected note." \
                     10 65
                 return 1
             fi
@@ -26163,9 +26397,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             selected_ebook=$(
                 whiptail \
-                    --title "Open eBook - Choose eBook" \
+                    --title "Open Asset - Choose Asset" \
                     --cancel-button "Back" \
-                    --menu "Choose an ebook to open with its configured viewer:" \
+                    --menu "Choose an asset to open with its configured viewer:" \
                     22 100 14 \
                     "${ebook_items[@]}" \
                     3>&1 1>&2 2>&3
@@ -26185,9 +26419,9 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             action=$(
                 whiptail \
-                    --title "Open eBook - Choose How to Open" \
+                    --title "Open Asset - Choose How to Open" \
                     --cancel-button "Back" \
-                    --menu "How should the configured viewer open this ebook?" \
+                    --menu "How should the configured viewer open this asset?" \
                     15 90 4 \
                     "open"       "Just open" \
                     "bookmarks"  "Browse bookmarks" \
@@ -26213,6 +26447,7 @@ Tag you have chosen will be added to the selected notes." 10 60
                     local bookmark
                     local label
                     local page
+                    local page_label
                     local bookmark_id
 
                     local bookmark_selection
@@ -26231,16 +26466,24 @@ Tag you have chosen will be added to the selected notes." 10 60
                             [[ -n $bookmark ]] || continue
                             [[ $bookmark == *:* ]] || continue
 
-                            label=${bookmark%:*}
-                            page=${bookmark##*:}
+                            label=${bookmark%%:*}
+                            page=${bookmark#*:}
 
-                            [[ $page =~ ^[0-9]+$ ]] || continue
+                            if [[ $(asset_kind "$ebook") == book ]]; then
+                                [[ $page =~ ^[0-9]+$ ]] || continue
+                                page_label="page $page"
+                            else
+                                # Audio/video bookmark: time position (start of a range).
+                                page=${page%%-*}
+                                babyrus_valid_time "$page" || continue
+                                page_label="at $page"
+                            fi
 
                             page_by_id[$bookmark_id]=$page
 
                             bookmark_items+=(
                                 "$bookmark_id"
-                                "$label    [page $page]"
+                                "$label    [$page_label]"
                             )
 
                             ((++bookmark_id))
@@ -26249,7 +26492,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     if ((${#bookmark_items[@]} == 0)); then
                         _dialog_msg \
-                            "This ebook has no valid bookmarks in NOTES_DB." \
+                            "This asset has no valid bookmarks in NOTES_DB." \
                             10 65
                         return 1
                     fi
@@ -26260,7 +26503,7 @@ Tag you have chosen will be added to the selected notes." 10 60
 
                     bookmark_selection=$(
                         whiptail \
-                            --title "Open eBook - Choose Bookmark" \
+                            --title "Open Asset - Choose Bookmark" \
                             --cancel-button "Back" \
                             --menu "Choose a bookmark:" \
                             22 90 14 \
@@ -26517,7 +26760,7 @@ Leave the pattern non-empty; use * to match all titles." \
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
             open_urls_filtered "${filtered_linked_notes[@]}"
             continue
-        elif [[ "$selected_note_tag" == "Open ebook" ]]; then
+        elif [[ "$selected_note_tag" == "Open Asset" ]]; then
             mapfile -t filtered_linked_notes < <(get_current_filtered_linked_notes)
             open_ebook_filtered "${filtered_linked_notes[@]}"
             continue
@@ -26542,7 +26785,7 @@ Leave the pattern non-empty; use * to match all titles." \
         action=$(whiptail --title "Linked Note - Choose Action" --menu "Note Action\nChoose what to do with the selected note:" 24 70 11 \
             "1" "View Note" \
             "2" "Copy note content to clipboard" \
-            "3" "Open ebooks linked to note" \
+            "3" "Open assets linked to note" \
             "4" "Edit Note" \
             "5" "Open linked URL" \
             "6" "Associate URL to note" \
@@ -28478,17 +28721,17 @@ babyrus_help_ebooks() {
     cat <<'BABYRUS_HELP_EBOOKS'
 MANAGE eBOOKS — REGISTER, ORGANISE, FIND AND READ
 
-BABYRUS builds a searchable index of ebook files that are already stored on your computer. Registering a file records its path and tags in the BABYRUS database; it does not move the ebook into a BABYRUS folder. You can keep your own directory structure.
+BABYRUS builds a searchable index of asset files that are already stored on your computer. Registering a file records its path and tags in the BABYRUS database; it does not move the asset into a BABYRUS folder. You can keep your own directory structure.
 
 1. Build your library
 
-Use File Management to register one ebook, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character. In the file lists of Add Files In Bulk, Register eBook and Register eBooks From Checklist, __RECURSE__ lists the files of sub-directories as well and __NON_RECURSE__ turns that off (only the selected directory is listed). Add Files In Bulk starts recursive; Register eBook and the checklist start with the selected directory only. Filters and selections are kept when you switch. Register eBook and Register eBooks From Checklist only list files with the extensions .txt, .pdf, .epub, .mobi, .azw3 and .djvu (.djv too).
+Use File Management to register one asset, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character. In the file lists of Add Files In Bulk, Register Asset and Register Assets From Checklist, __RECURSE__ lists the files of sub-directories as well and __NON_RECURSE__ turns that off (only the selected directory is listed). Add Files In Bulk, Register Asset and Register Assets From Checklist all start with recursion on. Filters and selections are kept when you switch. Register Asset and Register Assets From Checklist only list files with the extensions of the three kinds of assets: ebooks (.txt, .pdf, .epub, .mobi, .azw3, .djvu and .djv), audio (.mp3, .flac, .wav, .ogg, .oga, .opus, .m4a, .aac, .wma, .aiff, .aif, .ape, .mka) and video (.mp4, .mkv, .avi, .webm, .mov, .wmv, .flv, .m4v, .mpg, .mpeg, .ogv, .3gp).
 
-The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original ebook files from your drive. An ebook that is associated with a note cannot be removed, unless it is a broken entry (the file no longer exists on your drive). Broken entries can always be removed; they are then also removed from the notes database and the notes eBooks database, so the notes lose their association with them (the note files themselves are kept). The confirmation dialog lists the affected files.
+The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original asset files from your drive. An asset that is associated with a note cannot be removed, unless it is a broken entry (the file no longer exists on your drive). Broken entries can always be removed; they are then also removed from the notes database and the notes assets database, so the notes lose their association with them (the note files themselves are kept). The confirmation dialog lists the affected files.
 
 2. Organise with tags
 
-Tags let one ebook belong to several subjects without duplicating the file. Register tags in Tag Management, then associate or dissociate them from individual ebooks, checklist selections, bulk results, or files under a selected path. Remove a tag from the global list when it is no longer needed.
+Tags let one asset belong to several subjects without duplicating the file. Register tags in Tag Management, then associate or dissociate them from individual assets, checklist selections, bulk results, or files under a selected path. Remove a tag from the global list when it is no longer needed.
 
 3. Find and open books
 
@@ -28500,7 +28743,7 @@ Use the glob and tag filters together to narrow a large collection. A tag search
 
 Maintenance can find database entries whose files are no longer present. When you add files, names that cannot be registered (a "|" or a leading "-") are shown first and you are asked whether they may be renamed. Files are also tidied before being registered (characters such as , : # ; become "_" and meaningless ISBN/hash strings are removed). Renaming changes the actual filename on disk, and you are told whenever it happens.
 
-A useful first workflow is to register a small group of ebooks, assign a few meaningful tags, then practise finding and opening them from Search & Lookup and Open & Read.
+A useful first workflow is to register a small group of assets, assign a few meaningful tags, then practise finding and opening them from Search & Lookup and Open & Read.
 BABYRUS_HELP_EBOOKS
 }
 
@@ -28508,11 +28751,11 @@ babyrus_help_notes() {
     cat <<'BABYRUS_HELP_NOTES'
 MANAGE NOTES — BUILD A CONNECTED KNOWLEDGE COLLECTION
 
-Notes are ordinary text files managed through BABYRUS. Each note has a title and file path, and can be associated with tags, ebooks and their saved reading locations, URLs, and project files. Use Manage Notes for individual note tasks; use the tag and project workspaces when you want to work with a group of related notes.
+Notes are ordinary text files managed through BABYRUS. Each note has a title and file path, and can be associated with tags, assets and their saved reading locations, URLs, and project files. Use Manage Notes for individual note tasks; use the tag and project workspaces when you want to work with a group of related notes.
 
 1. Everyday note management
 
-Add Note creates a note. Edit Note lets you choose an existing note to update. You can print a note, open an ebook associated with it, add or look up note tags, manage URL associations, open an ebook from the global list, and delete notes or remove unused tags from the global tag list.
+Add Note creates a note. Edit Note lets you choose an existing note to update. You can print a note, open an asset associated with it, add or look up note tags, manage URL associations, open an asset from the global list, and delete notes or remove unused tags from the global tag list.
 
 A note can have more than one tag. When choosing a tag, NO TAG refers to notes without a tag, while ANY TAG includes notes regardless of whether they have one. Use these choices when you need to work with untagged notes as well as categorised notes.
 
@@ -28520,19 +28763,19 @@ A note can have more than one tag. When choosing a tag, NO TAG refers to notes w
 
 This is one of the most useful BABYRUS workflows. Instead of starting with a particular file or project, start with a subject. Choose a tag and BABYRUS opens a workspace containing the notes associated with it. You can change to another tag and return to the original tag without leaving the workflow. The note list can also be narrowed with a filename glob.
 
-From that workspace you can look up note details, create a note that inherits the current tag, copy note content to the clipboard, edit a note, open its associated ebook, associate or dissociate URLs, open a linked URL, print a note, associate notes with projects, and add another tag to the filtered notes. When you start with NO TAG, the create-note and add-tag actions are adjusted for untagged notes.
+From that workspace you can look up note details, create a note that inherits the current tag, copy note content to the clipboard, edit a note, open its associated asset, associate or dissociate URLs, open a linked URL, print a note, associate notes with projects, and add another tag to the filtered notes. When you start with NO TAG, the create-note and add-tag actions are adjusted for untagged notes.
 
 Try this workflow when researching a subject or returning to a collection of related information. One tag becomes a practical workspace rather than just a label.
 
 3. Connect notes to reference material
 
-Associate an ebook with a note when the note depends on a book or document. Where bookmark information is available, BABYRUS can present the saved reading locations so you can return to the relevant part. Associate URLs to keep web references with the note they support; URLs can be opened, edited or dissociated later.
+Associate an asset (an ebook, an audio file or a video file) with a note when the note depends on it. For ebooks you can record chapters with pages (for example Intro:1-10); for audio and video files you record bookmarks with a time position (for example Intro:4:30 or Part two:1:02:15, M:SS or H:MM:SS). Where bookmark information is available, BABYRUS can present the saved reading locations so you can return to the relevant part. Associate URLs to keep web references with the note they support; URLs can be opened, edited or dissociated later.
 
 4. Connect notes to projects
 
 A note can be linked to a project so it is available from that project's workspace. The same note can be useful in more than one project. BABYRUS prevents deletion of a note while it is still associated with a project; unlink it from the relevant project first if you intend to delete it.
 
-Suggested starting point: create a few notes, assign useful tags, associate an ebook or URL where relevant, and then explore Do Stuff by Tag. For goal-related work, continue with Do Stuff with Linked Notes in Project File under Goals Management.
+Suggested starting point: create a few notes, assign useful tags, associate an asset or URL where relevant, and then explore Do Stuff by Tag. For goal-related work, continue with Do Stuff with Linked Notes in Project File under Goals Management.
 BABYRUS_HELP_NOTES
 }
 
@@ -28552,7 +28795,7 @@ Use headings to break a large goal into areas of work, then add actionable tasks
 
 This is a particularly useful way to work on a project. Select a project and BABYRUS gathers the notes linked to it into one workspace. You can create a new linked note, link an existing note, unlink a note, and manage the project's plan without leaving that workspace.
 
-The linked-note list can be filtered by tag or narrowed with a glob; reset either filter to return to the broader list. You can add a tag to, or remove a tag from, the linked notes that match the current filters. You can open an associated ebook or URL, and choose an individual linked note to view, copy, edit, print, manage its URL associations, open its ebooks, associate it with another project, or change its tags.
+The linked-note list can be filtered by tag or narrowed with a glob; reset either filter to return to the broader list. You can add a tag to, or remove a tag from, the linked notes that match the current filters. You can open an associated asset or URL, and choose an individual linked note to view, copy, edit, print, manage its URL associations, open its assets, associate it with another project, or change its tags.
 
 This workflow is especially valuable for research, study and longer projects: keep the plan in the project file and keep supporting information in notes, then link the two. The note remains a note rather than becoming a duplicate embedded in each project.
 
@@ -28572,18 +28815,18 @@ babyrus_help_configure() {
     cat <<'BABYRUS_HELP_CONFIGURE'
 CONFIGURE — CHOOSE THE APPLICATIONS BABYRUS USES
 
-BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, and open URLs. Configure lets you choose the default command for each supported file type, the general text editor and web browser, and the PDF converter (Pandoc or LibreOffice) used by Build Book from Linked Notes.
+BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, play audio and video files, and open URLs. Configure lets you choose the default command for each supported file type, the general text editor and web browser, and the PDF converter (Pandoc or LibreOffice) used by Build Book from Linked Notes.
 
 To change a setting:
 
-1. Select the file extension, DEFAULT_EDITOR or URL_BROWSER.
+1. Select the file extension, audio, video, DEFAULT_EDITOR or URL_BROWSER.
 2. Choose an application from the list.
 3. Return to the settings menu and repeat for any other changes.
 4. Select Save and confirm when you are ready to write the changes.
 
 The available choices are common Linux applications. BABYRUS checks that the selected command is installed. If a command is missing, install it first and then return to Configure.
 
-The file-type settings are used when BABYRUS opens registered ebooks. DEFAULT_EDITOR is used for the default terminal-based editing workflow, and URL_BROWSER is used when opening associated web links.
+The file-type settings are used when BABYRUS opens registered assets. 'audio' is the player for every audio file (choose from mpv, mpg123, vlc, aplay, paplay, ogg123, ffplay or cvlc) and 'video' the player for every video file (mpv, vlc, ffplay or mplayer). If the audio player cannot play a format (for example mpg123 only plays .mp3, aplay only .wav), BABYRUS uses another installed player for that file. Audio players without a window (mpv, mpg123, ogg123, paplay, aplay, cvlc, and ffplay for audio) run inside the terminal: press q or Ctrl-C to stop them and return to BABYRUS. DEFAULT_EDITOR is used for the default terminal-based editing workflow, and URL_BROWSER is used when opening associated web links.
 
 Saved settings are written into the configuration block in babyrus.sh. Restart BABYRUS after saving so the updated commands are used by the running session. Keep a backup of your script before manually editing its configuration block.
 BABYRUS_HELP_CONFIGURE
@@ -28597,8 +28840,8 @@ Choose a topic from this menu to read about the corresponding part of BABYRUS. T
 
 Where to start:
 
-• Manage eBooks explains registration, tags, searching, opening and library maintenance.
-• Manage Notes introduces note organisation and the connections between notes, ebooks, URLs and projects. Pay particular attention to Do Stuff by Tag: it provides a focused workspace for a subject.
+• Manage Assets explains registration, tags, searching, opening and library maintenance.
+• Manage Notes introduces note organisation and the connections between notes, assets, URLs and projects. Pay particular attention to Do Stuff by Tag: it provides a focused workspace for a subject.
 • Manage Goals explains project plans and linked notes. Do Stuff with Linked Notes in Project File is a useful workflow for keeping project tasks and their supporting information together.
 
 Configure explains how to select external applications. Backup and Restore explain how to protect and recover BABYRUS's local data.
@@ -28617,7 +28860,7 @@ backup_YYYYMMDD_HHMMSS.tar.gz
 
 The archive is created in the current working directory. Keep a copy somewhere separate from the computer or directory that holds your BABYRUS data, so it remains available if the original files are lost or damaged.
 
-Important: the backup contains BABYRUS's records and its note and project text files. It does not copy the external ebook files that are merely registered by path. Make sure your original ebook collection is backed up by your normal file-backup process as well.
+Important: the backup contains BABYRUS's records and its note and project text files. It does not copy the external asset files that are merely registered by path. Make sure your original asset collection is backed up by your normal file-backup process as well.
 
 Run Backup regularly, especially after adding or editing many notes, projects, tags or associations. Before starting, check that the current working directory is the BABYRUS data directory you intend to back up and that there is enough free disk space for the archive.
 BABYRUS_HELP_BACKUP
@@ -28633,9 +28876,9 @@ Restoring replaces files at matching paths with the copies stored in the archive
 
 Run BABYRUS from the data directory that should receive the restored files. The archive preserves relative paths, so restoring from a different directory may place the recovered files somewhere other than the directory you expect.
 
-Restore does not recreate external ebook files; it restores BABYRUS's registration records and the note and project files included in the archive. The ebook files themselves must still be available at their registered paths.
+Restore does not recreate external asset files; it restores BABYRUS's registration records and the note and project files included in the archive. The asset files themselves must still be available at their registered paths.
 
-After restoring, review your notes, projects and registered ebook paths. If you have any doubt about which archive to use, cancel and inspect the backup files before proceeding.
+After restoring, review your notes, projects and registered asset paths. If you have any doubt about which archive to use, cancel and inspect the backup files before proceeding.
 BABYRUS_HELP_RESTORE
 }
 
@@ -28646,7 +28889,7 @@ show_help() {
         local CHOICE
         CHOICE=$(whiptail --title "Babyrus Help Menu" --cancel-button "Back" \
             --menu "Choose a help topic to read, then press OK:" 20 60 10 \
-            "1" "Help: Manage eBooks" \
+            "1" "Help: Manage Assets" \
             "2" "Help: Manage Notes" \
             "3" "Help: Manage Goals" \
             "4" "Help: Configure" \
@@ -28655,7 +28898,7 @@ show_help() {
             "7" "Help: Restore" 3>&1 1>&2 2>&3) || return 0
 
         case "$CHOICE" in
-            1) babyrus_help_message "Manage eBooks" "$(babyrus_help_ebooks)" ;;
+            1) babyrus_help_message "Manage Assets" "$(babyrus_help_ebooks)" ;;
             2) babyrus_help_message "Manage Notes" "$(babyrus_help_notes)" ;;
             3) babyrus_help_message "Manage Goals" "$(babyrus_help_goals)" ;;
             4) babyrus_help_message "Configure" "$(babyrus_help_configure)" ;;
@@ -28715,7 +28958,7 @@ since I have told you everything the Father told me.
 show_main_menu() {
     while true; do
         choice=$(whiptail --title "BABYRUS ${BABYRUS_VERSION} Main Menu" --cancel-button "Exit" --menu "$MAIN_MENU_STR" 20 60 8 \
-            "eBooks" "Manage eBooks" \
+            "Assets" "Manage Assets" \
             "Notes" "Manage Notes" \
             "Goals" "Manage Goals" \
             "Configure" "Set Default Apps" \
@@ -28730,7 +28973,7 @@ show_main_menu() {
         fi
 
         case $choice in
-            "eBooks")
+            "Assets")
                 show_ebooks_menu
                 ;;
             "Notes")
