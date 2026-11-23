@@ -6995,10 +6995,10 @@ handle_no_chapters() {
     local choice exit_status    
 
     # Display whiptail menu and capture both output and exit status
-    choice=$(whiptail --title "No Chapters Found" \
+    choice=$(whiptail --title "Open Asset" \
                      --menu "What would you like to do?" \
                      15 60 4 \
-                     "Open" "Open asset anyway" \
+                     "Open" "Open the asset" \
                      "Return" "Return without opening" \
                      3>&1 1>&2 2>&3)
     exit_status=$?
