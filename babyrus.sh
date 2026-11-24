@@ -3194,7 +3194,7 @@ add_files_in_bulk() {
 "This advanced feature allows you to add multiple asset files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. The files found (ebooks: txt, pdf, epub, mobi, azw3, djvu, xopp; audio: mp3, flac, wav, ogg, opus, m4a and more; video: mp4, mkv, avi, webm and more) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+2. The files found (ebooks: txt, pdf, epub, mobi, azw3, djvu, xopp; audio: mp3, flac, wav, ogg, opus, m4a and more; video: mp4, mkv, avi, webm and more) are listed, including those of sub-directories and those already registered (files already in the database are skipped when adding). Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
 3. Select __ADD__ to add ALL the listed files to the database" 16 100
 
     local selected_dir
@@ -3206,10 +3206,10 @@ It involves the following steps:\n\
 
     in_operation_msg
 
-    # Candidates: not registered yet. Done in ONE pipeline (find | awk | sort)
-    # instead of a bash loop doing a read + a printf >> per file, which is very
-    # slow with thousands of files. awk loads the registered paths from the DB
-    # (first input) and filters the find output (second input). File names
+    # Candidates: all files found, registered or not (consistent with the other
+    # file lists). Registered ones are skipped when adding, so the database never
+    # gets duplicate lines. Done in ONE pipeline (find | awk | sort) instead of a
+    # bash loop, which is very slow with thousands of files. File names
     # containing '|' (or a newline) cannot be stored and are left out.
     local tmp db_src="$EBOOKS_DB"
     [[ -f "$db_src" ]] || db_src=/dev/null
@@ -3249,30 +3249,29 @@ It involves the following steps:\n\
             ! -name '*|*' ! -name '-*' ! -path $'*\n*' \
             -print 2>/dev/null \
         | awk -F'|' '
-            FILENAME == ARGV[1] { reg[$1] = 1; next }   # registered paths (DB, first field)
             {
                 f = $0
                 gsub(/\/\//, "/", f)            # normalize path (same as before)
                 dir = f; sub(/\/[^\/]*$/, "", dir)
                 if (dir ~ /\|/) next                  # "|" in a folder name cannot be fixed by renaming the file
-                if (!(f in reg)) print f
-            }' "$db_src" - \
+                print f
+            }' \
         | sort \
         | sed 's/$/|/' > "$tmp"
 
-        # Nothing new at all in the first (recursive) pass: nothing to show.
+        # Nothing found at all in the first (recursive) pass: nothing to show.
         # Later passes keep the list open so recursion can be switched back.
         if (( first == 1 )) && [[ ! -s "$tmp" ]]; then
             rm -f "$tmp"
             EB_SRC_FILE=""
             ebooks_filter_reset
-            whiptail --msgbox "No new files found in: $selected_dir\n(files already in the database are not listed)" 10 155
+            whiptail --msgbox "No asset files found in: $selected_dir" 10 155
             return 0
         fi
         first=0
 
         rc=0
-        ebooks_pick_file "Bulk Add Assets - Review New Files" "New files under: ${selected_dir}.\nUse __NON_RECURSE__ / __RECURSE__ to exclude / include sub-directories. Narrow the list if needed, then select __ADD__ to add ALL listed files:" || rc=$?
+        ebooks_pick_file "Bulk Add Assets - Review Files" "Files under: ${selected_dir}.\nUse __NON_RECURSE__ / __RECURSE__ to exclude / include sub-directories. Narrow the list if needed, then select __ADD__ to add ALL listed files (those already registered are skipped):" || rc=$?
         (( rc == 3 )) && continue
         break
     done
@@ -3290,7 +3289,23 @@ It involves the following steps:\n\
         return 1
     fi
 
-    whiptail --title "Confirm" --yesno "${#to_add[@]} entries found. Do you want to proceed and update database?" 8 78 || return 1
+    # Skip files that are already registered (the list shows them too).
+    local -a not_registered=()
+    mapfile -t not_registered < <(
+        printf '%s\n' "${to_add[@]}" \
+        | awk -F'|' 'FILENAME == ARGV[1] { reg[$1] = 1; next } !($1 in reg)' "$db_src" -
+    )
+    local skipped=$(( ${#to_add[@]} - ${#not_registered[@]} ))
+    to_add=("${not_registered[@]}")
+
+    if (( ${#to_add[@]} == 0 )); then
+        whiptail --msgbox "All $skipped listed files are already registered. Nothing to add." 8 70
+        return 1
+    fi
+
+    local skip_note=""
+    (( skipped > 0 )) && skip_note=" ($skipped already registered will be skipped)"
+    whiptail --title "Confirm" --yesno "${#to_add[@]} new entries found${skip_note}. Do you want to proceed and update database?" 9 78 || return 1
 
     # Rename illegal / meaningless file name parts before registering.
     prepare_ebooks_for_registration to_add db
