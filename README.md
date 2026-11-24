@@ -26,7 +26,7 @@ For the latest improvements and fixes, use the latest version from the `main` br
 
 ### Asset Management
 
-An **asset** is any registered file that Babyrus can open: an eBook, an audio file or a video file.
+An **asset** is any registered file that Babyrus can open: an eBook or document (including Xournal++ `.xopp` notebooks), an audio file or a video file.
 
 - Register individual assets, multiple selections from a checklist, or files in bulk. Registration lists eBook, audio and video files, and starts with sub-directories included (you can turn recursion off from the list).
 - Organise your library using custom tags.
@@ -42,7 +42,7 @@ An **asset** is any registered file that Babyrus can open: an eBook, an audio fi
 - Create, edit, print and delete notes.
 - Organise notes using multiple tags.
 - Associate notes with assets and their saved locations:
-  - **eBooks:** chapters with pages (for example `Intro:1-10`).
+  - **eBooks and documents (including `.xopp`):** chapters with pages (for example `Intro:1-10`).
   - **Audio and video files:** bookmarks with time positions (for example `Intro:4:30` or `Part two:1:02:15`).
 - Associate URLs with notes for easy access to external resources.
 - Open associated assets and URLs directly from notes, jumping straight to a saved page or time.
@@ -128,11 +128,11 @@ The main menu provides access to:
 
 ## Supported File Types
 
-Babyrus classifies assets by file extension.
+Babyrus classifies assets by file extension. Xournal++ files open at a saved page just like PDFs and other eBooks (via `xournalpp --page=N`).
 
 | Kind | Extensions |
 |---|---|
-| eBooks and documents | `txt`, `pdf`, `epub`, `mobi`, `azw3`, `djvu` (`djv` too) |
+| eBooks and documents | `txt`, `pdf`, `epub`, `mobi`, `azw3`, `djvu` (`djv` too), `xopp` (Xournal++) |
 | Audio | `mp3`, `flac`, `wav`, `ogg`, `oga`, `opus`, `m4a`, `aac`, `wma`, `aiff`, `aif`, `ape`, `mka` |
 | Video | `mp4`, `mkv`, `avi`, `webm`, `mov`, `wmv`, `flv`, `m4v`, `mpg`, `mpeg`, `ogv`, `3gp` |
 
@@ -166,13 +166,14 @@ The following applications are used by the default configuration:
 | `zathura` | Opening PDF files |
 | `okular` | Opening EPUB, MOBI and AZW3 files |
 | `djview4` | Opening DjVu files (optional) |
+| `xournalpp` | Opening Xournal++ (`.xopp`) files (optional until you open one) |
 | `mpv` | Playing audio and video files (optional until you open a media file) |
 | `nano` | Default text editor |
 | `firefox` | Opening URLs |
 
 The DjVu viewer is optional at startup. If it is not installed, Babyrus will report the missing application when you attempt to open a DjVu file.
 
-Audio and video players work the same way when your configuration has not chosen them yet (for example, if you are upgrading from an older version): a missing player is only reported when you open an audio or video file. Once you choose a player in **Set Default Apps**, it is checked like the other configured applications.
+The Xournal++ viewer and the audio and video players work the same way when your configuration has not chosen them yet (for example, if you are upgrading from an older version): a missing player is only reported when you open an audio or video file. Once you choose a player in **Set Default Apps**, it is checked like the other configured applications.
 
 ### PDF Conversion Dependencies
 
@@ -206,7 +207,7 @@ sudo apt update
 
 sudo apt install \
     whiptail wmctrl dialog xclip \
-    geany zathura okular nano firefox mpv \
+    geany zathura okular nano firefox mpv xournalpp \
     pandoc texlive-xetex texlive-latex-extra \
     texlive-fonts-recommended lmodern
 ```
@@ -218,7 +219,7 @@ Ubuntu 24.04's default Bash version satisfies the minimum requirement. Ubuntu 22
 ```bash
 sudo dnf install \
     newt wmctrl dialog xclip \
-    geany zathura okular nano firefox mpv \
+    geany zathura okular nano firefox mpv xournalpp \
     pandoc texlive-xetex texlive-kpathsea \
     texlive-fvextra texlive-lm texlive-zapfding
 ```
@@ -284,6 +285,7 @@ You can configure the following settings:
 | MOBI | `okular` | Calibre, Okular |
 | AZW3 | `okular` | Calibre, Okular |
 | DjVu | `djview4` | djview4, djview, Evince, Okular, Zathura |
+| Xournal++ (`xopp`) | `xournalpp` | xournalpp |
 | Audio | `mpv` | mpv, mpg123, vlc, aplay, paplay, ogg123, ffplay, cvlc |
 | Video | `mpv` | mpv, vlc, ffplay, mplayer |
 | Default Editor | `nano` | nano, vim, nvim, emacs, micro, helix |
@@ -302,6 +304,7 @@ declare -A EXTENSION_COMMANDS=(
     ["djvu"]="djview4"
     ["audio"]="mpv"
     ["video"]="mpv"
+    ["xopp"]="xournalpp"
 )
 
 DEFAULT_EDITOR="nano"
