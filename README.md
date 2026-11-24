@@ -8,9 +8,9 @@
 
 **Babyrus** is a fast, terminal-based productivity and knowledge-management tool designed for hackers and people who enjoy working from the command line.
 
-Built with Bash and Whiptail, Babyrus helps you organise eBooks, manage notes, collect web resources, and plan projects. Its features are interconnected through a flexible tagging and linking system, allowing you to build a personal knowledge base and manage your work from one application.
+Built with Bash and Whiptail, Babyrus helps you organise assets (eBooks, audio and video files), manage notes, collect web resources, and plan projects. Its features are interconnected through a flexible tagging and linking system, allowing you to build a personal knowledge base and manage your work from one application.
 
-You can associate notes with eBooks, saved reading locations, URLs and projects. You can also organise project plans into headings and tasks, maintain their progress, and build books from your linked notes.
+You can associate notes with assets, saved reading or playback locations, URLs and projects. You can also organise project plans into headings and tasks, maintain their progress, and build books from your linked notes.
 
 ---
 
@@ -24,14 +24,16 @@ For the latest improvements and fixes, use the latest version from the `main` br
 
 ## Key Features
 
-### eBook Management
+### Asset Management
 
-- Register individual eBooks, multiple selections from a checklist, or files in bulk.
+An **asset** is any registered file that Babyrus can open: an eBook, an audio file or a video file.
+
+- Register individual assets, multiple selections from a checklist, or files in bulk. Registration lists eBook, audio and video files, and starts with sub-directories included (you can turn recursion off from the list).
 - Organise your library using custom tags.
 - Associate and dissociate tags individually, from checklists, in bulk, or by file path.
-- Search registered eBooks using filename globbing and tag filters.
+- Search registered assets using filename globbing and tag filters.
 - Browse registered files and look up files by their paths.
-- Open eBooks directly using your configured applications.
+- Open assets directly using your configured applications: document viewers for eBooks, and your chosen audio and video players for media files.
 - Find and remove broken database entries pointing to missing files.
 - Clean up filenames during registration, including handling characters that cannot be stored safely in the database.
 
@@ -39,9 +41,11 @@ For the latest improvements and fixes, use the latest version from the `main` br
 
 - Create, edit, print and delete notes.
 - Organise notes using multiple tags.
-- Associate notes with eBooks and their saved reading locations.
+- Associate notes with assets and their saved locations:
+  - **eBooks:** chapters with pages (for example `Intro:1-10`).
+  - **Audio and video files:** bookmarks with time positions (for example `Intro:4:30` or `Part two:1:02:15`).
 - Associate URLs with notes for easy access to external resources.
-- Open associated eBooks and URLs directly from notes.
+- Open associated assets and URLs directly from notes, jumping straight to a saved page or time.
 - Filter and manage collections of notes using **Do Stuff by Tag**.
 - Associate notes with projects and reuse them across multiple projects.
 
@@ -51,7 +55,7 @@ For the latest improvements and fixes, use the latest version from the `main` br
 - Organise project plans using nested headings and tasks.
 - Add comments and manage task status and importance.
 - Associate and dissociate notes with projects.
-- Work with linked notes through **Do Stuff with Linked Notes in Project File**.
+- Work with linked notes through **Do Stuff with Linked Notes in Project File**, including opening their assets at saved bookmarks.
 - Filter linked notes using tags and filename globbing.
 - Maintain a shortlist of active projects and access shortlist history.
 - Print project content or send it to a printer.
@@ -111,7 +115,7 @@ Launch Babyrus from its working directory:
 
 The main menu provides access to:
 
-- **Manage eBooks**
+- **Manage Assets**
 - **Manage Notes**
 - **Manage Goals**
 - **Set Default Apps**
@@ -122,11 +126,25 @@ The main menu provides access to:
 
 ---
 
+## Supported File Types
+
+Babyrus classifies assets by file extension.
+
+| Kind | Extensions |
+|---|---|
+| eBooks and documents | `txt`, `pdf`, `epub`, `mobi`, `azw3`, `djvu` (`djv` too) |
+| Audio | `mp3`, `flac`, `wav`, `ogg`, `oga`, `opus`, `m4a`, `aac`, `wma`, `aiff`, `aif`, `ape`, `mka` |
+| Video | `mp4`, `mkv`, `avi`, `webm`, `mov`, `wmv`, `flv`, `m4v`, `mpg`, `mpeg`, `ogv`, `3gp` |
+
+All assets are stored in the same database (`ebooks.db`, kept under its original name so existing data keeps working) and share the same tagging, searching and note-association features.
+
+---
+
 ## Dependencies
 
 Babyrus requires **Bash 4.4 or newer** and several command-line utilities for its terminal interface, window management and clipboard functionality.
 
-It also requires external applications to open eBooks, edit text files and browse URLs.
+It also requires external applications to open assets, edit text files and browse URLs.
 
 ### Core Dependencies
 
@@ -147,11 +165,14 @@ The following applications are used by the default configuration:
 | `geany` | Opening TXT files |
 | `zathura` | Opening PDF files |
 | `okular` | Opening EPUB, MOBI and AZW3 files |
+| `djview4` | Opening DjVu files (optional) |
+| `mpv` | Playing audio and video files (optional until you open a media file) |
 | `nano` | Default text editor |
 | `firefox` | Opening URLs |
-| `djview4` | Opening DjVu files (optional) |
 
 The DjVu viewer is optional at startup. If it is not installed, Babyrus will report the missing application when you attempt to open a DjVu file.
+
+Audio and video players work the same way when your configuration has not chosen them yet (for example, if you are upgrading from an older version): a missing player is only reported when you open an audio or video file. Once you choose a player in **Set Default Apps**, it is checked like the other configured applications.
 
 ### PDF Conversion Dependencies
 
@@ -185,7 +206,7 @@ sudo apt update
 
 sudo apt install \
     whiptail wmctrl dialog xclip \
-    geany zathura okular nano firefox \
+    geany zathura okular nano firefox mpv \
     pandoc texlive-xetex texlive-latex-extra \
     texlive-fonts-recommended lmodern
 ```
@@ -197,12 +218,12 @@ Ubuntu 24.04's default Bash version satisfies the minimum requirement. Ubuntu 22
 ```bash
 sudo dnf install \
     newt wmctrl dialog xclip \
-    geany zathura okular nano firefox \
+    geany zathura okular nano firefox mpv \
     pandoc texlive-xetex texlive-kpathsea \
     texlive-fvextra texlive-lm texlive-zapfding
 ```
 
-On Fedora, the `newt` package provides `whiptail`.
+On Fedora, the `newt` package provides `whiptail`. Depending on your repositories, `mpv` may require enabling RPM Fusion.
 
 ### Verifying LaTeX Dependencies
 
@@ -255,19 +276,21 @@ Open:
 
 You can configure the following settings:
 
-| Setting | Default |
-|---|---|
-| TXT | `geany` |
-| PDF | `zathura` |
-| EPUB | `okular` |
-| MOBI | `okular` |
-| AZW3 | `okular` |
-| DjVu | `djview4` |
-| Default Editor | `nano` |
-| URL Browser | `firefox` |
-| PDF Converter | `pandoc` |
+| Setting | Default | Choices |
+|---|---|---|
+| TXT | `geany` | Geany, Kate, Mousepad, Gedit, GNOME Text Editor, FeatherPad, Xed, VS Code |
+| PDF | `zathura` | Evince, Okular, Zathura, Atril, xpdf, MuPDF, Firefox |
+| EPUB | `okular` | Calibre, Foliate, Okular, Bookworm, Thorium Reader |
+| MOBI | `okular` | Calibre, Okular |
+| AZW3 | `okular` | Calibre, Okular |
+| DjVu | `djview4` | djview4, djview, Evince, Okular, Zathura |
+| Audio | `mpv` | mpv, mpg123, vlc, aplay, paplay, ogg123, ffplay, cvlc |
+| Video | `mpv` | mpv, vlc, ffplay, mplayer |
+| Default Editor | `nano` | nano, vim, nvim, emacs, micro, helix |
+| URL Browser | `firefox` | Firefox, Chromium, Chrome, Brave, Vivaldi, Opera, qutebrowser, lynx, w3m |
+| PDF Converter | `pandoc` | pandoc, libreoffice |
 
-The application supports the following eBook extensions:
+The configuration block in `babyrus.sh` looks like this:
 
 ```bash
 declare -A EXTENSION_COMMANDS=(
@@ -277,18 +300,16 @@ declare -A EXTENSION_COMMANDS=(
     ["mobi"]="okular"
     ["azw3"]="okular"
     ["djvu"]="djview4"
+    ["audio"]="mpv"
+    ["video"]="mpv"
 )
-```
 
-You can also select other registered applications, including Geany, Kate, Mousepad, Gedit, VS Code, Evince, Okular, Zathura, MuPDF, Calibre, Foliate and Thorium Reader.
-
-The default text editor and URL browser can also be changed through the Configure menu.
-
-```bash
 DEFAULT_EDITOR="nano"
 URL_BROWSER="firefox"
 PDF_CONVERTER="pandoc"
 ```
+
+The `audio` player is used for every audio extension and the `video` player for every video extension. Babyrus only accepts a player that is installed on your system.
 
 When you save configuration changes, Babyrus creates a backup of the previous script named `babyrus.sh.bak` before updating the configuration block.
 
@@ -307,6 +328,28 @@ FIRST_RUN=0
 When the configuration is saved, Babyrus automatically resets this variable to `1`.
 
 You can also change application settings at any time through the main menu.
+
+---
+
+## Audio and Video Playback
+
+### Bookmarks
+
+Notes can store bookmarks for audio and video assets. A bookmark is a name plus a time position in `M:SS` or `H:MM:SS` format, for example:
+
+```text
+Intro:4:30
+Part two:1:02:15
+Q&A:45:00-52:30
+```
+
+A range (`start-end`) is accepted; the player opens at its start. When you open the asset from a note, a project, or a shortlisted project, you can choose a bookmark and playback starts at that time.
+
+### Player Behaviour
+
+- **Seeking:** mpv, vlc, cvlc, ffplay, mplayer and ogg123 start at the bookmarked time. mpg123 seeks approximately, because it can only skip whole frames. aplay and paplay cannot seek, so Babyrus tells you and plays from the start.
+- **Format fallback:** some command-line players only handle a few formats (mpg123: MP3, aplay: WAV, paplay and ogg123: a small set). If your chosen player cannot play a file, Babyrus uses another installed player that can.
+- **Terminal players:** players without a window (mpv for audio, mpg123, ogg123, paplay, aplay, cvlc, and ffplay for audio) run inside the terminal. Press `q` or `Ctrl-C` to stop playback and return to Babyrus. Players with their own window (vlc, mplayer, and mpv/ffplay for video) are launched in the background.
 
 ---
 
@@ -343,21 +386,26 @@ Examples:
 *schaum*
 *programming*.pdf
 /books/*/math*.pdf
+*lecture*.mp4
 ```
 
 Globbing is case-insensitive in the relevant file-selection workflows.
 
 ### Combining Filters
 
-Some workflows allow you to combine a filename glob with a tag filter. This is useful when managing a large collection of eBooks or notes.
+Some workflows allow you to combine a filename glob with a tag filter. This is useful when managing a large collection of assets or notes.
 
 You can also reset individual filters without leaving the current workflow.
+
+### Recursion
+
+The file lists of **Add Files In Bulk**, **Register Asset** and **Register Assets From Checklist** start with sub-directories included. Use `__NON_RECURSE__` to list only the selected directory, and `__RECURSE__` to include sub-directories again.
 
 ---
 
 ## Filename Cleanup
 
-Babyrus performs filename cleanup when registering eBooks.
+Babyrus performs filename cleanup when registering assets.
 
 Some characters cannot be safely stored in the database. When affected files are encountered, Babyrus displays the affected filenames and asks whether you want to allow the renaming operation.
 
@@ -406,9 +454,9 @@ babyrus/
 
 Babyrus automatically creates the required directories and database files when they are missing.
 
-The databases store information about registered eBooks, tags, notes, project files, URLs and their associations.
+The databases store information about registered assets, tags, notes, project files, URLs and their associations. The asset database keeps its original file names (`ebooks.db`, `notes-ebooks.db`) even though it now holds audio and video files too, so existing installations need no migration.
 
-**Important:** Registered eBooks remain in their original locations. Babyrus stores their file paths rather than copying the actual eBook files into its own directory.
+**Important:** Registered assets remain in their original locations. Babyrus stores their file paths rather than copying the actual files into its own directory.
 
 Do not delete database files or folders unless you intend to reset the corresponding Babyrus data. Missing databases are recreated as empty files when the application starts.
 
@@ -426,11 +474,11 @@ Select:
 
 Babyrus creates a compressed archive containing:
 
-- eBook registration and tag databases.
+- Asset registration and tag databases.
 - Notes and their metadata.
 - Project files and project metadata.
 - URL database.
-- Supporting eBook database backup files.
+- Supporting asset database backup files.
 
 The default archive filename uses a timestamp:
 
@@ -453,7 +501,7 @@ Choose an existing `backup_*.tar.gz` archive and confirm the restoration.
 - Restoring replaces files at matching paths with the contents of the selected archive.
 - Newer changes may be overwritten.
 - It is recommended to create a backup of your current data before restoring.
-- Backup archives do not include the original eBook files registered in Babyrus. Those files must be backed up separately.
+- Backup archives do not include the original asset files (eBooks, audio and video) registered in Babyrus. Those files must be backed up separately.
 
 For additional safety, keep copies of your backup archives somewhere outside your Babyrus directory.
 
