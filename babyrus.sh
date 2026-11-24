@@ -445,6 +445,7 @@ declare -A EXTENSION_COMMANDS=(
     ["djvu"]="djview4"
     ["audio"]="mpv"
     ["video"]="mpv"
+    ["xopp"]="xournalpp"
 )
 
 # Tweak these to set external apps for other sections.
@@ -484,6 +485,7 @@ declare -A VIEWER_COMMANDS=(
 
     # Audio players (audio) / video players (video). Seeking to a bookmark is
     # handled in ebook_open_at, since every player has its own syntax.
+    ["xournalpp"]="xournalpp"
     ["mpv"]="mpv"
     ["mpg123"]="mpg123"
     ["vlc"]="vlc"
@@ -522,6 +524,7 @@ declare -A AVAILABLE_CMDS=(
   ["mobi"]="calibre okular"
   ["azw3"]="calibre okular"
   ["djvu"]="djview4 djview evince okular zathura"
+  ["xopp"]="xournalpp"
   ["audio"]="mpv mpg123 vlc aplay paplay ogg123 ffplay cvlc"
   ["video"]="mpv vlc ffplay mplayer"
   ["DEFAULT_EDITOR"]="nano vim nvim emacs micro helix"
@@ -587,6 +590,8 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     # Same for the audio and video players.
     [[ -n "${EXTENSION_COMMANDS[audio]:-}" ]] || EXTENSION_COMMANDS[audio]="mpv"
     [[ -n "${EXTENSION_COMMANDS[video]:-}" ]] || EXTENSION_COMMANDS[video]="mpv"
+    # And for Xournal++ (.xopp) files.
+    [[ -n "${EXTENSION_COMMANDS[xopp]:-}" ]] || EXTENSION_COMMANDS[xopp]="xournalpp"
 
     # --- Make a local backup in memory ---
     local -A BACKUP_EC
@@ -599,7 +604,7 @@ In the next screen, choose the default apps." 11 60 >/dev/tty
     local BACKUP_PC="$PDF_CONVERTER"
 
     # Create ordered list of extensions for consistent display
-    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu" "audio" "video")
+    local ordered_exts=("txt" "pdf" "epub" "mobi" "azw3" "djvu" "xopp" "audio" "video")
 
     while true; do
         # Build menu options
@@ -700,6 +705,7 @@ declare -A EXTENSION_COMMANDS=(
     [\"djvu\"]=\"${EXTENSION_COMMANDS[djvu]}\"
     [\"audio\"]=\"${EXTENSION_COMMANDS[audio]}\"
     [\"video\"]=\"${EXTENSION_COMMANDS[video]}\"
+    [\"xopp\"]=\"${EXTENSION_COMMANDS[xopp]}\"
 )
 
 # Tweak these to set external apps for other sections.
@@ -829,9 +835,9 @@ touch "$EBOOKS_DB" "$TAGS_DB"
 # Older configuration blocks have no audio/video entries: use a default. A
 # player that was not chosen by the user is only checked when a file is opened.
 BABYRUS_AUDIO_VIDEO_DEFAULTED=()
-for _av in audio video; do
+for _av in audio video xopp; do
     if [[ -z "${EXTENSION_COMMANDS[$_av]:-}" ]]; then
-        EXTENSION_COMMANDS[$_av]="mpv"
+        if [[ "$_av" == "xopp" ]]; then EXTENSION_COMMANDS[$_av]="xournalpp"; else EXTENSION_COMMANDS[$_av]="mpv"; fi
         BABYRUS_AUDIO_VIDEO_DEFAULTED+=("$_av")
     fi
 done
@@ -1238,7 +1244,7 @@ EB_RECURSE_CHANGED=0       # set by __RECURSE__ / __NON_RECURSE__ (internal)
 #
 # Assets are eBooks plus audio and video files. The extension lists below are
 # the single source of truth: asset_kind() classifies a file with them.
-BABYRUS_EBOOK_EXTS=(txt pdf epub mobi azw3 djvu djv)
+BABYRUS_EBOOK_EXTS=(txt pdf epub mobi azw3 djvu djv xopp)
 BABYRUS_AUDIO_EXTS=(mp3 flac wav ogg oga opus m4a aac wma aiff aif ape mka)
 BABYRUS_VIDEO_EXTS=(mp4 mkv avi webm mov wmv flv m4v mpg mpeg ogv 3gp)
 
@@ -2377,7 +2383,7 @@ register_ebook() {
             rm -f "$tmp"
             EB_SRC_FILE=""
             ebooks_filter_reset
-            whiptail --title "No Matches Found" --msgbox "No asset files (documents: txt, pdf, epub, mobi, azw3, djvu; audio: mp3, flac, wav, ogg, opus, m4a...; video: mp4, mkv, avi, webm...) found in: $search_path" 8 155
+            whiptail --title "No Matches Found" --msgbox "No asset files (documents: txt, pdf, epub, mobi, azw3, djvu, xopp; audio: mp3, flac, wav, ogg, opus, m4a...; video: mp4, mkv, avi, webm...) found in: $search_path" 8 155
             return 1
         fi
         first=0
@@ -3188,7 +3194,7 @@ add_files_in_bulk() {
 "This advanced feature allows you to add multiple asset files to the database.\n\
 It involves the following steps:\n\
 1. Select a root directory to search\n\
-2. The files found (ebooks: txt, pdf, epub, mobi, azw3, djvu; audio: mp3, flac, wav, ogg, opus, m4a and more; video: mp4, mkv, avi, webm and more) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
+2. The files found (ebooks: txt, pdf, epub, mobi, azw3, djvu, xopp; audio: mp3, flac, wav, ogg, opus, m4a and more; video: mp4, mkv, avi, webm and more) that are not registered yet are listed, including those of sub-directories. Use __NON_RECURSE__ to list only the selected directory and __RECURSE__ to include sub-directories again. Narrow the list down with __APPLY_GLOB__ (file path or file name, case insensitive) / __RESET_GLOB__\n\
 3. Select __ADD__ to add ALL the listed files to the database" 16 100
 
     local selected_dir
@@ -6981,6 +6987,7 @@ ebook_open_at() {
         case "$viewer" in
             mupdf)          cmd=("${base[@]}" "$file" "$page") ;;
             qpdfview)       cmd=("${base[@]}" "${file}#${page}") ;;
+            xournalpp)      cmd=("${base[@]}" "--page=${page}" "$file") ;;   # Xournal++ (1-based page)
             djview4|djview) cmd=("${base[@]}" "-page=${page}" "$file") ;;   # DjVu viewers (1-based page)
             *)              cmd=("${base[@]}" "$page" "$file") ;;
         esac
@@ -28751,7 +28758,7 @@ BABYRUS builds a searchable index of asset files that are already stored on your
 
 1. Build your library
 
-Use File Management to register one asset, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character. In the file lists of Add Files In Bulk, Register Asset and Register Assets From Checklist, __RECURSE__ lists the files of sub-directories as well and __NON_RECURSE__ turns that off (only the selected directory is listed). Add Files In Bulk, Register Asset and Register Assets From Checklist all start with recursion on. Filters and selections are kept when you switch. Register Asset and Register Assets From Checklist only list files with the extensions of the three kinds of assets: ebooks (.txt, .pdf, .epub, .mobi, .azw3, .djvu and .djv), audio (.mp3, .flac, .wav, .ogg, .oga, .opus, .m4a, .aac, .wma, .aiff, .aif, .ape, .mka) and video (.mp4, .mkv, .avi, .webm, .mov, .wmv, .flv, .m4v, .mpg, .mpeg, .ogv, .3gp).
+Use File Management to register one asset, register a selection from a checklist, or add matching files in bulk. Bulk registration is useful when you have a folder of books to import. You can use a glob pattern to narrow the files being considered. The * wildcard matches any sequence of characters and ? matches one character. In the file lists of Add Files In Bulk, Register Asset and Register Assets From Checklist, __RECURSE__ lists the files of sub-directories as well and __NON_RECURSE__ turns that off (only the selected directory is listed). Add Files In Bulk, Register Asset and Register Assets From Checklist all start with recursion on. Filters and selections are kept when you switch. Register Asset and Register Assets From Checklist only list files with the extensions of the three kinds of assets: ebooks (.txt, .pdf, .epub, .mobi, .azw3, .djvu, .djv and .xopp), audio (.mp3, .flac, .wav, .ogg, .oga, .opus, .m4a, .aac, .wma, .aiff, .aif, .ape, .mka) and video (.mp4, .mkv, .avi, .webm, .mov, .wmv, .flv, .m4v, .mpg, .mpeg, .ogv, .3gp).
 
 The removal options work at different scales: remove one registered entry, choose several from a checklist, remove matching entries in bulk, or work within a selected file path. These File Management removal actions remove registrations from the BABYRUS database; they do not delete the original asset files from your drive. An asset that is associated with a note cannot be removed, unless it is a broken entry (the file no longer exists on your drive). Broken entries can always be removed; they are then also removed from the notes database and the notes assets database, so the notes lose their association with them (the note files themselves are kept). The confirmation dialog lists the affected files.
 
@@ -28841,11 +28848,11 @@ babyrus_help_configure() {
     cat <<'BABYRUS_HELP_CONFIGURE'
 CONFIGURE — CHOOSE THE APPLICATIONS BABYRUS USES
 
-BABYRUS can launch external applications to edit text files, view ebooks, PDFs and DjVu files, play audio and video files, and open URLs. Configure lets you choose the default command for each supported file type, the general text editor and web browser, and the PDF converter (Pandoc or LibreOffice) used by Build Book from Linked Notes.
+BABYRUS can launch external applications to edit text files, view ebooks, PDFs, DjVu files and Xournal++ notebooks (.xopp), play audio and video files, and open URLs. Configure lets you choose the default command for each supported file type, the general text editor and web browser, and the PDF converter (Pandoc or LibreOffice) used by Build Book from Linked Notes.
 
 To change a setting:
 
-1. Select the file extension, audio, video, DEFAULT_EDITOR or URL_BROWSER.
+1. Select the file extension, xopp, audio, video, DEFAULT_EDITOR or URL_BROWSER.
 2. Choose an application from the list.
 3. Return to the settings menu and repeat for any other changes.
 4. Select Save and confirm when you are ready to write the changes.
