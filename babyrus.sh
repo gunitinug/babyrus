@@ -21452,6 +21452,19 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
+                    local open_choice
+                    open_choice=$(
+                        whiptail \
+                            --title "Open Asset" \
+                            --menu "What would you like to do?" \
+                            15 60 4 \
+                            "Open"   "Open the asset" \
+                            "Return" "Return without opening" \
+                            3>&1 1>&2 2>&3
+                    ) || return 1
+
+                    [[ $open_choice == "Open" ]] || return 1
+
                     ebook_open_at "$(get_open_command "$ebook")" "$ebook"
                     ;;
 
@@ -26433,6 +26446,19 @@ Tag you have chosen will be added to the selected notes." 10 60
 
             case $action in
                 open)
+                    local open_choice
+                    open_choice=$(
+                        whiptail \
+                            --title "Open Asset" \
+                            --menu "What would you like to do?" \
+                            15 60 4 \
+                            "Open"   "Open the asset" \
+                            "Return" "Return without opening" \
+                            3>&1 1>&2 2>&3
+                    ) || return 1
+
+                    [[ $open_choice == "Open" ]] || return 1
+
                     ebook_open_at "$(get_open_command "$ebook")" "$ebook"
                     ;;
 
