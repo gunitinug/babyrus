@@ -28989,17 +28989,27 @@ ${padded_msg}
 
 # About message
 about_babyrus() {
-    local msg="BABYRUS — a simple, fast, terminal-based productivity tool.
+    local msg="
+  _           _                          
+ | |         | |                         ™
+ | |__   __ _| |__  _   _ _ __ _   _ ___ 
+ | '_ \ / _\` | '_ \| | | | '__| | | / __|
+ | |_) | (_| | |_) | |_| | |  | |_| \__ \\
+ |_.__/ \__,_|_.__/ \__, |_|   \__,_|___/
+                     __/ |               
+                    |___/                
+
+BABYRUS — a simple, fast, terminal-based productivity tool.
 Version: ${BABYRUS_VERSION}
 Copyleft © 2025, 2026 Logan Lee — GPLv3.
 
-You are my friends if you do what I command. 
+You are my friends if you do what I command.
 I no longer call you slaves, because a master doesn’t confide in his slaves.
-Now you are my friends, 
+Now you are my friends,
 since I have told you everything the Father told me.
-†John 15:14-15"
+† John 15:14-15"
 
-    whiptail --title "About BABYRUS" --msgbox "$msg" 18 72
+    whiptail --title "About BABYRUS" --msgbox "$msg" 26 84
 }
 
 # Main menu function
